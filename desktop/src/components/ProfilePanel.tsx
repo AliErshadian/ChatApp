@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { api, User } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { Avatar } from './Avatar';
+import { ConfirmModal } from './ConfirmModal';
+import { getLogoutConfirm } from '../utils/deleteChatConfirm';
 
 interface Props {
   onClose: () => void;
@@ -23,7 +25,9 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const logoutConfirm = getLogoutConfirm();
 
   useEffect(() => {
     setLoading(true);
@@ -138,11 +142,24 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
         </section>
 
         <div className="profile-actions">
-          <button className="profile-logout-btn" onClick={logout}>
+          <button className="profile-logout-btn" onClick={() => setLogoutConfirmOpen(true)}>
             Sign Out
           </button>
         </div>
       </div>
+
+      <ConfirmModal
+        open={logoutConfirmOpen}
+        title={logoutConfirm.title}
+        message={logoutConfirm.message}
+        confirmLabel={logoutConfirm.confirmLabel}
+        danger={logoutConfirm.danger}
+        onConfirm={() => {
+          setLogoutConfirmOpen(false);
+          logout();
+        }}
+        onCancel={() => setLogoutConfirmOpen(false)}
+      />
     </div>
   );
 }

@@ -1,4 +1,7 @@
 import { Avatar } from './Avatar';
+import { useState } from 'react';
+import { ConfirmModal } from './ConfirmModal';
+import { getLogoutConfirm } from '../utils/deleteChatConfirm';
 
 export type AppNavTab = 'chats' | 'channels' | 'contacts' | 'profile';
 
@@ -40,8 +43,11 @@ export function AppNav({
   onLogout,
 }: Props) {
   const isBottom = variant === 'bottom';
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const logoutConfirm = getLogoutConfirm();
 
   return (
+    <>
     <nav
       className={`nav-rail${isBottom ? ' nav-rail--bottom' : ''}`}
       aria-label="Main navigation"
@@ -132,7 +138,7 @@ export function AppNav({
         <button
           type="button"
           className="nav-rail-btn nav-rail-btn--logout"
-          onClick={onLogout}
+          onClick={() => setLogoutConfirmOpen(true)}
           title="Logout"
           aria-label="Logout"
         >
@@ -144,5 +150,19 @@ export function AppNav({
         </button>
       )}
     </nav>
+
+    <ConfirmModal
+      open={logoutConfirmOpen}
+      title={logoutConfirm.title}
+      message={logoutConfirm.message}
+      confirmLabel={logoutConfirm.confirmLabel}
+      danger={logoutConfirm.danger}
+      onConfirm={() => {
+        setLogoutConfirmOpen(false);
+        onLogout();
+      }}
+      onCancel={() => setLogoutConfirmOpen(false)}
+    />
+    </>
   );
 }

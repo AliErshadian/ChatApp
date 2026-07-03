@@ -26,3 +26,12 @@ export function getLeaveChannelConfirm() {
     danger: true,
   };
 }
+
+export function getLogoutConfirm() {
+  return {
+    title: 'Sign out?',
+    message: 'You will be signed out of ChatApp on this device.',
+    confirmLabel: 'Sign out',
+    danger: true,
+  };
+}
