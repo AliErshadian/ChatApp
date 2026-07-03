@@ -1,11 +1,33 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, shell } from 'electron';
 import * as path from 'path';
+import * as fs from 'fs';
 
 const isDev = !app.isPackaged;
 const APP_PROTOCOL = 'chatapp';
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let pendingInviteUrl: string | null = null;
+
+function resolveAppIconPath(): string | null {
+  const candidates = [
+    path.join(__dirname, '../build/icon.png'),
+    path.join(process.resourcesPath, 'build/icon.png'),
+    path.join(process.resourcesPath, 'icon.png'),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function loadAppIcon() {
+  const iconPath = resolveAppIconPath();
+  if (!iconPath) return null;
+
+  const image = nativeImage.createFromPath(iconPath);
+  return image.isEmpty() ? null : image;
+}
 
 ipcMain.handle('notify', (_event, { title, body }: { title: string; body: string }) => {
   if (Notification.isSupported()) {
@@ -75,12 +97,15 @@ app.on('open-url', (event, url) => {
 });
 
 function createWindow() {
+  const iconPath = resolveAppIconPath();
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 900,
     minHeight: 600,
     title: 'ChatApp',
+    ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -106,8 +131,12 @@ function createWindow() {
 }
 
 function createTray() {
-  const icon = nativeImage.createEmpty();
-  tray = new Tray(icon);
+  const appIcon = loadAppIcon();
+  const trayIcon =
+    appIcon?.resize({ width: 16, height: 16 }) ??
+    appIcon ??
+    nativeImage.createEmpty();
+  tray = new Tray(trayIcon);
   tray.setToolTip('ChatApp');
 
   const contextMenu = Menu.buildFromTemplate([

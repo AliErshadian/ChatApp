@@ -12,6 +12,7 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [inviteChannelName, setInviteChannelName] = useState<string | null>(null);
+  const [logoFailed, setLogoFailed] = useState(false);
 
   useEffect(() => {
     const token = sessionStorage.getItem('pendingInviteToken');
@@ -43,7 +44,17 @@ export function LoginPage() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <h1>ChatApp</h1>
+        <div className="auth-brand">
+          {!logoFailed && (
+            <img
+              src="/logo.png"
+              alt=""
+              className="auth-logo"
+              onError={() => setLogoFailed(true)}
+            />
+          )}
+          <h1>ChatApp</h1>
+        </div>
         <p className="subtitle">Enterprise Internal Messaging</p>
         {inviteChannelName && (
           <p className="auth-invite-banner">

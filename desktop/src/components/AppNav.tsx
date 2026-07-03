@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { ConfirmModal } from './ConfirmModal';
 import { getLogoutConfirm } from '../utils/deleteChatConfirm';
 
+const APP_LOGO_URL = '/logo.png';
+
 export type AppNavTab = 'chats' | 'channels' | 'contacts' | 'profile';
 
 interface Props {
@@ -44,6 +46,7 @@ export function AppNav({
 }: Props) {
   const isBottom = variant === 'bottom';
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(false);
   const logoutConfirm = getLogoutConfirm();
 
   return (
@@ -54,7 +57,16 @@ export function AppNav({
     >
       {!isBottom && (
         <div className="nav-rail-brand" title="ChatApp">
-          C
+          {logoFailed ? (
+            'C'
+          ) : (
+            <img
+              src={APP_LOGO_URL}
+              alt=""
+              className="nav-rail-brand-img"
+              onError={() => setLogoFailed(true)}
+            />
+          )}
         </div>
       )}
 

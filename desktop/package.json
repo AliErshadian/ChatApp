@@ -36,8 +36,10 @@
       }
     ],
     "directories": { "output": "release" },
-    "files": ["dist/**/*", "dist-electron/**/*"],
-    "win": { "target": ["nsis"] },
-    "linux": { "target": ["AppImage", "deb"] }
+    "icon": "build/icon.png",
+    "files": ["dist/**/*", "dist-electron/**/*", "build/icon.png"],
+    "win": { "target": ["nsis"], "icon": "build/icon.png" },
+    "linux": { "target": ["AppImage", "deb"], "icon": "build/icon.png" },
+    "mac": { "icon": "build/icon.png" }
   }
 }
