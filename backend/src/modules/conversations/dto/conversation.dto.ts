@@ -30,3 +30,9 @@ export class DeleteConversationDto {
   @IsIn(['me', 'everyone'])
   scope!: 'me' | 'everyone';
 }
+
+export class LeaveChannelDto {
+  @IsOptional()
+  @IsUUID()
+  newOwnerId?: string;
+}

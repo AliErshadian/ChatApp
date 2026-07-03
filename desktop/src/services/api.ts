@@ -223,10 +223,14 @@ class ApiClient {
     });
   }
 
-  leaveChannel(conversationId: string) {
-    return this.request<{ conversationId: string }>(`/conversations/${conversationId}/leave`, {
-      method: 'POST',
-    });
+  leaveChannel(conversationId: string, newOwnerId?: string) {
+    return this.request<{ conversationId: string; newOwnerId: string | null }>(
+      `/conversations/${conversationId}/leave`,
+      {
+        method: 'POST',
+        body: JSON.stringify(newOwnerId ? { newOwnerId } : {}),
+      },
+    );
   }
 
   getMessages(conversationId: string, cursor?: string) {

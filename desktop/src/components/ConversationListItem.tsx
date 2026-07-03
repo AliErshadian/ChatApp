@@ -6,7 +6,8 @@ import { ConfirmModal } from './ConfirmModal';
 import { getDirectPeer } from '../utils/conversation';
 import { usePresence } from '../context/PresenceContext';
 import { formatConversationPreview } from '../utils/conversationList';
-import { getDeleteChatConfirm, getLeaveChannelConfirm } from '../utils/deleteChatConfirm';
+import { getDeleteChatConfirm } from '../utils/deleteChatConfirm';
+import { ChannelLeaveModal } from './ChannelLeaveModal';
 import { formatRelativeTime } from '../utils/time';
 import { clearTextSelection, usePreventTouchSelection } from '../hooks/usePreventTouchSelection';
 import { useGhostClickGuard } from '../hooks/useGhostClickGuard';
@@ -21,7 +22,7 @@ interface Props {
   deleteBusy?: boolean;
   onClick: () => void;
   onDeleteChat: (scope: 'me' | 'everyone') => void | Promise<void>;
-  onLeaveChannel?: () => void | Promise<void>;
+  onLeaveChannel?: (newOwnerId?: string) => void | Promise<void>;
 }
 
 export function ConversationListItem({
@@ -179,11 +180,11 @@ export function ConversationListItem({
     setPendingLeave(true);
   };
 
-  const handleLeaveConfirm = async () => {
+  const handleLeaveConfirm = async (newOwnerId?: string) => {
     if (!onLeaveChannel) return;
     setConfirming(true);
     try {
-      await onLeaveChannel();
+      await onLeaveChannel(newOwnerId);
       setPendingLeave(false);
     } finally {
       setConfirming(false);
@@ -191,7 +192,6 @@ export function ConversationListItem({
   };
 
   const deleteConfirm = pendingDelete ? getDeleteChatConfirm(pendingDelete) : null;
-  const leaveConfirm = pendingLeave ? getLeaveChannelConfirm() : null;
 
   return (
     <div
@@ -310,13 +310,11 @@ export function ConversationListItem({
         />
       )}
 
-      {leaveConfirm && (
-        <ConfirmModal
+      {pendingLeave && onLeaveChannel && (
+        <ChannelLeaveModal
           open
-          title={leaveConfirm.title}
-          message={leaveConfirm.message}
-          confirmLabel={leaveConfirm.confirmLabel}
-          danger={leaveConfirm.danger}
+          conversation={conversation}
+          currentUserId={currentUserId}
           busy={deleteBusy || confirming}
           onConfirm={handleLeaveConfirm}
           onCancel={() => {

@@ -17,7 +17,7 @@ interface Props {
   onAddContact?: () => void;
   onIgnoreContact?: () => void;
   onDeleteChat?: (scope: 'me' | 'everyone') => void;
-  onLeaveChannel?: () => void;
+  onLeaveChannel?: (newOwnerId?: string) => void;
   deleteChatBusy?: boolean;
 }
 
@@ -197,7 +197,12 @@ export function ConversationInfoPanel({
             </section>
 
             {onLeaveChannel && (
-              <ChannelLeaveSection busy={deleteChatBusy} onLeave={onLeaveChannel} />
+              <ChannelLeaveSection
+                conversation={conversation}
+                currentUserId={currentUserId}
+                busy={deleteChatBusy}
+                onLeave={onLeaveChannel}
+              />
             )}
           </>
         )}

@@ -12,7 +12,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
 import { ConversationsService } from './conversations.service';
-import { CreateChannelDto, CreateDirectDto, AddMembersDto, DeleteConversationDto } from './dto/conversation.dto';
+import { CreateChannelDto, CreateDirectDto, AddMembersDto, DeleteConversationDto, LeaveChannelDto } from './dto/conversation.dto';
 
 @Controller('conversations')
 @UseGuards(JwtAuthGuard)
@@ -54,8 +54,12 @@ export class ConversationsController {
   }
 
   @Post(':id/leave')
-  leave(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: User) {
-    return this.conversationsService.leaveChannel(id, user.id);
+  leave(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+    @Body() dto: LeaveChannelDto,
+  ) {
+    return this.conversationsService.leaveChannel(id, user.id, dto.newOwnerId);
   }
 
   @Delete(':id')

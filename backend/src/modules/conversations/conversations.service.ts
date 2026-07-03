@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In, IsNull } from 'typeorm';
@@ -291,7 +292,7 @@ export class ConversationsService {
     });
   }
 
-  async leaveChannel(conversationId: string, userId: string) {
+  async leaveChannel(conversationId: string, userId: string, newOwnerId?: string) {
     const conversation = await this.conversationRepo.findOne({
       where: { id: conversationId },
     });
@@ -305,20 +306,24 @@ export class ConversationsService {
       order: { joinedAt: 'ASC' },
     });
 
-    if (member.role === MemberRole.OWNER) {
-      const remaining = members.filter((m) => m.userId !== userId);
-      if (remaining.length > 0) {
-        const nextOwner =
-          remaining.find((m) => m.role === MemberRole.ADMIN) ?? remaining[0];
-        nextOwner.role = MemberRole.OWNER;
-        await this.memberRepo.save(nextOwner);
+    if (member.role === MemberRole.OWNER && newOwnerId) {
+      if (newOwnerId === userId) {
+        throw new BadRequestException('Cannot transfer ownership to yourself');
       }
+
+      const successor = members.find((m) => m.userId === newOwnerId);
+      if (!successor) {
+        throw new BadRequestException('New owner must be a channel member');
+      }
+
+      successor.role = MemberRole.OWNER;
+      await this.memberRepo.save(successor);
     }
 
     await this.memberRepo.delete({ conversationId, userId });
     await this.hideConversation(conversationId, userId);
 
-    return { conversationId };
+    return { conversationId, newOwnerId: newOwnerId ?? null };
   }
 
   async delete(

@@ -1,26 +1,21 @@
 import { useState } from 'react';
-import { ConfirmModal } from './ConfirmModal';
-import { getLeaveChannelConfirm } from '../utils/deleteChatConfirm';
+import { Conversation } from '../services/api';
+import { ChannelLeaveModal } from './ChannelLeaveModal';
 
 interface Props {
+  conversation: Conversation;
+  currentUserId: string;
   busy?: boolean;
-  onLeave: () => void | Promise<void>;
+  onLeave: (newOwnerId?: string) => void | Promise<void>;
 }
 
-export function ChannelLeaveSection({ busy = false, onLeave }: Props) {
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const confirm = getLeaveChannelConfirm();
-
-  const handleConfirm = async () => {
-    setConfirming(true);
-    try {
-      await onLeave();
-      setConfirmOpen(false);
-    } finally {
-      setConfirming(false);
-    }
-  };
+export function ChannelLeaveSection({
+  conversation,
+  currentUserId,
+  busy = false,
+  onLeave,
+}: Props) {
+  const [modalOpen, setModalOpen] = useState(false);
 
   return (
     <>
@@ -33,24 +28,25 @@ export function ChannelLeaveSection({ busy = false, onLeave }: Props) {
           <button
             type="button"
             className="chat-delete-btn danger"
-            disabled={busy || confirming}
-            onClick={() => setConfirmOpen(true)}
+            disabled={busy}
+            onClick={() => setModalOpen(true)}
           >
-            {busy || confirming ? 'Leaving...' : 'Leave channel'}
+            Leave channel
           </button>
         </div>
       </section>
 
-      <ConfirmModal
-        open={confirmOpen}
-        title={confirm.title}
-        message={confirm.message}
-        confirmLabel={confirm.confirmLabel}
-        danger={confirm.danger}
-        busy={busy || confirming}
-        onConfirm={handleConfirm}
+      <ChannelLeaveModal
+        open={modalOpen}
+        conversation={conversation}
+        currentUserId={currentUserId}
+        busy={busy}
+        onConfirm={async (newOwnerId) => {
+          await onLeave(newOwnerId);
+          setModalOpen(false);
+        }}
         onCancel={() => {
-          if (!busy && !confirming) setConfirmOpen(false);
+          if (!busy) setModalOpen(false);
         }}
       />
     </>

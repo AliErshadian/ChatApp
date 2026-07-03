@@ -900,10 +900,10 @@ export function ChatPage() {
   );
 
   const handleLeaveChannel = useCallback(
-    async (conversationId: string) => {
+    async (conversationId: string, newOwnerId?: string) => {
       setDeleteChatBusy(true);
       try {
-        await api.leaveChannel(conversationId);
+        await api.leaveChannel(conversationId, newOwnerId);
         realtime.leaveConversation(conversationId);
         applyConversationHidden(conversationId);
       } finally {
@@ -986,7 +986,9 @@ export function ChatPage() {
                   onClick={() => openConversation(c.id)}
                   onDeleteChat={(scope) => handleDeleteChat(c.id, scope)}
                   onLeaveChannel={
-                    c.type === 'channel' ? () => handleLeaveChannel(c.id) : undefined
+                    c.type === 'channel'
+                      ? (newOwnerId) => handleLeaveChannel(c.id, newOwnerId)
+                      : undefined
                   }
                 />
               );
@@ -1159,7 +1161,7 @@ export function ChatPage() {
                   }
                   onLeaveChannel={
                     activeConversation.type === 'channel'
-                      ? () => handleLeaveChannel(activeConversation.id)
+                      ? (newOwnerId) => handleLeaveChannel(activeConversation.id, newOwnerId)
                       : undefined
                   }
                   deleteChatBusy={deleteChatBusy}
