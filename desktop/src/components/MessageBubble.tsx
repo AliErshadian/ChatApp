@@ -84,12 +84,28 @@ export function MessageBubble({
     return next;
   };
 
-  const openMenu = (options?: { viaTouch?: boolean }) => {
+  const openMenu = (options?: { viaTouch?: boolean; origin?: { x: number; y: number } }) => {
     if (editing) return;
+    if (options?.origin) {
+      touchOriginRef.current = options.origin;
+    }
     openedViaTouchRef.current = Boolean(options?.viaTouch);
     clearTextSelection();
     measureLayout();
     setMenuOpen(true);
+  };
+
+  const handleMenuButtonOpen = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    clearLongPress();
+
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    if (!isMobile) {
+      openMenu();
+      return;
+    }
+
+    openMenu({ viaTouch: true, origin: { x: e.clientX, y: e.clientY } });
   };
 
   useEffect(() => {
@@ -294,7 +310,11 @@ export function MessageBubble({
           <button
             type="button"
             className="message-menu-btn"
-            onClick={openMenu}
+            onClick={handleMenuButtonOpen}
+            onTouchStart={(e) => {
+              e.stopPropagation();
+              clearLongPress();
+            }}
             aria-label="Message options"
             disabled={busy}
           >
@@ -363,20 +383,6 @@ export function MessageBubble({
         </div>
       )}
 
-      {isFocused &&
-        createPortal(
-          <button
-            type="button"
-            className="message-focus-backdrop"
-            aria-label="Close message menu"
-            onClick={closeMenu}
-            onTouchEnd={(e) => {
-              if (isGhostClickSuppressed()) e.preventDefault();
-            }}
-          />,
-          document.body,
-        )}
-
       <div className={`message-row ${isOwn ? 'own' : 'incoming'}`}>
         {isFocused && placeholderWidth && placeholderHeight && (
           <div
@@ -386,29 +392,43 @@ export function MessageBubble({
           />
         )}
 
-        {isFocused ? (
-          <div
-            id={`msg-${message.id}`}
-            className={`message-focus-stack ${focusAlignClass} message-focused`}
-            style={{
-              position: 'fixed',
-              top: layout.focus.top,
-              left: layout.focus.left,
-              width: layout.focus.width,
-              zIndex: 3001,
-            }}
-            onContextMenu={handleContextMenu}
-            onTouchStart={handleTouchStart}
-            onTouchEnd={handleTouchEnd}
-            onTouchMove={handleTouchMove}
-          >
-            {bubbleContent}
-            {menuPanel}
-          </div>
-        ) : (
-          bubbleContent
-        )}
+        {!isFocused && bubbleContent}
       </div>
+
+      {isFocused &&
+        layout &&
+        createPortal(
+          <>
+            <button
+              type="button"
+              className="message-focus-backdrop"
+              aria-label="Close message menu"
+              onClick={closeMenu}
+              onTouchEnd={(e) => {
+                if (isGhostClickSuppressed()) e.preventDefault();
+              }}
+            />
+            <div
+              id={`msg-${message.id}`}
+              className={`message-focus-stack ${focusAlignClass} message-focused`}
+              style={{
+                position: 'fixed',
+                top: layout.focus.top,
+                left: layout.focus.left,
+                width: layout.focus.width,
+                zIndex: 3001,
+              }}
+              onContextMenu={handleContextMenu}
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+              onTouchMove={handleTouchMove}
+            >
+              {bubbleContent}
+              {menuPanel}
+            </div>
+          </>,
+          document.body,
+        )}
     </div>
   );
 }

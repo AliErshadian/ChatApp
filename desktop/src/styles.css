@@ -678,6 +678,9 @@ body {
   align-items: stretch;
   width: fit-content;
   max-width: min(70%, 520px);
+  position: fixed;
+  z-index: 3001;
+  isolation: isolate;
 }
 
 .message-focus-stack.own {
