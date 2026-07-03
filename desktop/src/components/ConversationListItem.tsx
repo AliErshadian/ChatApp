@@ -224,7 +224,7 @@ export function ConversationListItem({
               presence={peer ? getPresence(peer.userId) : undefined}
             />
           ) : (
-            <span className="conv-icon channel-conv-icon">#</span>
+            <Avatar name={conversation.name} avatarUrl={conversation.avatarUrl} size="sm" />
           )}
         </div>
 

@@ -240,6 +240,7 @@ export function ChatPage() {
           ...c,
           name: update.name ?? c.name,
           description: update.description ?? c.description,
+          avatarUrl: update.avatarUrl ?? c.avatarUrl,
           members: mergedMembers,
         };
       }),
@@ -1125,12 +1126,18 @@ export function ChatPage() {
               >
                 {isMobile ? '←' : '✕'}
               </button>
-              {activeConversation.type === 'direct' && (
+              {activeConversation.type === 'direct' ? (
                 <Avatar
                   name={activePeer?.displayName ?? activeConversation.name}
                   avatarUrl={activePeer?.avatarUrl}
                   size="sm"
                   presence={activePeer ? getPresence(activePeer.userId) : undefined}
+                />
+              ) : (
+                <Avatar
+                  name={activeConversation.name}
+                  avatarUrl={activeConversation.avatarUrl}
+                  size="sm"
                 />
               )}
               <button
@@ -1221,6 +1228,13 @@ export function ChatPage() {
                       ? (newOwnerId) => handleLeaveChannel(activeConversation.id, newOwnerId)
                       : undefined
                   }
+                  onChannelAvatarUpdated={(avatarUrl) => {
+                    setConversations((prev) =>
+                      prev.map((c) =>
+                        c.id === activeConversation.id ? { ...c, avatarUrl } : c,
+                      ),
+                    );
+                  }}
                   deleteChatBusy={deleteChatBusy}
                 />
               )}

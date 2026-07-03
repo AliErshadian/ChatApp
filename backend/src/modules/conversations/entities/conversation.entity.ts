@@ -31,6 +31,9 @@ export class Conversation {
   @Column({ nullable: true })
   description?: string;
 
+  @Column({ name: 'avatar_url', nullable: true })
+  avatarUrl?: string;
+
   @Column({ name: 'created_by' })
   createdBy!: string;
 

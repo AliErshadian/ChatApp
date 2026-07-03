@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, Conversation, User } from '../services/api';
 import { Avatar } from './Avatar';
 import { ContactInfoPrompt } from './ContactInfoPrompt';
@@ -6,7 +6,7 @@ import { ChatDeleteSection } from './ChatDeleteSection';
 import { ChannelInviteSection } from './ChannelInviteSection';
 import { ChannelLeaveSection } from './ChannelLeaveSection';
 import { usePresence } from '../context/PresenceContext';
-import { getChannelOwner, sortChannelMembers } from '../utils/conversation';
+import { getChannelOwner, isChannelOwner, sortChannelMembers } from '../utils/conversation';
 
 interface Props {
   conversation: Conversation;
@@ -19,6 +19,7 @@ interface Props {
   onIgnoreContact?: () => void;
   onDeleteChat?: (scope: 'me' | 'everyone') => void;
   onLeaveChannel?: (newOwnerId?: string) => void;
+  onChannelAvatarUpdated?: (avatarUrl: string) => void;
   deleteChatBusy?: boolean;
 }
 
@@ -42,11 +43,13 @@ export function ConversationInfoPanel({
   onIgnoreContact,
   onDeleteChat,
   onLeaveChannel,
+  onChannelAvatarUpdated,
   deleteChatBusy = false,
 }: Props) {
   const { getPresence, refreshPresence } = usePresence();
   const isDirect = conversation.type === 'direct';
   const channelOwner = !isDirect ? getChannelOwner(conversation) : undefined;
+  const canEditChannelAvatar = !isDirect && isChannelOwner(conversation, currentUserId);
   const channelMembers = useMemo(
     () => (!isDirect ? sortChannelMembers(conversation) : conversation.members),
     [conversation, isDirect],
@@ -55,6 +58,9 @@ export function ConversationInfoPanel({
   const [profile, setProfile] = useState<User | null>(null);
   const [loading, setLoading] = useState(isDirect);
   const [error, setError] = useState('');
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isDirect || !otherMember) {
@@ -81,6 +87,23 @@ export function ConversationInfoPanel({
   useEffect(() => {
     refreshPresence(presenceUserIds);
   }, [presenceUserIds, refreshPresence]);
+
+  const handleChannelAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !canEditChannelAvatar) return;
+
+    setUploadingAvatar(true);
+    setAvatarError('');
+    try {
+      const result = await api.uploadChannelAvatar(conversation.id, file);
+      onChannelAvatarUpdated?.(result.avatarUrl);
+    } catch (err) {
+      setAvatarError(err instanceof Error ? err.message : 'Failed to upload photo');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   return (
     <div className="conversation-info-panel">
@@ -154,9 +177,31 @@ export function ConversationInfoPanel({
         ) : (
           <>
             <div className="profile-hero">
-              <div className="profile-avatar-lg channel-avatar">#</div>
+              <div className="profile-avatar-wrap">
+                <Avatar name={conversation.name} avatarUrl={conversation.avatarUrl} size="lg" />
+                {canEditChannelAvatar && (
+                  <>
+                    <button
+                      type="button"
+                      className="avatar-upload-btn"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingAvatar}
+                    >
+                      {uploadingAvatar ? 'Uploading...' : 'Change photo'}
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="avatar-file-input"
+                      onChange={handleChannelAvatarChange}
+                    />
+                  </>
+                )}
+              </div>
               <h2>{conversation.name}</h2>
               <p className="profile-username">Channel</p>
+              {avatarError && <p className="profile-error-inline">{avatarError}</p>}
             </div>
 
             {conversation.description && (

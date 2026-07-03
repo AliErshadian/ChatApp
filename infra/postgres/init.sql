@@ -24,6 +24,7 @@ CREATE TABLE conversations (
     type conversation_type NOT NULL,
     name VARCHAR(128),
     description TEXT,
+    avatar_url TEXT,
     created_by UUID NOT NULL REFERENCES users(id),
     pending_owner_id UUID REFERENCES users(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

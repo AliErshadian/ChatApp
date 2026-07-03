@@ -26,6 +26,7 @@ export interface Conversation {
   type: 'direct' | 'channel';
   name: string;
   description?: string;
+  avatarUrl?: string;
   members: Array<{
     userId: string;
     role: string;
@@ -51,6 +52,7 @@ export interface ConversationUpdatedEvent {
   conversationId: string;
   name?: string;
   description?: string;
+  avatarUrl?: string;
   members: Conversation['members'];
   memberCount: number;
   ownerId: string | null;
@@ -332,6 +334,38 @@ class ApiClient {
       throw new Error(err.message ?? `HTTP ${res.status}`);
     }
     return res.json() as Promise<User>;
+  }
+
+  async uploadChannelAvatar(conversationId: string, file: File) {
+    const formData = new FormData();
+    formData.append('avatar', file);
+
+    const headers: Record<string, string> = {};
+    if (this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`;
+
+    let res = await fetch(`${this.apiBase()}/conversations/${conversationId}/avatar`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (res.status === 401 && this.refreshToken) {
+      const refreshed = await this.refresh();
+      if (refreshed) {
+        headers.Authorization = `Bearer ${this.accessToken}`;
+        res = await fetch(`${this.apiBase()}/conversations/${conversationId}/avatar`, {
+          method: 'POST',
+          headers,
+          body: formData,
+        });
+      }
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message ?? `HTTP ${res.status}`);
+    }
+    return res.json() as Promise<{ id: string; avatarUrl: string }>;
   }
 }
 

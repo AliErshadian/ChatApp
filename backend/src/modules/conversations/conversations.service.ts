@@ -17,6 +17,8 @@ import { ConversationUserHidden } from './entities/conversation-user-hidden.enti
 import { ChannelInvite } from './entities/channel-invite.entity';
 import { Message } from '../messages/entities/message.entity';
 import { randomBytes } from 'crypto';
+import { join, extname } from 'path';
+import { existsSync, mkdirSync, renameSync, unlinkSync } from 'fs';
 import { MessageUserHidden } from '../messages/entities/message-user-hidden.entity';
 import { CreateChannelDto, CreateDirectDto } from './dto/conversation.dto';
 import { ConversationRealtimePublisher } from './conversation-realtime.publisher';
@@ -270,6 +272,7 @@ export class ConversationsService {
       conversationId,
       name: conversation.name,
       description: conversation.description,
+      avatarUrl: conversation.avatarUrl,
       members,
       memberCount: members.length,
       ownerId: owner?.userId ?? null,
@@ -279,6 +282,57 @@ export class ConversationsService {
 
   private async publishChannelUpdate(conversationId: string) {
     await this.conversationPublisher.publishUpdated(conversationId);
+  }
+
+  async updateChannelAvatar(
+    conversationId: string,
+    userId: string,
+    file: Express.Multer.File,
+  ) {
+    const member = await this.assertMember(conversationId, userId);
+    const conversation = await this.conversationRepo.findOne({
+      where: { id: conversationId },
+    });
+    if (!conversation || conversation.type !== ConversationType.CHANNEL) {
+      throw new ForbiddenException('Channel avatars are only available for channels');
+    }
+    if (member.role !== MemberRole.OWNER) {
+      throw new ForbiddenException('Only the channel owner can change the channel photo');
+    }
+
+    const ext = extname(file.originalname).toLowerCase();
+    const allowed = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+    if (!allowed.has(ext)) {
+      throw new BadRequestException('Only JPG, PNG, and WebP images are allowed');
+    }
+
+    const channelAvatarDir = join(process.cwd(), 'uploads', 'channel-avatars');
+    if (!existsSync(channelAvatarDir)) {
+      mkdirSync(channelAvatarDir, { recursive: true });
+    }
+
+    if (conversation.avatarUrl) {
+      const relativePath = conversation.avatarUrl.replace(/^\//, '').split('?')[0];
+      const oldPath = join(process.cwd(), relativePath);
+      if (existsSync(oldPath)) {
+        try {
+          unlinkSync(oldPath);
+        } catch {
+          // ignore cleanup errors
+        }
+      }
+    }
+
+    const filename = `${conversationId}${ext}`;
+    renameSync(file.path, join(channelAvatarDir, filename));
+    conversation.avatarUrl = `/uploads/channel-avatars/${filename}?v=${Date.now()}`;
+    await this.conversationRepo.save(conversation);
+    await this.publishChannelUpdate(conversationId);
+
+    return {
+      id: conversation.id,
+      avatarUrl: conversation.avatarUrl,
+    };
   }
 
   async createDirect(userId: string, dto: CreateDirectDto) {
@@ -661,6 +715,7 @@ export class ConversationsService {
       type: conversation.type,
       name: displayName,
       description: conversation.description,
+      avatarUrl: conversation.avatarUrl,
       members,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
