@@ -1,0 +1,414 @@
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Message, MessageStatus } from '../services/api';
+import { QUICK_REACTION_EMOJIS } from '../constants/messageReactions';
+import { clearTextSelection, usePreventTouchSelection } from '../hooks/usePreventTouchSelection';
+import { useGhostClickGuard } from '../hooks/useGhostClickGuard';
+import { MessageStatusTicks } from './MessageStatusTicks';
+
+interface Props {
+  message: Message;
+  isOwn: boolean;
+  isFirstUnread?: boolean;
+  onEdit: (messageId: string, content: string) => Promise<void>;
+  onDelete: (messageId: string, scope: 'me' | 'everyone') => Promise<void>;
+  onReaction: (messageId: string, emoji: string) => Promise<void>;
+}
+
+export function MessageBubble({
+  message,
+  isOwn,
+  isFirstUnread,
+  onEdit,
+  onDelete,
+  onReaction,
+}: Props) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(message.content);
+  const [busy, setBusy] = useState(false);
+  const [layout, setLayout] = useState<{
+    anchor: DOMRect;
+    focus: { top: number; left: number; width: number };
+    side: 'left' | 'right';
+  } | null>(null);
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout>>();
+  const longPressTriggered = useRef(false);
+  const touchOriginRef = useRef<{ x: number; y: number } | null>(null);
+  const openedViaTouchRef = useRef(false);
+
+  usePreventTouchSelection(bubbleRef, !editing);
+  const { arm: armGhostClick, isSuppressed: isGhostClickSuppressed } = useGhostClickGuard();
+
+  const canEdit = isOwn && !message.deletedForEveryone;
+  const showMenu = !editing;
+  const isFocused = menuOpen && layout !== null;
+
+  const measureLayout = () => {
+    if (!bubbleRef.current) return null;
+    const anchor = bubbleRef.current.getBoundingClientRect();
+    const messagesEl = bubbleRef.current.closest('.messages');
+    const messagesRect = messagesEl?.getBoundingClientRect();
+    const pad = 12;
+    const top = messagesRect ? messagesRect.top + pad : pad;
+    const width = anchor.width;
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    const useOppositeSide =
+      openedViaTouchRef.current && isMobile && touchOriginRef.current !== null;
+
+    let side: 'left' | 'right' = isOwn ? 'right' : 'left';
+    let left = anchor.left;
+
+    if (messagesRect) {
+      if (useOppositeSide && touchOriginRef.current) {
+        const fingerOnRight = touchOriginRef.current.x >= window.innerWidth / 2;
+        side = fingerOnRight ? 'left' : 'right';
+        left =
+          side === 'left'
+            ? messagesRect.left + pad
+            : messagesRect.right - width - pad;
+      } else {
+        side = isOwn ? 'right' : 'left';
+        left = isOwn ? messagesRect.right - width - pad : messagesRect.left + pad;
+      }
+
+      left = Math.max(
+        messagesRect.left + pad,
+        Math.min(left, messagesRect.right - width - pad),
+      );
+    }
+
+    const next = { anchor, focus: { top, left, width }, side };
+    setLayout(next);
+    return next;
+  };
+
+  const openMenu = (options?: { viaTouch?: boolean }) => {
+    if (editing) return;
+    openedViaTouchRef.current = Boolean(options?.viaTouch);
+    clearTextSelection();
+    measureLayout();
+    setMenuOpen(true);
+  };
+
+  useEffect(() => {
+    if (!menuOpen) {
+      setLayout(null);
+      openedViaTouchRef.current = false;
+      touchOriginRef.current = null;
+      return;
+    }
+
+    const onResize = () => {
+      measureLayout();
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [menuOpen, isOwn]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [menuOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!editing) setDraft(message.content);
+  }, [message.content, editing]);
+
+  const clearLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = undefined;
+    }
+  };
+
+  const closeMenu = () => {
+    if (isGhostClickSuppressed()) return;
+    setMenuOpen(false);
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    if (editing) return;
+    e.preventDefault();
+    openMenu();
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (editing) return;
+    const touch = e.touches[0];
+    touchOriginRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+    longPressTriggered.current = false;
+    clearLongPress();
+    longPressTimer.current = setTimeout(() => {
+      clearTextSelection();
+      longPressTriggered.current = true;
+      armGhostClick();
+      openMenu({ viaTouch: true });
+    }, 500);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    clearLongPress();
+    if (longPressTriggered.current) {
+      e.preventDefault();
+      clearTextSelection();
+      armGhostClick();
+    }
+  };
+
+  const handleTouchMove = () => {
+    clearLongPress();
+  };
+
+  const handleSaveEdit = async () => {
+    const next = draft.trim();
+    if (!next || next === message.content) {
+      setEditing(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      await onEdit(message.id, next);
+      setEditing(false);
+      setMenuOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async (scope: 'me' | 'everyone') => {
+    setBusy(true);
+    try {
+      await onDelete(message.id, scope);
+      setMenuOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReaction = async (emoji: string) => {
+    setBusy(true);
+    try {
+      await onReaction(message.id, emoji);
+      setMenuOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reactionsBar = !message.deletedForEveryone && (message.reactions?.length ?? 0) > 0 && (
+    <div className="message-reactions">
+      {message.reactions!.map((reaction) => (
+        <button
+          key={reaction.emoji}
+          type="button"
+          className={`message-reaction-chip${reaction.reactedByMe ? ' active' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            void handleReaction(reaction.emoji);
+          }}
+          disabled={busy}
+          aria-label={`React with ${reaction.emoji}`}
+        >
+          <span className="message-reaction-emoji">{reaction.emoji}</span>
+          <span className="message-reaction-count">{reaction.count}</span>
+        </button>
+      ))}
+    </div>
+  );
+
+  const placeholderWidth = layout?.anchor.width;
+  const placeholderHeight = layout?.anchor.height;
+
+  const bubbleContent = (
+    <div
+      ref={bubbleRef}
+      id={isFocused ? undefined : `msg-${message.id}`}
+      className={`message ${isOwn ? 'own' : 'incoming'} ${message.deletedForEveryone ? 'deleted' : ''} ${menuOpen ? 'menu-open' : ''}`}
+      onContextMenu={isFocused ? undefined : handleContextMenu}
+      onTouchStart={isFocused ? undefined : handleTouchStart}
+      onTouchEnd={isFocused ? undefined : handleTouchEnd}
+      onTouchMove={isFocused ? undefined : handleTouchMove}
+    >
+      {!isOwn && (
+        <div className="message-meta">
+          <strong>{message.sender?.displayName ?? 'Unknown'}</strong>
+        </div>
+      )}
+
+      {editing ? (
+        <div className="message-edit-form">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={2}
+            autoFocus
+          />
+          <div className="message-edit-actions">
+            <button type="button" onClick={() => setEditing(false)} disabled={busy}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="primary"
+              onClick={handleSaveEdit}
+              disabled={busy || !draft.trim()}
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      ) : message.deletedForEveryone ? (
+        <div className="message-content deleted">Message deleted</div>
+      ) : (
+        <div className="message-content">{message.content}</div>
+      )}
+
+      {reactionsBar}
+
+      <div className="message-footer">
+        <div className="message-footer-left">
+          <time>{new Date(message.createdAt).toLocaleTimeString()}</time>
+          {message.editedAt && !message.deletedForEveryone && (
+            <span className="message-edited">Edited</span>
+          )}
+        </div>
+        {isOwn && message.status && !message.deletedForEveryone && (
+          <MessageStatusTicks status={message.status as MessageStatus} />
+        )}
+      </div>
+
+      {showMenu && !menuOpen && (
+        <div className="message-menu-wrap">
+          <button
+            type="button"
+            className="message-menu-btn"
+            onClick={openMenu}
+            aria-label="Message options"
+            disabled={busy}
+          >
+            ⋮
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  const focusSide = layout?.side ?? (isOwn ? 'right' : 'left');
+  const focusAlignClass = focusSide === 'right' ? 'own' : 'incoming';
+
+  const menuPanel = menuOpen && showMenu && (
+    <div className={`message-menu-panel ${focusAlignClass}`}>
+      {!message.deletedForEveryone && (
+        <div className="message-reactions-picker">
+          {QUICK_REACTION_EMOJIS.map((emoji) => {
+            const active = message.reactions?.some(
+              (reaction) => reaction.emoji === emoji && reaction.reactedByMe,
+            );
+            return (
+              <button
+                key={emoji}
+                type="button"
+                className={`message-reaction-btn${active ? ' active' : ''}`}
+                onClick={() => void handleReaction(emoji)}
+                disabled={busy}
+                aria-label={`React with ${emoji}`}
+              >
+                {emoji}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <div className="message-menu">
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(true);
+              setMenuOpen(false);
+            }}
+          >
+            Edit
+          </button>
+        )}
+        <button type="button" onClick={() => handleDelete('me')}>
+          Delete for me
+        </button>
+        {isOwn && !message.deletedForEveryone && (
+          <button type="button" className="danger" onClick={() => handleDelete('everyone')}>
+            Delete for everyone
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="message-group">
+      {isFirstUnread && (
+        <div className="unread-divider">
+          <span>Unread messages</span>
+        </div>
+      )}
+
+      {isFocused &&
+        createPortal(
+          <button
+            type="button"
+            className="message-focus-backdrop"
+            aria-label="Close message menu"
+            onClick={closeMenu}
+            onTouchEnd={(e) => {
+              if (isGhostClickSuppressed()) e.preventDefault();
+            }}
+          />,
+          document.body,
+        )}
+
+      <div className={`message-row ${isOwn ? 'own' : 'incoming'}`}>
+        {isFocused && placeholderWidth && placeholderHeight && (
+          <div
+            className="message-placeholder"
+            style={{ width: placeholderWidth, height: placeholderHeight }}
+            aria-hidden
+          />
+        )}
+
+        {isFocused ? (
+          <div
+            id={`msg-${message.id}`}
+            className={`message-focus-stack ${focusAlignClass} message-focused`}
+            style={{
+              position: 'fixed',
+              top: layout.focus.top,
+              left: layout.focus.left,
+              width: layout.focus.width,
+              zIndex: 3001,
+            }}
+            onContextMenu={handleContextMenu}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            onTouchMove={handleTouchMove}
+          >
+            {bubbleContent}
+            {menuPanel}
+          </div>
+        ) : (
+          bubbleContent
+        )}
+      </div>
+    </div>
+  );
+}

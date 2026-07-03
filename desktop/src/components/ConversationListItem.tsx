@@ -1,0 +1,279 @@
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Conversation } from '../services/api';
+import { Avatar } from './Avatar';
+import { ConfirmModal } from './ConfirmModal';
+import { getDirectPeer } from '../utils/conversation';
+import { usePresence } from '../context/PresenceContext';
+import { formatConversationPreview } from '../utils/conversationList';
+import { getDeleteChatConfirm } from '../utils/deleteChatConfirm';
+import { formatRelativeTime } from '../utils/time';
+import { clearTextSelection, usePreventTouchSelection } from '../hooks/usePreventTouchSelection';
+import { useGhostClickGuard } from '../hooks/useGhostClickGuard';
+
+interface Props {
+  conversation: Conversation;
+  currentUserId: string;
+  isActive: boolean;
+  isSelected: boolean;
+  showUnread: boolean;
+  unreadCount: number;
+  deleteBusy?: boolean;
+  onClick: () => void;
+  onDeleteChat: (scope: 'me' | 'everyone') => void | Promise<void>;
+}
+
+export function ConversationListItem({
+  conversation,
+  currentUserId,
+  isActive,
+  isSelected,
+  showUnread,
+  unreadCount,
+  deleteBusy = false,
+  onClick,
+  onDeleteChat,
+}: Props) {
+  const { getPresence } = usePresence();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<'me' | 'everyone' | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout>>();
+  const longPressTriggered = useRef(false);
+  const itemRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  usePreventTouchSelection(buttonRef);
+  const { arm: armGhostClick, isSuppressed: isGhostClickSuppressed } = useGhostClickGuard();
+
+  const peer = getDirectPeer(conversation, currentUserId);
+  const preview = formatConversationPreview(conversation, currentUserId);
+  const time = conversation.lastMessage?.createdAt
+    ? formatRelativeTime(conversation.lastMessage.createdAt)
+    : null;
+
+  const clearLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = undefined;
+    }
+  };
+
+  const measureMenu = () => {
+    if (!itemRef.current) return null;
+    const rect = itemRef.current.getBoundingClientRect();
+    const menuHeight = 92;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openAbove = spaceBelow < menuHeight && rect.top > menuHeight;
+    const top = openAbove ? rect.top - menuHeight - 4 : rect.bottom + 4;
+
+    return {
+      position: 'fixed' as const,
+      top,
+      left: rect.left,
+      width: rect.width,
+      zIndex: 2501,
+    };
+  };
+
+  const openMenu = () => {
+    clearTextSelection();
+    setMenuStyle(measureMenu());
+    setMenuOpen(true);
+  };
+
+  const closeMenu = () => {
+    if (isGhostClickSuppressed()) return;
+    setMenuOpen(false);
+    setMenuStyle(null);
+  };
+
+  useLayoutEffect(() => {
+    if (!menuOpen) return;
+    setMenuStyle(measureMenu());
+  }, [menuOpen]);
+
+  useEffect(() => {
+    return () => clearLongPress();
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeMenu();
+    };
+    const onResize = () => setMenuStyle(measureMenu());
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [menuOpen]);
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openMenu();
+  };
+
+  const handleTouchStart = () => {
+    longPressTriggered.current = false;
+    clearLongPress();
+    longPressTimer.current = setTimeout(() => {
+      clearTextSelection();
+      longPressTriggered.current = true;
+      armGhostClick();
+      openMenu();
+    }, 500);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    clearLongPress();
+    if (longPressTriggered.current) {
+      e.preventDefault();
+      clearTextSelection();
+      armGhostClick();
+    }
+  };
+
+  const handleTouchMove = () => {
+    clearLongPress();
+  };
+
+  const handleClick = () => {
+    if (isGhostClickSuppressed()) return;
+    if (longPressTriggered.current) {
+      longPressTriggered.current = false;
+      return;
+    }
+    if (menuOpen) return;
+    onClick();
+  };
+
+  const handleDeleteRequest = (scope: 'me' | 'everyone') => {
+    closeMenu();
+    setPendingDelete(scope);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!pendingDelete) return;
+    setConfirming(true);
+    try {
+      await onDeleteChat(pendingDelete);
+      setPendingDelete(null);
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const deleteConfirm = pendingDelete ? getDeleteChatConfirm(pendingDelete) : null;
+
+  return (
+    <div
+      ref={itemRef}
+      className={['conversation-item-wrap', menuOpen && 'menu-open'].filter(Boolean).join(' ')}
+    >
+      <button
+        ref={buttonRef}
+        type="button"
+        className={[
+          'conversation-item',
+          isActive && 'active',
+          isSelected && 'selected',
+          showUnread && 'has-unread',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
+      >
+        <div className="conv-avatar-wrap">
+          {conversation.type === 'direct' ? (
+            <Avatar
+              name={peer?.displayName ?? conversation.name}
+              avatarUrl={peer?.avatarUrl}
+              size="sm"
+              presence={peer ? getPresence(peer.userId) : undefined}
+            />
+          ) : (
+            <span className="conv-icon channel-conv-icon">#</span>
+          )}
+        </div>
+
+        <div className="conv-body">
+          <div className="conv-top-row">
+            <span className="conv-name">{conversation.name}</span>
+            {time && <span className="conv-time">{time}</span>}
+          </div>
+          <div className="conv-bottom-row">
+            <span className="conv-preview">{preview}</span>
+            {showUnread && (
+              <span className="unread-badge" aria-label={`${unreadCount} unread messages`}>
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </div>
+        </div>
+      </button>
+
+      {menuOpen &&
+        createPortal(
+          <>
+            <button
+              type="button"
+              className="conversation-menu-backdrop"
+              aria-label="Close menu"
+              onClick={closeMenu}
+              onTouchEnd={(e) => {
+                if (isGhostClickSuppressed()) e.preventDefault();
+              }}
+            />
+            {menuStyle && (
+              <div className="conversation-menu conversation-menu--fixed" style={menuStyle} role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={deleteBusy || confirming}
+                  onClick={() => handleDeleteRequest('me')}
+                >
+                  Delete for me
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="danger"
+                  disabled={deleteBusy || confirming}
+                  onClick={() => handleDeleteRequest('everyone')}
+                >
+                  {deleteBusy || confirming ? 'Deleting...' : 'Delete for everyone'}
+                </button>
+              </div>
+            )}
+          </>,
+          document.body,
+        )}
+
+      {deleteConfirm && (
+        <ConfirmModal
+          open
+          title={deleteConfirm.title}
+          message={deleteConfirm.message}
+          confirmLabel={deleteConfirm.confirmLabel}
+          danger={deleteConfirm.danger}
+          busy={deleteBusy || confirming}
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => {
+            if (!deleteBusy && !confirming) setPendingDelete(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
