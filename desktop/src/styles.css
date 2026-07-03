@@ -160,6 +160,40 @@ body {
   cursor: pointer;
   padding: 0;
   transition: background 0.15s, color 0.15s;
+  position: relative;
+}
+
+.nav-rail-btn-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-rail-badge {
+  position: absolute;
+  top: -0.35rem;
+  right: -0.5rem;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  background: #e74c3c;
+  color: white;
+  font-size: 0.58rem;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bg-tertiary);
+  pointer-events: none;
+}
+
+.nav-rail-btn.active .nav-rail-badge {
+  background: white;
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .nav-rail-btn svg {
@@ -2149,6 +2183,11 @@ body {
   .nav-rail--bottom .nav-rail-btn svg {
     width: 1.35rem;
     height: 1.35rem;
+  }
+
+  .nav-rail--bottom .nav-rail-badge {
+    top: -0.15rem;
+    right: -0.35rem;
   }
 
   .nav-rail--bottom .nav-rail-btn--avatar .profile-avatar-sm,

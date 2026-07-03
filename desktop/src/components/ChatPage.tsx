@@ -34,6 +34,7 @@ export function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
+  const [sidebarList, setSidebarList] = useState<'chats' | 'channels'>('chats');
   const [showProfile, setShowProfile] = useState(false);
   const [showContacts, setShowContacts] = useState(false);
   const [showNewChatPicker, setShowNewChatPicker] = useState(false);
@@ -296,17 +297,27 @@ export function ChatPage() {
     setConversations(reorderConversations(list));
   }, []);
 
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
+
   const loadConversationsRef = useRef(loadConversations);
   loadConversationsRef.current = loadConversations;
 
-  const openConversation = useCallback((id: string) => {
+  const openConversation = useCallback((id: string, preferredList?: 'chats' | 'channels') => {
     setShowProfile(false);
     setShowContacts(false);
     setShowNewChatPicker(false);
     setShowConversationInfo(false);
+
+    const conv = conversationsRef.current.find((c) => c.id === id);
+    const list =
+      preferredList ??
+      (conv?.type === 'channel' ? 'channels' : conv?.type === 'direct' ? 'chats' : undefined);
+    if (list) setSidebarList(list);
+
     setConversations((prev) => {
-      const conv = prev.find((c) => c.id === id);
-      const membership = conv?.members.find((m) => m.userId === userIdRef.current);
+      const current = prev.find((c) => c.id === id);
+      const membership = current?.members.find((m) => m.userId === userIdRef.current);
       lastReadAtOnOpenRef.current = membership?.lastReadAt;
       return prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c));
     });
@@ -327,7 +338,7 @@ export function ChatPage() {
           const visible = conversations.find((c) => c.id === status.conversationId);
           if (visible) {
             setPendingChannelInvite(null);
-            openConversation(visible.id);
+            openConversation(visible.id, 'channels');
             return;
           }
 
@@ -340,10 +351,11 @@ export function ChatPage() {
             return reorderConversations(next);
           });
           setPendingChannelInvite(null);
-          openConversation(conversation.id);
+          openConversation(conversation.id, 'channels');
           return;
         }
 
+        setSidebarList('channels');
         setPendingChannelInvite({
           token,
           channelName: status.channelName,
@@ -378,7 +390,7 @@ export function ChatPage() {
         return reorderConversations(next);
       });
       setPendingChannelInvite(null);
-      openConversation(conversation.id);
+      openConversation(conversation.id, 'channels');
     } catch {
       // Keep the prompt open on failure.
     } finally {
@@ -417,16 +429,37 @@ export function ChatPage() {
     }
   }, [isMobile]);
 
-  const openChats = useCallback(() => {
-    setShowProfile(false);
-    setShowContacts(false);
-    setShowNewChatPicker(false);
-    setShowConversationInfo(false);
-    setPendingChannelInvite(null);
-    if (isMobile || !activeIdRef.current) {
-      setIsPanelOpen(false);
-    }
-  }, [isMobile]);
+  const switchSidebarList = useCallback(
+    (list: 'chats' | 'channels') => {
+      setSidebarList(list);
+      setShowProfile(false);
+      setShowContacts(false);
+      setShowNewChatPicker(false);
+      setShowConversationInfo(false);
+      setPendingChannelInvite(null);
+
+      const activeConv = conversations.find((c) => c.id === activeIdRef.current);
+      const mismatched =
+        activeConv &&
+        ((list === 'chats' && activeConv.type === 'channel') ||
+          (list === 'channels' && activeConv.type === 'direct'));
+
+      if (mismatched) {
+        setActiveId(null);
+        setIsPanelOpen(false);
+        return;
+      }
+
+      if (isMobile || !activeIdRef.current) {
+        setIsPanelOpen(false);
+      }
+    },
+    [isMobile, conversations],
+  );
+
+  const openChats = useCallback(() => switchSidebarList('chats'), [switchSidebarList]);
+
+  const openChannels = useCallback(() => switchSidebarList('channels'), [switchSidebarList]);
 
   const closeChatPanel = useCallback(() => {
     setIsPanelOpen(false);
@@ -757,7 +790,7 @@ export function ChatPage() {
     if (!channelName.trim()) return;
     const ch = await api.createChannel(channelName.trim());
     setConversations((prev) => reorderConversations([ch, ...prev]));
-    openConversation(ch.id);
+    openConversation(ch.id, 'channels');
     setShowNewChannel(false);
     setChannelName('');
   };
@@ -771,7 +804,7 @@ export function ChatPage() {
         c.members.some((m) => m.userId === targetUser.id),
     );
     if (existing) {
-      openConversation(existing.id);
+      openConversation(existing.id, 'chats');
       return;
     }
 
@@ -782,7 +815,7 @@ export function ChatPage() {
       return reorderConversations(next);
     });
     setContactIds((prev) => new Set(prev).add(targetUser.id));
-    openConversation(dm.id);
+    openConversation(dm.id, 'chats');
   };
 
   const handleAddUnknownContact = async () => {
@@ -804,7 +837,45 @@ export function ChatPage() {
     saveIgnoredContactPrompts(next);
   };
 
-  const activeNavTab = showProfile ? 'profile' : showContacts ? 'contacts' : 'chats';
+  const chatConversations = useMemo(
+    () => conversations.filter((c) => c.type === 'direct'),
+    [conversations],
+  );
+  const channelConversations = useMemo(
+    () => conversations.filter((c) => c.type === 'channel'),
+    [conversations],
+  );
+  const sidebarConversations =
+    sidebarList === 'channels' ? channelConversations : chatConversations;
+
+  const countUnreadConversations = useCallback(
+    (list: Conversation[]) =>
+      list.filter((c) => {
+        const unread = c.unreadCount ?? 0;
+        if (unread <= 0) return false;
+        if (isPanelOpen && c.id === activeId) return false;
+        return true;
+      }).length,
+    [isPanelOpen, activeId],
+  );
+
+  const chatsNavBadge = useMemo(
+    () => countUnreadConversations(chatConversations),
+    [chatConversations, countUnreadConversations],
+  );
+
+  const channelsNavBadge = useMemo(
+    () => countUnreadConversations(channelConversations),
+    [channelConversations, countUnreadConversations],
+  );
+
+  const activeNavTab = showProfile
+    ? 'profile'
+    : showContacts
+      ? 'contacts'
+      : sidebarList === 'channels'
+        ? 'channels'
+        : 'chats';
 
   const handleDeleteChat = useCallback(
     async (conversationId: string, scope: 'me' | 'everyone') => {
@@ -851,7 +922,10 @@ export function ChatPage() {
           activeTab={activeNavTab}
           displayName={user?.displayName}
           avatarUrl={user?.avatarUrl}
+          chatsUnreadCount={chatsNavBadge}
+          channelsUnreadCount={channelsNavBadge}
           onChats={openChats}
+          onChannels={openChannels}
           onContacts={openContacts}
           onProfile={openProfile}
           onLogout={logout}
@@ -861,31 +935,40 @@ export function ChatPage() {
       <div className="chat-layout-body">
       <aside className="sidebar">
         <header className="sidebar-header">
-          <h2>ChatApp</h2>
+          <h2>{sidebarList === 'channels' ? 'Channels' : 'Chats'}</h2>
         </header>
 
         <div className="sidebar-actions">
-          <button className="sidebar-action-primary" onClick={openNewChatPicker}>
-            + New Chat
-          </button>
-          <button onClick={() => setShowNewChannel(true)}>+ Channel</button>
+          {sidebarList === 'channels' ? (
+            <button className="sidebar-action-primary" onClick={() => setShowNewChannel(true)}>
+              + Channel
+            </button>
+          ) : (
+            <button className="sidebar-action-primary" onClick={openNewChatPicker}>
+              + New Chat
+            </button>
+          )}
         </div>
 
         <div className="conversation-list">
-          {conversations.length > 0 && (
+          {sidebarConversations.length > 0 && (
             <div className="conversation-list-header">
-              <span>Messages</span>
-              <span className="conversation-count">{conversations.length}</span>
+              <span>{sidebarList === 'channels' ? 'Channels' : 'Messages'}</span>
+              <span className="conversation-count">{sidebarConversations.length}</span>
             </div>
           )}
 
-          {conversations.length === 0 ? (
+          {sidebarConversations.length === 0 ? (
             <div className="conversation-list-empty">
-              <p>No conversations yet</p>
-              <span>Use New Chat or create a channel to get started</span>
+              <p>{sidebarList === 'channels' ? 'No channels yet' : 'No conversations yet'}</p>
+              <span>
+                {sidebarList === 'channels'
+                  ? 'Create a channel to get started'
+                  : 'Use New Chat to start messaging'}
+              </span>
             </div>
           ) : (
-            conversations.map((c) => {
+            sidebarConversations.map((c) => {
               const unread = c.unreadCount ?? 0;
               const showUnread =
                 unread > 0 && !(isPanelOpen && c.id === activeId);
@@ -1120,7 +1203,10 @@ export function ChatPage() {
           activeTab={activeNavTab}
           displayName={user?.displayName}
           avatarUrl={user?.avatarUrl}
+          chatsUnreadCount={chatsNavBadge}
+          channelsUnreadCount={channelsNavBadge}
           onChats={openChats}
+          onChannels={openChannels}
           onContacts={openContacts}
           onProfile={openProfile}
           onLogout={logout}

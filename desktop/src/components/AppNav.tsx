@@ -1,16 +1,29 @@
 import { Avatar } from './Avatar';
 
-export type AppNavTab = 'chats' | 'contacts' | 'profile';
+export type AppNavTab = 'chats' | 'channels' | 'contacts' | 'profile';
 
 interface Props {
   variant: 'rail' | 'bottom';
   activeTab: AppNavTab;
   displayName?: string;
   avatarUrl?: string;
+  chatsUnreadCount?: number;
+  channelsUnreadCount?: number;
   onChats: () => void;
+  onChannels: () => void;
   onContacts: () => void;
   onProfile: () => void;
   onLogout: () => void;
+}
+
+function NavTabBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+
+  return (
+    <span className="nav-rail-badge" aria-hidden="true">
+      {count > 99 ? '99+' : count}
+    </span>
+  );
 }
 
 export function AppNav({
@@ -18,7 +31,10 @@ export function AppNav({
   activeTab,
   displayName,
   avatarUrl,
+  chatsUnreadCount = 0,
+  channelsUnreadCount = 0,
   onChats,
+  onChannels,
   onContacts,
   onProfile,
   onLogout,
@@ -41,13 +57,42 @@ export function AppNav({
         className={`nav-rail-btn${activeTab === 'chats' ? ' active' : ''}`}
         onClick={onChats}
         title="Chats"
-        aria-label="Chats"
+        aria-label={
+          chatsUnreadCount > 0 ? `Chats, ${chatsUnreadCount} with unread messages` : 'Chats'
+        }
         aria-current={activeTab === 'chats' ? 'page' : undefined}
       >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        </svg>
+        <span className="nav-rail-btn-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+          <NavTabBadge count={chatsUnreadCount} />
+        </span>
         {isBottom && <span className="nav-rail-label">Chats</span>}
+      </button>
+
+      <button
+        type="button"
+        className={`nav-rail-btn${activeTab === 'channels' ? ' active' : ''}`}
+        onClick={onChannels}
+        title="Channels"
+        aria-label={
+          channelsUnreadCount > 0
+            ? `Channels, ${channelsUnreadCount} with unread messages`
+            : 'Channels'
+        }
+        aria-current={activeTab === 'channels' ? 'page' : undefined}
+      >
+        <span className="nav-rail-btn-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 9h16" />
+            <path d="M4 15h16" />
+            <path d="M10 3 8 21" />
+            <path d="M16 3 14 21" />
+          </svg>
+          <NavTabBadge count={channelsUnreadCount} />
+        </span>
+        {isBottom && <span className="nav-rail-label">Channels</span>}
       </button>
 
       <button
