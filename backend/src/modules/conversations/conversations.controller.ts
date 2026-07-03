@@ -48,6 +48,11 @@ export class ConversationsController {
     return this.conversationsService.addMembers(id, user.id, dto.userIds);
   }
 
+  @Get(':id/invite')
+  getInvite(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: User) {
+    return this.conversationsService.getOrCreateInvite(id, user.id);
+  }
+
   @Delete(':id')
   remove(
     @Param('id', ParseUUIDPipe) id: string,

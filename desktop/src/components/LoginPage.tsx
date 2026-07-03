@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../services/api';
 
 export function LoginPage() {
   const { login, register } = useAuth();
@@ -10,6 +11,17 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [inviteChannelName, setInviteChannelName] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('pendingInviteToken');
+    if (!token) return;
+
+    api
+      .getInvitePreview(token)
+      .then((preview) => setInviteChannelName(preview.channelName))
+      .catch(() => setInviteChannelName(null));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,6 +45,11 @@ export function LoginPage() {
       <div className="auth-card">
         <h1>ChatApp</h1>
         <p className="subtitle">Enterprise Internal Messaging</p>
+        {inviteChannelName && (
+          <p className="auth-invite-banner">
+            You&apos;ve been invited to join <strong>#{inviteChannelName}</strong>
+          </p>
+        )}
         <form onSubmit={handleSubmit}>
           <input
             type="email"

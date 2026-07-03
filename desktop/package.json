@@ -29,6 +29,12 @@
   "build": {
     "appId": "com.chatapp.desktop",
     "productName": "ChatApp",
+    "protocols": [
+      {
+        "name": "ChatApp Invite",
+        "schemes": ["chatapp"]
+      }
+    ],
     "directories": { "output": "release" },
     "files": ["dist/**/*", "dist-electron/**/*"],
     "win": { "target": ["nsis"] },

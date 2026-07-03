@@ -183,6 +183,28 @@ class ApiClient {
     });
   }
 
+  getChannelInvite(conversationId: string) {
+    return this.request<{ token: string }>(`/conversations/${conversationId}/invite`);
+  }
+
+  getInvitePreview(token: string) {
+    return this.request<{ channelName: string; conversationId: string }>(
+      `/invites/${encodeURIComponent(token)}`,
+    );
+  }
+
+  getInviteStatus(token: string) {
+    return this.request<{ channelName: string; conversationId: string; isMember: boolean }>(
+      `/invites/${encodeURIComponent(token)}/status`,
+    );
+  }
+
+  joinChannelByInvite(token: string) {
+    return this.request<Conversation>(`/invites/${encodeURIComponent(token)}/join`, {
+      method: 'POST',
+    });
+  }
+
   createDirect(userId: string) {
     return this.request<Conversation>('/conversations/direct', {
       method: 'POST',

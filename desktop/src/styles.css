@@ -54,6 +54,21 @@ body {
 .auth-card h1 { font-size: 1.75rem; margin-bottom: 0.25rem; }
 .auth-card .subtitle { color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.9rem; }
 
+.auth-invite-banner {
+  margin: -0.75rem 0 1.25rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 8px;
+  background: rgba(88, 101, 242, 0.12);
+  border: 1px solid rgba(88, 101, 242, 0.25);
+  color: var(--text-primary);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.auth-invite-banner strong {
+  color: var(--accent);
+}
+
 .auth-card input {
   width: 100%;
   padding: 0.75rem 1rem;
@@ -683,6 +698,100 @@ body {
   color: var(--text-primary);
 }
 
+.channel-invite-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.channel-invite-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.channel-invite-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+
+.channel-invite-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.channel-invite-row .contact-action-btn {
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+.channel-join-banner {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: rgba(88, 101, 242, 0.1);
+}
+
+.channel-join-banner-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.channel-join-banner-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.channel-join-banner-title strong {
+  color: var(--accent);
+}
+
+.channel-join-banner-desc {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.channel-join-banner-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.channel-invite-preview-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.channel-invite-preview-empty h3 {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.channel-invite-preview-empty p {
+  margin: 0;
+  max-width: 280px;
+  line-height: 1.45;
+}
+
 .member-list {
   list-style: none;
   margin: 0;
@@ -947,6 +1056,23 @@ body {
   line-height: 1.4;
   word-break: break-word;
   white-space: pre-wrap;
+}
+
+.message-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-all;
+  cursor: pointer;
+}
+
+.message-link:hover {
+  opacity: 0.9;
+}
+
+.message.own .message-link {
+  color: white;
+  font-weight: 600;
 }
 
 .message-content.deleted {

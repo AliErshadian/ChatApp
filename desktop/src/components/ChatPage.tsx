@@ -8,6 +8,7 @@ import { MessageBubble } from './MessageBubble';
 import { ProfilePanel } from './ProfilePanel';
 import { ContactsPanel } from './ContactsPanel';
 import { ConversationInfoPanel } from './ConversationInfoPanel';
+import { ChannelJoinBanner } from './ChannelJoinBanner';
 import { mergeMessageStatus, mergeOutgoingServerMessage } from '../utils/messageStatus';
 import { ConversationListItem } from './ConversationListItem';
 import { AppNav } from './AppNav';
@@ -22,6 +23,7 @@ import {
 import { formatTypingIndicator } from '../utils/typingIndicator';
 import { formatLastSeen } from '../utils/time';
 import { createClientMessageId } from '../utils/uuid';
+import { takePendingInviteToken } from '../utils/channelInvite';
 
 export function ChatPage() {
   const { user, logout } = useAuth();
@@ -49,6 +51,12 @@ export function ChatPage() {
   const [lastSeenTick, setLastSeenTick] = useState(0);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [swipeTransition, setSwipeTransition] = useState(false);
+  const [pendingChannelInvite, setPendingChannelInvite] = useState<{
+    token: string;
+    channelName: string;
+    conversationId: string;
+  } | null>(null);
+  const [inviteJoinBusy, setInviteJoinBusy] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatMainRef = useRef<HTMLElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
@@ -69,7 +77,8 @@ export function ChatPage() {
     activeConversation && user ? getDirectPeer(activeConversation, user.id) : undefined;
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isPanelVisible =
-    isPanelOpen && (activeConversation || showProfile || showContacts || showNewChatPicker);
+    isPanelOpen &&
+    (activeConversation || showProfile || showContacts || showNewChatPicker || pendingChannelInvite);
 
   const typingIndicatorText = useMemo(() => {
     if (!activeConversation || typingUsers.size === 0) return null;
@@ -299,10 +308,83 @@ export function ChatPage() {
     setIsPanelOpen(true);
   }, []);
 
+  const handleInviteToken = useCallback(
+    async (token: string) => {
+      try {
+        const status = await api.getInviteStatus(token);
+        setShowProfile(false);
+        setShowContacts(false);
+        setShowNewChatPicker(false);
+        setShowConversationInfo(false);
+
+        if (status.isMember) {
+          const visible = conversations.find((c) => c.id === status.conversationId);
+          if (visible) {
+            setPendingChannelInvite(null);
+            openConversation(visible.id);
+            return;
+          }
+
+          const conversation = await api.joinChannelByInvite(token);
+          setConversations((prev) => {
+            const exists = prev.some((c) => c.id === conversation.id);
+            const next = exists
+              ? prev.map((c) => (c.id === conversation.id ? { ...c, ...conversation } : c))
+              : [conversation, ...prev];
+            return reorderConversations(next);
+          });
+          setPendingChannelInvite(null);
+          openConversation(conversation.id);
+          return;
+        }
+
+        setPendingChannelInvite({
+          token,
+          channelName: status.channelName,
+          conversationId: status.conversationId,
+        });
+        setActiveId(null);
+        setIsPanelOpen(true);
+      } catch {
+        // Ignore invalid or expired invites.
+      }
+    },
+    [conversations, openConversation],
+  );
+
+  const dismissChannelInvite = useCallback(() => {
+    setPendingChannelInvite(null);
+    if (isMobile && !activeIdRef.current) {
+      setIsPanelOpen(false);
+    }
+  }, [isMobile]);
+
+  const confirmChannelInvite = useCallback(async () => {
+    if (!pendingChannelInvite) return;
+    setInviteJoinBusy(true);
+    try {
+      const conversation = await api.joinChannelByInvite(pendingChannelInvite.token);
+      setConversations((prev) => {
+        const exists = prev.some((c) => c.id === conversation.id);
+        const next = exists
+          ? prev.map((c) => (c.id === conversation.id ? { ...c, ...conversation } : c))
+          : [conversation, ...prev];
+        return reorderConversations(next);
+      });
+      setPendingChannelInvite(null);
+      openConversation(conversation.id);
+    } catch {
+      // Keep the prompt open on failure.
+    } finally {
+      setInviteJoinBusy(false);
+    }
+  }, [pendingChannelInvite, openConversation]);
+
   const openProfile = useCallback(() => {
     setShowProfile(true);
     setShowContacts(false);
     setShowNewChatPicker(false);
+    setPendingChannelInvite(null);
     setIsPanelOpen(true);
   }, []);
 
@@ -310,6 +392,7 @@ export function ChatPage() {
     setShowContacts(true);
     setShowProfile(false);
     setShowNewChatPicker(false);
+    setPendingChannelInvite(null);
     setIsPanelOpen(true);
   }, []);
 
@@ -333,6 +416,7 @@ export function ChatPage() {
     setShowContacts(false);
     setShowNewChatPicker(false);
     setShowConversationInfo(false);
+    setPendingChannelInvite(null);
     if (isMobile || !activeIdRef.current) {
       setIsPanelOpen(false);
     }
@@ -343,6 +427,7 @@ export function ChatPage() {
     setShowProfile(false);
     setShowContacts(false);
     setShowNewChatPicker(false);
+    setPendingChannelInvite(null);
     setShowConversationInfo(false);
     setTypingUsers(new Set());
   }, []);
@@ -352,8 +437,12 @@ export function ChatPage() {
       setShowConversationInfo(false);
       return;
     }
+    if (pendingChannelInvite) {
+      dismissChannelInvite();
+      return;
+    }
     closeChatPanel();
-  }, [showConversationInfo, closeChatPanel]);
+  }, [showConversationInfo, pendingChannelInvite, dismissChannelInvite, closeChatPanel]);
 
   const handleSwipeRelease = useCallback(
     (offset: number, width: number) => {
@@ -376,7 +465,7 @@ export function ChatPage() {
   );
 
   useSwipeBack(chatMainRef, {
-    enabled: isMobile && isPanelOpen && !showConversationInfo,
+    enabled: isMobile && isPanelOpen && !showConversationInfo && !pendingChannelInvite,
     onOffset: setSwipeOffset,
     onRelease: handleSwipeRelease,
   });
@@ -392,6 +481,21 @@ export function ChatPage() {
     loadConversations();
     refreshContacts();
   }, [loadConversations, refreshContacts]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const token = takePendingInviteToken();
+    if (token) void handleInviteToken(token);
+
+    const onInvite = (event: Event) => {
+      const detail = (event as CustomEvent<{ token: string }>).detail;
+      if (detail?.token) void handleInviteToken(detail.token);
+    };
+
+    window.addEventListener('chatapp:invite', onInvite);
+    return () => window.removeEventListener('chatapp:invite', onInvite);
+  }, [user, handleInviteToken]);
 
   useEffect(() => {
     if (!isPanelOpen || showProfile || showContacts || !activeId) return;
@@ -812,6 +916,37 @@ export function ChatPage() {
             isMobile={isMobile}
             onMessage={startDM}
           />
+        ) : pendingChannelInvite ? (
+          <>
+            <header className="chat-header">
+              <button
+                className="icon-btn close-chat-btn"
+                onClick={dismissChannelInvite}
+                title={isMobile ? 'Back to conversations' : 'Close'}
+                aria-label={isMobile ? 'Back to conversations' : 'Close'}
+              >
+                {isMobile ? '←' : '✕'}
+              </button>
+              <div className="chat-header-info">
+                <h3>#{pendingChannelInvite.channelName}</h3>
+                <span className="member-count">Channel invite</span>
+              </div>
+            </header>
+
+            <div className="chat-body">
+              <ChannelJoinBanner
+                channelName={pendingChannelInvite.channelName}
+                busy={inviteJoinBusy}
+                onJoin={() => void confirmChannelInvite()}
+                onDecline={dismissChannelInvite}
+              />
+              <div className="channel-invite-preview-empty">
+                <div className="empty-state-icon">#</div>
+                <h3>#{pendingChannelInvite.channelName}</h3>
+                <p>Join the channel to start chatting</p>
+              </div>
+            </div>
+          </>
         ) : isPanelOpen && activeConversation ? (
           <>
             <header className="chat-header">

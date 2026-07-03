@@ -3,6 +3,7 @@ import { api, Conversation, User } from '../services/api';
 import { Avatar } from './Avatar';
 import { ContactInfoPrompt } from './ContactInfoPrompt';
 import { ChatDeleteSection } from './ChatDeleteSection';
+import { ChannelInviteSection } from './ChannelInviteSection';
 import { usePresence } from '../context/PresenceContext';
 
 interface Props {
@@ -155,6 +156,8 @@ export function ConversationInfoPanel({
                 <p className="channel-description">{conversation.description}</p>
               </section>
             )}
+
+            <ChannelInviteSection conversationId={conversation.id} />
 
             <section className="profile-section">
               <h4>Members ({conversation.members.length})</h4>

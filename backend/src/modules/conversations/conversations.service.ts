@@ -13,7 +13,9 @@ import {
 import { ConversationMember, MemberRole } from './entities/conversation-member.entity';
 import { DirectConversationPair } from './entities/direct-conversation-pair.entity';
 import { ConversationUserHidden } from './entities/conversation-user-hidden.entity';
+import { ChannelInvite } from './entities/channel-invite.entity';
 import { Message } from '../messages/entities/message.entity';
+import { randomBytes } from 'crypto';
 import { MessageUserHidden } from '../messages/entities/message-user-hidden.entity';
 import { CreateChannelDto, CreateDirectDto } from './dto/conversation.dto';
 
@@ -28,6 +30,8 @@ export class ConversationsService {
     private readonly pairRepo: Repository<DirectConversationPair>,
     @InjectRepository(ConversationUserHidden)
     private readonly hiddenRepo: Repository<ConversationUserHidden>,
+    @InjectRepository(ChannelInvite)
+    private readonly inviteRepo: Repository<ChannelInvite>,
     @InjectRepository(Message)
     private readonly messageRepo: Repository<Message>,
     private readonly dataSource: DataSource,
@@ -120,8 +124,122 @@ export class ConversationsService {
         where: { id: conversation.id },
         relations: ['members', 'members.user'],
       });
+
+      await this.ensureInviteForChannel(manager, conversation.id, userId);
+
       return this.toConversationSummary(full!, userId);
     });
+  }
+
+  private createInviteToken() {
+    return randomBytes(24).toString('base64url');
+  }
+
+  private async ensureInviteForChannel(
+    manager: DataSource['manager'],
+    conversationId: string,
+    createdBy: string,
+  ) {
+    const existing = await manager.findOne(ChannelInvite, {
+      where: { conversationId },
+    });
+    if (existing) return existing;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return await manager.save(
+          manager.create(ChannelInvite, {
+            conversationId,
+            token: this.createInviteToken(),
+            createdBy,
+          }),
+        );
+      } catch {
+        // Retry on rare token collision.
+      }
+    }
+
+    throw new ConflictException('Failed to create channel invite');
+  }
+
+  async getOrCreateInvite(conversationId: string, userId: string) {
+    await this.assertMember(conversationId, userId);
+
+    const conversation = await this.conversationRepo.findOne({
+      where: { id: conversationId },
+    });
+    if (!conversation || conversation.type !== ConversationType.CHANNEL) {
+      throw new ForbiddenException('Invite links are only available for channels');
+    }
+
+    let invite = await this.inviteRepo.findOne({ where: { conversationId } });
+    if (!invite) {
+      invite = await this.ensureInviteForChannel(
+        this.dataSource.manager,
+        conversationId,
+        userId,
+      );
+    }
+
+    return { token: invite.token };
+  }
+
+  async getInvitePreview(token: string) {
+    const invite = await this.inviteRepo.findOne({
+      where: { token },
+      relations: ['conversation'],
+    });
+    if (!invite?.conversation || invite.conversation.type !== ConversationType.CHANNEL) {
+      throw new NotFoundException('Invite not found');
+    }
+
+    return {
+      channelName: invite.conversation.name ?? 'Channel',
+      conversationId: invite.conversationId,
+    };
+  }
+
+  async getInviteStatus(token: string, userId: string) {
+    const preview = await this.getInvitePreview(token);
+    const isMember = !!(await this.memberRepo.findOne({
+      where: { conversationId: preview.conversationId, userId },
+    }));
+
+    return {
+      ...preview,
+      isMember,
+    };
+  }
+
+  async joinByInvite(token: string, userId: string) {
+    const invite = await this.inviteRepo.findOne({
+      where: { token },
+      relations: ['conversation'],
+    });
+    if (!invite?.conversation || invite.conversation.type !== ConversationType.CHANNEL) {
+      throw new NotFoundException('Invite not found');
+    }
+
+    const conversationId = invite.conversationId;
+    const existing = await this.memberRepo.findOne({
+      where: { conversationId, userId },
+    });
+
+    if (existing) {
+      await this.unhideConversation(conversationId, userId);
+      return this.getById(conversationId, userId);
+    }
+
+    await this.memberRepo.save(
+      this.memberRepo.create({
+        conversationId,
+        userId,
+        role: MemberRole.MEMBER,
+      }),
+    );
+    await this.unhideConversation(conversationId, userId);
+
+    return this.getById(conversationId, userId);
   }
 
   async createDirect(userId: string, dto: CreateDirectDto) {

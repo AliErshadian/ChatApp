@@ -5,6 +5,7 @@ import { QUICK_REACTION_EMOJIS } from '../constants/messageReactions';
 import { clearTextSelection, usePreventTouchSelection } from '../hooks/usePreventTouchSelection';
 import { useGhostClickGuard } from '../hooks/useGhostClickGuard';
 import { MessageStatusTicks } from './MessageStatusTicks';
+import { LinkifiedMessageText } from './LinkifiedMessageText';
 
 interface Props {
   message: Message;
@@ -288,7 +289,9 @@ export function MessageBubble({
       ) : message.deletedForEveryone ? (
         <div className="message-content deleted">Message deleted</div>
       ) : (
-        <div className="message-content">{message.content}</div>
+        <div className="message-content">
+          <LinkifiedMessageText text={message.content} />
+        </div>
       )}
 
       {reactionsBar}
