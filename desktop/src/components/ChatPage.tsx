@@ -75,6 +75,12 @@ export function ChatPage() {
   const activeConversation = conversations.find((c) => c.id === activeId);
   const activePeer =
     activeConversation && user ? getDirectPeer(activeConversation, user.id) : undefined;
+  const canSendInActiveChat = useMemo(() => {
+    if (!activeConversation || !user) return true;
+    if (activeConversation.type !== 'channel') return true;
+    const membership = activeConversation.members.find((m) => m.userId === user.id);
+    return membership?.role === 'owner';
+  }, [activeConversation, user]);
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isPanelVisible =
     isPanelOpen &&
@@ -687,7 +693,7 @@ export function ChatPage() {
   }, [messages]);
 
   const handleSend = async () => {
-    if (!input.trim() || !activeId) return;
+    if (!input.trim() || !activeId || !canSendInActiveChat) return;
     const content = input.trim();
     const clientMessageId = createClientMessageId();
     setInput('');
@@ -736,6 +742,7 @@ export function ChatPage() {
   };
 
   const handleInputChange = (value: string) => {
+    if (!canSendInActiveChat) return;
     setInput(value);
     if (sendError) setSendError('');
     if (!activeId) return;
@@ -821,6 +828,21 @@ export function ChatPage() {
     [applyConversationHidden, applyConversationMessagesDeleted],
   );
 
+  const handleLeaveChannel = useCallback(
+    async (conversationId: string) => {
+      setDeleteChatBusy(true);
+      try {
+        await api.leaveChannel(conversationId);
+        realtime.leaveConversation(conversationId);
+        applyConversationHidden(conversationId);
+      } finally {
+        setDeleteChatBusy(false);
+        setShowConversationInfo(false);
+      }
+    },
+    [applyConversationHidden],
+  );
+
   return (
     <div className={`chat-layout ${isPanelVisible ? 'panel-open' : ''}`}>
       {!isMobile && (
@@ -880,6 +902,9 @@ export function ChatPage() {
                   deleteBusy={deleteChatBusy}
                   onClick={() => openConversation(c.id)}
                   onDeleteChat={(scope) => handleDeleteChat(c.id, scope)}
+                  onLeaveChannel={
+                    c.type === 'channel' ? () => handleLeaveChannel(c.id) : undefined
+                  }
                 />
               );
             })
@@ -999,6 +1024,7 @@ export function ChatPage() {
                   message={m}
                   isOwn={m.senderId === user?.id}
                   isFirstUnread={firstUnreadMessageId === m.id}
+                  allowMessageMenu={canSendInActiveChat}
                   onEdit={handleEditMessage}
                   onDelete={handleDeleteMessage}
                   onReaction={handleReactionMessage}
@@ -1011,17 +1037,23 @@ export function ChatPage() {
             </div>
 
             <footer className="composer">
-              <form className="composer-form" onSubmit={handleComposerSubmit}>
-                <input
-                  value={input}
-                  onChange={(e) => handleInputChange(e.target.value)}
-                  placeholder={`Message ${activeConversation.name}`}
-                  enterKeyHint="send"
-                />
-                <button type="submit" disabled={!input.trim()}>
-                  Send
-                </button>
-              </form>
+              {canSendInActiveChat ? (
+                <form className="composer-form" onSubmit={handleComposerSubmit}>
+                  <input
+                    value={input}
+                    onChange={(e) => handleInputChange(e.target.value)}
+                    placeholder={`Message ${activeConversation.name}`}
+                    enterKeyHint="send"
+                  />
+                  <button type="submit" disabled={!input.trim()}>
+                    Send
+                  </button>
+                </form>
+              ) : (
+                <p className="composer-readonly-notice">
+                  Only the channel owner can send messages in this channel.
+                </p>
+              )}
               {sendError && <p className="composer-error">{sendError}</p>}
             </footer>
 
@@ -1037,7 +1069,16 @@ export function ChatPage() {
                   contactActionBusy={contactActionBusy}
                   onAddContact={handleAddUnknownContact}
                   onIgnoreContact={handleIgnoreUnknownContact}
-                  onDeleteChat={(scope) => handleDeleteChat(activeConversation.id, scope)}
+                  onDeleteChat={
+                    activeConversation.type === 'direct'
+                      ? (scope) => handleDeleteChat(activeConversation.id, scope)
+                      : undefined
+                  }
+                  onLeaveChannel={
+                    activeConversation.type === 'channel'
+                      ? () => handleLeaveChannel(activeConversation.id)
+                      : undefined
+                  }
                   deleteChatBusy={deleteChatBusy}
                 />
               )}

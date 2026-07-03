@@ -223,6 +223,12 @@ class ApiClient {
     });
   }
 
+  leaveChannel(conversationId: string) {
+    return this.request<{ conversationId: string }>(`/conversations/${conversationId}/leave`, {
+      method: 'POST',
+    });
+  }
+
   getMessages(conversationId: string, cursor?: string) {
     const qs = cursor ? `?cursor=${cursor}` : '';
     return this.request<{ messages: Message[]; nextCursor: string | null }>(

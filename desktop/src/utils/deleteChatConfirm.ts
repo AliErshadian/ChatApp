@@ -16,3 +16,13 @@ export function getDeleteChatConfirm(scope: 'me' | 'everyone') {
     danger: true,
   };
 }
+
+export function getLeaveChannelConfirm() {
+  return {
+    title: 'Leave channel?',
+    message:
+      'You will leave this channel and it will be removed from your list. You can rejoin with an invite link.',
+    confirmLabel: 'Leave channel',
+    danger: true,
+  };
+}

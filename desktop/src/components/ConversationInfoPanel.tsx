@@ -4,6 +4,7 @@ import { Avatar } from './Avatar';
 import { ContactInfoPrompt } from './ContactInfoPrompt';
 import { ChatDeleteSection } from './ChatDeleteSection';
 import { ChannelInviteSection } from './ChannelInviteSection';
+import { ChannelLeaveSection } from './ChannelLeaveSection';
 import { usePresence } from '../context/PresenceContext';
 
 interface Props {
@@ -16,6 +17,7 @@ interface Props {
   onAddContact?: () => void;
   onIgnoreContact?: () => void;
   onDeleteChat?: (scope: 'me' | 'everyone') => void;
+  onLeaveChannel?: () => void;
   deleteChatBusy?: boolean;
 }
 
@@ -38,6 +40,7 @@ export function ConversationInfoPanel({
   onAddContact,
   onIgnoreContact,
   onDeleteChat,
+  onLeaveChannel,
   deleteChatBusy = false,
 }: Props) {
   const { getPresence, refreshPresence } = usePresence();
@@ -193,12 +196,8 @@ export function ConversationInfoPanel({
               </dl>
             </section>
 
-            {onDeleteChat && (
-              <ChatDeleteSection
-                description="Remove this channel from your list or delete messages you sent for everyone."
-                busy={deleteChatBusy}
-                onDeleteChat={onDeleteChat}
-              />
+            {onLeaveChannel && (
+              <ChannelLeaveSection busy={deleteChatBusy} onLeave={onLeaveChannel} />
             )}
           </>
         )}

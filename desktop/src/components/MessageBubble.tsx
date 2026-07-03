@@ -11,6 +11,7 @@ interface Props {
   message: Message;
   isOwn: boolean;
   isFirstUnread?: boolean;
+  allowMessageMenu?: boolean;
   onEdit: (messageId: string, content: string) => Promise<void>;
   onDelete: (messageId: string, scope: 'me' | 'everyone') => Promise<void>;
   onReaction: (messageId: string, emoji: string) => Promise<void>;
@@ -20,6 +21,7 @@ export function MessageBubble({
   message,
   isOwn,
   isFirstUnread,
+  allowMessageMenu = true,
   onEdit,
   onDelete,
   onReaction,
@@ -43,7 +45,7 @@ export function MessageBubble({
   const { arm: armGhostClick, isSuppressed: isGhostClickSuppressed } = useGhostClickGuard();
 
   const canEdit = isOwn && !message.deletedForEveryone;
-  const showMenu = !editing;
+  const showMenu = allowMessageMenu && !editing;
   const isFocused = menuOpen && layout !== null;
 
   const measureLayout = () => {
@@ -86,7 +88,7 @@ export function MessageBubble({
   };
 
   const openMenu = (options?: { viaTouch?: boolean; origin?: { x: number; y: number } }) => {
-    if (editing) return;
+    if (editing || !allowMessageMenu) return;
     if (options?.origin) {
       touchOriginRef.current = options.origin;
     }
@@ -156,13 +158,13 @@ export function MessageBubble({
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
-    if (editing) return;
+    if (editing || !allowMessageMenu) return;
     e.preventDefault();
     openMenu();
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (editing) return;
+    if (editing || !allowMessageMenu) return;
     const touch = e.touches[0];
     touchOriginRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
     longPressTriggered.current = false;
@@ -231,11 +233,15 @@ export function MessageBubble({
           key={reaction.emoji}
           type="button"
           className={`message-reaction-chip${reaction.reactedByMe ? ' active' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            void handleReaction(reaction.emoji);
-          }}
-          disabled={busy}
+          onClick={
+            allowMessageMenu
+              ? (e) => {
+                  e.stopPropagation();
+                  void handleReaction(reaction.emoji);
+                }
+              : undefined
+          }
+          disabled={busy || !allowMessageMenu}
           aria-label={`React with ${reaction.emoji}`}
         >
           <span className="message-reaction-emoji">{reaction.emoji}</span>

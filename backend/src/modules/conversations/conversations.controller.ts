@@ -53,6 +53,11 @@ export class ConversationsController {
     return this.conversationsService.getOrCreateInvite(id, user.id);
   }
 
+  @Post(':id/leave')
+  leave(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: User) {
+    return this.conversationsService.leaveChannel(id, user.id);
+  }
+
   @Delete(':id')
   remove(
     @Param('id', ParseUUIDPipe) id: string,

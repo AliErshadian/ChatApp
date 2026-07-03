@@ -6,7 +6,7 @@ import { ConfirmModal } from './ConfirmModal';
 import { getDirectPeer } from '../utils/conversation';
 import { usePresence } from '../context/PresenceContext';
 import { formatConversationPreview } from '../utils/conversationList';
-import { getDeleteChatConfirm } from '../utils/deleteChatConfirm';
+import { getDeleteChatConfirm, getLeaveChannelConfirm } from '../utils/deleteChatConfirm';
 import { formatRelativeTime } from '../utils/time';
 import { clearTextSelection, usePreventTouchSelection } from '../hooks/usePreventTouchSelection';
 import { useGhostClickGuard } from '../hooks/useGhostClickGuard';
@@ -21,6 +21,7 @@ interface Props {
   deleteBusy?: boolean;
   onClick: () => void;
   onDeleteChat: (scope: 'me' | 'everyone') => void | Promise<void>;
+  onLeaveChannel?: () => void | Promise<void>;
 }
 
 export function ConversationListItem({
@@ -33,11 +34,13 @@ export function ConversationListItem({
   deleteBusy = false,
   onClick,
   onDeleteChat,
+  onLeaveChannel,
 }: Props) {
   const { getPresence } = usePresence();
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties | null>(null);
   const [pendingDelete, setPendingDelete] = useState<'me' | 'everyone' | null>(null);
+  const [pendingLeave, setPendingLeave] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout>>();
   const longPressTriggered = useRef(false);
@@ -48,6 +51,7 @@ export function ConversationListItem({
   const { arm: armGhostClick, isSuppressed: isGhostClickSuppressed } = useGhostClickGuard();
 
   const peer = getDirectPeer(conversation, currentUserId);
+  const isChannel = conversation.type === 'channel';
   const preview = formatConversationPreview(conversation, currentUserId);
   const time = conversation.lastMessage?.createdAt
     ? formatRelativeTime(conversation.lastMessage.createdAt)
@@ -170,7 +174,24 @@ export function ConversationListItem({
     }
   };
 
+  const handleLeaveRequest = () => {
+    closeMenu();
+    setPendingLeave(true);
+  };
+
+  const handleLeaveConfirm = async () => {
+    if (!onLeaveChannel) return;
+    setConfirming(true);
+    try {
+      await onLeaveChannel();
+      setPendingLeave(false);
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   const deleteConfirm = pendingDelete ? getDeleteChatConfirm(pendingDelete) : null;
+  const leaveConfirm = pendingLeave ? getLeaveChannelConfirm() : null;
 
   return (
     <div
@@ -237,23 +258,37 @@ export function ConversationListItem({
             />
             {menuStyle && (
               <div className="conversation-menu conversation-menu--fixed" style={menuStyle} role="menu">
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={deleteBusy || confirming}
-                  onClick={() => handleDeleteRequest('me')}
-                >
-                  Delete for me
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="danger"
-                  disabled={deleteBusy || confirming}
-                  onClick={() => handleDeleteRequest('everyone')}
-                >
-                  {deleteBusy || confirming ? 'Deleting...' : 'Delete for everyone'}
-                </button>
+                {isChannel ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="danger"
+                    disabled={deleteBusy || confirming}
+                    onClick={handleLeaveRequest}
+                  >
+                    Leave channel
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={deleteBusy || confirming}
+                      onClick={() => handleDeleteRequest('me')}
+                    >
+                      Delete for me
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="danger"
+                      disabled={deleteBusy || confirming}
+                      onClick={() => handleDeleteRequest('everyone')}
+                    >
+                      {deleteBusy || confirming ? 'Deleting...' : 'Delete for everyone'}
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </>,
@@ -271,6 +306,21 @@ export function ConversationListItem({
           onConfirm={handleDeleteConfirm}
           onCancel={() => {
             if (!deleteBusy && !confirming) setPendingDelete(null);
+          }}
+        />
+      )}
+
+      {leaveConfirm && (
+        <ConfirmModal
+          open
+          title={leaveConfirm.title}
+          message={leaveConfirm.message}
+          confirmLabel={leaveConfirm.confirmLabel}
+          danger={leaveConfirm.danger}
+          busy={deleteBusy || confirming}
+          onConfirm={handleLeaveConfirm}
+          onCancel={() => {
+            if (!deleteBusy && !confirming) setPendingLeave(false);
           }}
         />
       )}

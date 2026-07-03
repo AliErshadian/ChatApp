@@ -73,7 +73,7 @@ export class MessagesService {
   ) {}
 
   async send(userId: string, dto: SendMessageDto): Promise<MessagePayload> {
-    await this.conversationsService.assertMember(dto.conversationId, userId);
+    await this.conversationsService.assertCanSendMessage(dto.conversationId, userId);
 
     const content = this.sanitization.sanitizeMessage(dto.content);
     if (!content) throw new ConflictException('Message content is empty');

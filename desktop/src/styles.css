@@ -1342,6 +1342,18 @@ body {
   color: #f87171;
 }
 
+.composer-readonly-notice {
+  margin: 0;
+  padding: 0.75rem 0.85rem;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
 .composer input {
   flex: 1;
   min-width: 0;

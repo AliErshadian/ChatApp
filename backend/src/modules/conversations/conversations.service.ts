@@ -291,6 +291,36 @@ export class ConversationsService {
     });
   }
 
+  async leaveChannel(conversationId: string, userId: string) {
+    const conversation = await this.conversationRepo.findOne({
+      where: { id: conversationId },
+    });
+    if (!conversation || conversation.type !== ConversationType.CHANNEL) {
+      throw new ForbiddenException('Can only leave channels');
+    }
+
+    const member = await this.assertMember(conversationId, userId);
+    const members = await this.memberRepo.find({
+      where: { conversationId },
+      order: { joinedAt: 'ASC' },
+    });
+
+    if (member.role === MemberRole.OWNER) {
+      const remaining = members.filter((m) => m.userId !== userId);
+      if (remaining.length > 0) {
+        const nextOwner =
+          remaining.find((m) => m.role === MemberRole.ADMIN) ?? remaining[0];
+        nextOwner.role = MemberRole.OWNER;
+        await this.memberRepo.save(nextOwner);
+      }
+    }
+
+    await this.memberRepo.delete({ conversationId, userId });
+    await this.hideConversation(conversationId, userId);
+
+    return { conversationId };
+  }
+
   async delete(
     userId: string,
     conversationId: string,
@@ -391,6 +421,20 @@ export class ConversationsService {
       where: { conversationId, userId },
     });
     if (!member) throw new ForbiddenException('Not a member of this conversation');
+    return member;
+  }
+
+  async assertCanSendMessage(conversationId: string, userId: string) {
+    const member = await this.assertMember(conversationId, userId);
+    const conversation = await this.conversationRepo.findOne({
+      where: { id: conversationId },
+    });
+    if (
+      conversation?.type === ConversationType.CHANNEL &&
+      member.role !== MemberRole.OWNER
+    ) {
+      throw new ForbiddenException('Only the channel owner can send messages');
+    }
     return member;
   }
 
