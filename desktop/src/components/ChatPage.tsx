@@ -10,6 +10,7 @@ import { ContactsPanel } from './ContactsPanel';
 import { ConversationInfoPanel } from './ConversationInfoPanel';
 import { mergeMessageStatus, mergeOutgoingServerMessage } from '../utils/messageStatus';
 import { ConversationListItem } from './ConversationListItem';
+import { AppNav } from './AppNav';
 import { bumpConversationFromMessage, reorderConversations } from '../utils/conversationList';
 import { getDirectPeer } from '../utils/conversation';
 import { useMediaQuery } from '../hooks/useMediaQuery';
@@ -33,6 +34,7 @@ export function ChatPage() {
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [showProfile, setShowProfile] = useState(false);
   const [showContacts, setShowContacts] = useState(false);
+  const [showNewChatPicker, setShowNewChatPicker] = useState(false);
   const [showConversationInfo, setShowConversationInfo] = useState(false);
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [channelName, setChannelName] = useState('');
@@ -66,7 +68,8 @@ export function ChatPage() {
   const activePeer =
     activeConversation && user ? getDirectPeer(activeConversation, user.id) : undefined;
   const isMobile = useMediaQuery('(max-width: 768px)');
-  const isPanelVisible = isPanelOpen && (activeConversation || showProfile || showContacts);
+  const isPanelVisible =
+    isPanelOpen && (activeConversation || showProfile || showContacts || showNewChatPicker);
 
   const typingIndicatorText = useMemo(() => {
     if (!activeConversation || typingUsers.size === 0) return null;
@@ -284,6 +287,7 @@ export function ChatPage() {
   const openConversation = useCallback((id: string) => {
     setShowProfile(false);
     setShowContacts(false);
+    setShowNewChatPicker(false);
     setShowConversationInfo(false);
     setConversations((prev) => {
       const conv = prev.find((c) => c.id === id);
@@ -298,19 +302,47 @@ export function ChatPage() {
   const openProfile = useCallback(() => {
     setShowProfile(true);
     setShowContacts(false);
+    setShowNewChatPicker(false);
     setIsPanelOpen(true);
   }, []);
 
   const openContacts = useCallback(() => {
     setShowContacts(true);
     setShowProfile(false);
+    setShowNewChatPicker(false);
     setIsPanelOpen(true);
   }, []);
+
+  const openNewChatPicker = useCallback(() => {
+    setShowProfile(false);
+    setShowContacts(false);
+    setShowNewChatPicker(true);
+    setShowConversationInfo(false);
+    setIsPanelOpen(true);
+  }, []);
+
+  const closeNewChatPicker = useCallback(() => {
+    setShowNewChatPicker(false);
+    if (isMobile && !activeIdRef.current) {
+      setIsPanelOpen(false);
+    }
+  }, [isMobile]);
+
+  const openChats = useCallback(() => {
+    setShowProfile(false);
+    setShowContacts(false);
+    setShowNewChatPicker(false);
+    setShowConversationInfo(false);
+    if (isMobile || !activeIdRef.current) {
+      setIsPanelOpen(false);
+    }
+  }, [isMobile]);
 
   const closeChatPanel = useCallback(() => {
     setIsPanelOpen(false);
     setShowProfile(false);
     setShowContacts(false);
+    setShowNewChatPicker(false);
     setShowConversationInfo(false);
     setTypingUsers(new Set());
   }, []);
@@ -620,6 +652,18 @@ export function ChatPage() {
   };
 
   const startDM = async (targetUser: User) => {
+    setShowNewChatPicker(false);
+
+    const existing = conversations.find(
+      (c) =>
+        c.type === 'direct' &&
+        c.members.some((m) => m.userId === targetUser.id),
+    );
+    if (existing) {
+      openConversation(existing.id);
+      return;
+    }
+
     const dm = await api.createDirect(targetUser.id);
     setConversations((prev) => {
       const exists = prev.find((c) => c.id === dm.id);
@@ -649,6 +693,8 @@ export function ChatPage() {
     saveIgnoredContactPrompts(next);
   };
 
+  const activeNavTab = showProfile ? 'profile' : showContacts ? 'contacts' : 'chats';
+
   const handleDeleteChat = useCallback(
     async (conversationId: string, scope: 'me' | 'everyone') => {
       setDeleteChatBusy(true);
@@ -673,14 +719,29 @@ export function ChatPage() {
 
   return (
     <div className={`chat-layout ${isPanelVisible ? 'panel-open' : ''}`}>
+      {!isMobile && (
+        <AppNav
+          variant="rail"
+          activeTab={activeNavTab}
+          displayName={user?.displayName}
+          avatarUrl={user?.avatarUrl}
+          onChats={openChats}
+          onContacts={openContacts}
+          onProfile={openProfile}
+          onLogout={logout}
+        />
+      )}
+
+      <div className="chat-layout-body">
       <aside className="sidebar">
         <header className="sidebar-header">
           <h2>ChatApp</h2>
-          <button className="icon-btn" onClick={logout} title="Logout">⏻</button>
         </header>
 
         <div className="sidebar-actions">
-          <button onClick={openContacts}>Contacts</button>
+          <button className="sidebar-action-primary" onClick={openNewChatPicker}>
+            + New Chat
+          </button>
           <button onClick={() => setShowNewChannel(true)}>+ Channel</button>
         </div>
 
@@ -695,7 +756,7 @@ export function ChatPage() {
           {conversations.length === 0 ? (
             <div className="conversation-list-empty">
               <p>No conversations yet</p>
-              <span>Open Contacts or create a channel to get started</span>
+              <span>Use New Chat or create a channel to get started</span>
             </div>
           ) : (
             conversations.map((c) => {
@@ -720,16 +781,6 @@ export function ChatPage() {
             })
           )}
         </div>
-
-        {user && (
-          <button className="sidebar-profile" onClick={openProfile} title="My profile">
-            <Avatar name={user.displayName} avatarUrl={user.avatarUrl} size="sm" />
-            <div className="sidebar-profile-info">
-              <span className="sidebar-profile-name">{user.displayName}</span>
-              <span className="sidebar-profile-username">@{user.username}</span>
-            </div>
-          </button>
-        )}
       </aside>
 
       <main
@@ -751,6 +802,13 @@ export function ChatPage() {
         ) : showContacts ? (
           <ContactsPanel
             onClose={closeChatPanel}
+            isMobile={isMobile}
+            onMessage={startDM}
+          />
+        ) : showNewChatPicker ? (
+          <ContactsPanel
+            variant="picker"
+            onClose={closeNewChatPicker}
             isMobile={isMobile}
             onMessage={startDM}
           />
@@ -878,6 +936,20 @@ export function ChatPage() {
           </div>
         )}
       </main>
+      </div>
+
+      {isMobile && (
+        <AppNav
+          variant="bottom"
+          activeTab={activeNavTab}
+          displayName={user?.displayName}
+          avatarUrl={user?.avatarUrl}
+          onChats={openChats}
+          onContacts={openContacts}
+          onProfile={openProfile}
+          onLogout={logout}
+        />
+      )}
 
       {showNewChannel && (
         <div className="modal-overlay" onClick={() => setShowNewChannel(false)}>

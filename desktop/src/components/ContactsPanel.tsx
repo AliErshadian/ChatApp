@@ -8,9 +8,16 @@ interface Props {
   onClose: () => void;
   isMobile?: boolean;
   onMessage: (user: User) => void;
+  variant?: 'full' | 'picker';
 }
 
-export function ContactsPanel({ onClose, isMobile = false, onMessage }: Props) {
+export function ContactsPanel({
+  onClose,
+  isMobile = false,
+  onMessage,
+  variant = 'full',
+}: Props) {
+  const isPicker = variant === 'picker';
   const { user } = useAuth();
   const { getPresence, refreshPresence } = usePresence();
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -21,8 +28,13 @@ export function ContactsPanel({ onClose, isMobile = false, onMessage }: Props) {
   const [searching, setSearching] = useState(false);
   const [actionUserId, setActionUserId] = useState<string | null>(null);
 
-  const closeLabel = isMobile ? 'Back to conversations' : 'Close contacts';
+  const closeLabel = isMobile
+    ? 'Back to conversations'
+    : isPicker
+      ? 'Close new chat'
+      : 'Close contacts';
   const closeIcon = isMobile ? '←' : '✕';
+  const panelTitle = isPicker ? 'New Chat' : 'Contacts';
 
   const contactIds = useMemo(
     () => new Set(contacts.map((c) => c.id)),
@@ -126,10 +138,11 @@ export function ContactsPanel({ onClose, isMobile = false, onMessage }: Props) {
         >
           {closeIcon}
         </button>
-        <h3>Contacts</h3>
+        <h3>{panelTitle}</h3>
       </header>
 
       <div className="contacts-content">
+        {!isPicker && (
         <section className="contacts-search-section">
           <input
             className="contacts-search-input"
@@ -176,10 +189,11 @@ export function ContactsPanel({ onClose, isMobile = false, onMessage }: Props) {
             </ul>
           )}
         </section>
+        )}
 
         <section className="contacts-list-section">
           <div className="contacts-list-header">
-            <span>Your contacts</span>
+            <span>{isPicker ? 'Choose a contact' : 'Your contacts'}</span>
             <span className="conversation-count">{contacts.length}</span>
           </div>
 
@@ -190,24 +204,36 @@ export function ContactsPanel({ onClose, isMobile = false, onMessage }: Props) {
           ) : contacts.length === 0 ? (
             <div className="contacts-empty">
               <p>No contacts yet</p>
-              <span>Enter a full username above to find people</span>
+              <span>
+                {isPicker
+                  ? 'Add people from Contacts to start chatting'
+                  : 'Enter a full username above to find people'}
+              </span>
             </div>
           ) : (
-            <ul className="contacts-list">
+            <ul className={`contacts-list${isPicker ? ' contacts-list--picker' : ''}`}>
               {contacts.map((c) => {
                 const busy = actionUserId === c.id;
                 return (
                   <li key={c.id} className="contact-row">
-                    <Avatar
-                      name={c.displayName}
-                      avatarUrl={c.avatarUrl}
-                      size="sm"
-                      presence={getPresence(c.id)}
-                    />
-                    <div className="contact-row-info">
-                      <span className="contact-row-name">{c.displayName}</span>
-                      <span className="contact-row-username">@{c.username}</span>
-                    </div>
+                    <button
+                      type="button"
+                      className="contact-row-main"
+                      onClick={() => handleMessage(c)}
+                      disabled={busy}
+                    >
+                      <Avatar
+                        name={c.displayName}
+                        avatarUrl={c.avatarUrl}
+                        size="sm"
+                        presence={getPresence(c.id)}
+                      />
+                      <div className="contact-row-info">
+                        <span className="contact-row-name">{c.displayName}</span>
+                        <span className="contact-row-username">@{c.username}</span>
+                      </div>
+                    </button>
+                    {!isPicker && (
                     <div className="contact-row-actions">
                       <button
                         type="button"
@@ -226,6 +252,7 @@ export function ContactsPanel({ onClose, isMobile = false, onMessage }: Props) {
                         Remove
                       </button>
                     </div>
+                    )}
                   </li>
                 );
               })}

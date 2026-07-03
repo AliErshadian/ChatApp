@@ -98,6 +98,106 @@ body {
 /* Chat Layout */
 .chat-layout { display: flex; height: 100vh; height: 100dvh; }
 
+.chat-layout-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+}
+
+.nav-rail {
+  width: 56px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.75rem 0;
+  background: var(--bg-tertiary);
+  border-right: 1px solid var(--border);
+}
+
+.nav-rail-brand {
+  width: 2rem;
+  height: 2rem;
+  margin-bottom: 0.35rem;
+  border-radius: 10px;
+  background: var(--accent);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.nav-rail-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nav-rail-btn svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nav-rail-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.nav-rail-btn.active {
+  background: var(--accent);
+  color: white;
+}
+
+.nav-rail-btn--avatar {
+  overflow: visible;
+  padding: 0;
+}
+
+.nav-rail-btn--avatar.active {
+  box-shadow: 0 0 0 2px var(--bg-tertiary), 0 0 0 3px var(--accent);
+}
+
+.nav-rail-btn--avatar .profile-avatar-sm,
+.nav-rail-btn--avatar .profile-avatar-img.profile-avatar-sm {
+  width: 2.5rem;
+  height: 2.5rem;
+  font-size: 0.85rem;
+}
+
+.nav-rail-btn--logout {
+  margin-top: 0.15rem;
+}
+
+.nav-rail-spacer {
+  flex: 1;
+  min-height: 0.5rem;
+}
+
+.nav-rail-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
 .sidebar {
   width: 280px;
   background: var(--bg-secondary);
@@ -147,6 +247,20 @@ body {
 }
 
 .sidebar-actions button:hover { background: var(--bg-hover); }
+
+.sidebar-actions .sidebar-action-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.sidebar-actions .sidebar-action-primary:hover {
+  filter: brightness(1.05);
+}
+
+.sidebar-actions--single {
+  grid-template-columns: 1fr;
+}
 
 .sidebar-actions input {
   padding: 0.5rem 0.75rem;
@@ -1738,6 +1852,38 @@ body {
   border-radius: 10px;
 }
 
+.contact-row-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 8px;
+}
+
+.contact-row-main:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.contact-row-main:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.contacts-list--picker .contact-row {
+  padding: 0.35rem;
+}
+
+.contacts-list--picker .contact-row-main {
+  padding: 0.35rem;
+}
+
 .contact-row-info {
   flex: 1;
   min-width: 0;
@@ -1827,6 +1973,62 @@ body {
     font-size: 16px;
   }
 
+  .chat-layout {
+    flex-direction: column;
+  }
+
+  .chat-layout-body {
+    flex-direction: column;
+    position: relative;
+  }
+
+  .nav-rail--bottom {
+    width: 100%;
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: space-around;
+    gap: 0.15rem;
+    padding: 0.35rem 0.5rem;
+    padding-bottom: max(0.35rem, env(safe-area-inset-bottom));
+    border-right: none;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    z-index: 100;
+  }
+
+  .nav-rail--bottom .nav-rail-btn {
+    flex: 1;
+    flex-direction: column;
+    width: auto;
+    height: auto;
+    min-height: 3.25rem;
+    gap: 0.2rem;
+    border-radius: 10px;
+    max-width: 5.5rem;
+    padding: 0.2rem 0;
+  }
+
+  .nav-rail--bottom .nav-rail-btn svg {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+
+  .nav-rail--bottom .nav-rail-btn--avatar .profile-avatar-sm,
+  .nav-rail--bottom .nav-rail-btn--avatar .profile-avatar-img.profile-avatar-sm {
+    width: 1.75rem;
+    height: 1.75rem;
+    font-size: 0.7rem;
+  }
+
+  .nav-rail--bottom .nav-rail-btn--avatar.active {
+    box-shadow: none;
+    background: var(--accent);
+  }
+
+  .nav-rail--bottom .nav-rail-label {
+    color: inherit;
+  }
+
   .chat-layout.panel-open {
     position: relative;
     overflow: hidden;
@@ -1913,11 +2115,6 @@ body {
     min-height: 4.25rem;
   }
 
-  .sidebar-profile {
-    padding: 0.85rem 1rem;
-    padding-bottom: max(0.85rem, env(safe-area-inset-bottom));
-  }
-
   .chat-header,
   .profile-header,
   .conversation-info-header {
@@ -1935,7 +2132,6 @@ body {
 
   .composer {
     padding: 0.75rem 1rem;
-    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
     gap: 0.5rem;
   }
 
