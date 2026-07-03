@@ -5,6 +5,25 @@ export function getDirectPeer(conversation: Conversation, currentUserId: string)
   return conversation.members.find((m) => m.userId !== currentUserId);
 }
 
+export function isChannelOwner(conversation: Conversation, userId: string) {
+  return conversation.members.some((m) => m.userId === userId && m.role === 'owner');
+}
+
+export function partitionChannels(conversations: Conversation[], userId: string) {
+  const owned: Conversation[] = [];
+  const joined: Conversation[] = [];
+
+  for (const conversation of conversations) {
+    if (isChannelOwner(conversation, userId)) {
+      owned.push(conversation);
+    } else {
+      joined.push(conversation);
+    }
+  }
+
+  return { owned, joined };
+}
+
 export function getChannelOwner(conversation: Conversation) {
   return conversation.members.find((m) => m.role === 'owner');
 }

@@ -361,6 +361,12 @@ body {
   color: var(--text-secondary);
 }
 
+.conversation-list-section + .conversation-list-section {
+  margin-top: 0.75rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border);
+}
+
 .conversation-count {
   font-weight: 600;
   opacity: 0.8;

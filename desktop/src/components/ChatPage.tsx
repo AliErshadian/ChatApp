@@ -13,7 +13,7 @@ import { mergeMessageStatus, mergeOutgoingServerMessage } from '../utils/message
 import { ConversationListItem } from './ConversationListItem';
 import { AppNav } from './AppNav';
 import { bumpConversationFromMessage, reorderConversations } from '../utils/conversationList';
-import { getDirectPeer } from '../utils/conversation';
+import { getDirectPeer, partitionChannels } from '../utils/conversation';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import {
@@ -874,6 +874,10 @@ export function ChatPage() {
     () => conversations.filter((c) => c.type === 'channel'),
     [conversations],
   );
+  const { owned: ownedChannels, joined: joinedChannels } = useMemo(
+    () => (user ? partitionChannels(channelConversations, user.id) : { owned: [], joined: [] }),
+    [channelConversations, user],
+  );
   const sidebarConversations =
     sidebarList === 'channels' ? channelConversations : chatConversations;
 
@@ -943,6 +947,31 @@ export function ChatPage() {
     [applyConversationHidden],
   );
 
+  const renderSidebarItem = (c: Conversation) => {
+    const unread = c.unreadCount ?? 0;
+    const showUnread = unread > 0 && !(isPanelOpen && c.id === activeId);
+
+    return (
+      <ConversationListItem
+        key={c.id}
+        conversation={c}
+        currentUserId={user!.id}
+        isActive={c.id === activeId}
+        isSelected={c.id === activeId && !isPanelOpen}
+        showUnread={showUnread}
+        unreadCount={unread}
+        deleteBusy={deleteChatBusy}
+        onClick={() => openConversation(c.id)}
+        onDeleteChat={(scope) => handleDeleteChat(c.id, scope)}
+        onLeaveChannel={
+          c.type === 'channel'
+            ? (newOwnerId) => handleLeaveChannel(c.id, newOwnerId)
+            : undefined
+        }
+      />
+    );
+  };
+
   return (
     <div className={`chat-layout ${isPanelVisible ? 'panel-open' : ''}`}>
       {!isMobile && (
@@ -980,48 +1009,47 @@ export function ChatPage() {
         </div>
 
         <div className="conversation-list">
-          {sidebarConversations.length > 0 && (
-            <div className="conversation-list-header">
-              <span>{sidebarList === 'channels' ? 'Channels' : 'Messages'}</span>
-              <span className="conversation-count">{sidebarConversations.length}</span>
-            </div>
-          )}
-
-          {sidebarConversations.length === 0 ? (
+          {sidebarList === 'channels' ? (
+            channelConversations.length === 0 ? (
+              <div className="conversation-list-empty">
+                <p>No channels yet</p>
+                <span>Create a channel to get started</span>
+              </div>
+            ) : (
+              <>
+                {ownedChannels.length > 0 && (
+                  <section className="conversation-list-section">
+                    <div className="conversation-list-header">
+                      <span>My Channels</span>
+                      <span className="conversation-count">{ownedChannels.length}</span>
+                    </div>
+                    {ownedChannels.map((c) => renderSidebarItem(c))}
+                  </section>
+                )}
+                {joinedChannels.length > 0 && (
+                  <section className="conversation-list-section">
+                    <div className="conversation-list-header">
+                      <span>Joined</span>
+                      <span className="conversation-count">{joinedChannels.length}</span>
+                    </div>
+                    {joinedChannels.map((c) => renderSidebarItem(c))}
+                  </section>
+                )}
+              </>
+            )
+          ) : sidebarConversations.length === 0 ? (
             <div className="conversation-list-empty">
-              <p>{sidebarList === 'channels' ? 'No channels yet' : 'No conversations yet'}</p>
-              <span>
-                {sidebarList === 'channels'
-                  ? 'Create a channel to get started'
-                  : 'Use New Chat to start messaging'}
-              </span>
+              <p>No conversations yet</p>
+              <span>Use New Chat to start messaging</span>
             </div>
           ) : (
-            sidebarConversations.map((c) => {
-              const unread = c.unreadCount ?? 0;
-              const showUnread =
-                unread > 0 && !(isPanelOpen && c.id === activeId);
-
-              return (
-                <ConversationListItem
-                  key={c.id}
-                  conversation={c}
-                  currentUserId={user!.id}
-                  isActive={c.id === activeId}
-                  isSelected={c.id === activeId && !isPanelOpen}
-                  showUnread={showUnread}
-                  unreadCount={unread}
-                  deleteBusy={deleteChatBusy}
-                  onClick={() => openConversation(c.id)}
-                  onDeleteChat={(scope) => handleDeleteChat(c.id, scope)}
-                  onLeaveChannel={
-                    c.type === 'channel'
-                      ? (newOwnerId) => handleLeaveChannel(c.id, newOwnerId)
-                      : undefined
-                  }
-                />
-              );
-            })
+            <>
+              <div className="conversation-list-header">
+                <span>Messages</span>
+                <span className="conversation-count">{sidebarConversations.length}</span>
+              </div>
+              {sidebarConversations.map((c) => renderSidebarItem(c))}
+            </>
           )}
         </div>
       </aside>
