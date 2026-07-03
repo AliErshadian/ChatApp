@@ -8,11 +8,12 @@ import {
   MessageBody,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger, UseGuards } from '@nestjs/common';
+import { Logger, UseGuards, OnModuleInit } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { MessagesService } from '../messages/messages.service';
 import { ConversationsService } from '../conversations/conversations.service';
+import { ConversationRealtimePublisher } from '../conversations/conversation-realtime.publisher';
 import { PresenceService, PresenceStatus } from '../presence/presence.service';
 import { PresenceConnectionRegistry } from '../presence/presence-connection.registry';
 import { WsJwtGuard } from './guards/ws-jwt.guard';
@@ -26,7 +27,7 @@ interface AuthenticatedSocket extends Socket {
   namespace: '/realtime',
   transports: ['websocket', 'polling'],
 })
-export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit {
   @WebSocketServer()
   server!: Server;
 
@@ -39,7 +40,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly conversationsService: ConversationsService,
     private readonly presenceService: PresenceService,
     private readonly presenceConnections: PresenceConnectionRegistry,
+    private readonly conversationPublisher: ConversationRealtimePublisher,
   ) {}
+
+  onModuleInit() {
+    this.conversationPublisher.setEmitter((conversationId) =>
+      this.broadcastConversationUpdated(conversationId),
+    );
+  }
 
   async handleConnection(client: AuthenticatedSocket) {
     try {
@@ -256,6 +264,21 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
     for (const memberId of memberIds) {
       this.server.to(`user:${memberId}`).emit('message:reaction', result);
+    }
+  }
+
+  private async broadcastConversationUpdated(conversationId: string) {
+    const data = await this.conversationsService.getChannelUpdatePayload(conversationId);
+    if (!data) return;
+
+    const { memberUserIds, ...payload } = data;
+
+    this.server
+      .to(`conversation:${conversationId}`)
+      .emit('conversation:updated', payload);
+
+    for (const memberId of memberUserIds) {
+      this.server.to(`user:${memberId}`).emit('conversation:updated', payload);
     }
   }
 

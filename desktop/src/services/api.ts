@@ -47,6 +47,15 @@ export interface Conversation {
   };
 }
 
+export interface ConversationUpdatedEvent {
+  conversationId: string;
+  name?: string;
+  description?: string;
+  members: Conversation['members'];
+  memberCount: number;
+  ownerId: string | null;
+}
+
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read';
 
 export interface MessageReaction {

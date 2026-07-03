@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { Avatar } from './Avatar';
-import { api, Conversation, Message, MessageStatus, User } from '../services/api';
+import { api, Conversation, Message, MessageStatus, User, ConversationUpdatedEvent } from '../services/api';
 import { realtime } from '../services/realtime';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
@@ -221,6 +221,29 @@ export function ChatPage() {
       setShowConversationInfo(false);
       setTypingUsers(new Set());
     }
+  }, []);
+
+  const applyConversationUpdate = useCallback((update: ConversationUpdatedEvent) => {
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id !== update.conversationId || c.type !== 'channel') return c;
+
+        const mergedMembers = update.members.map((member) => {
+          const existing = c.members.find((m) => m.userId === member.userId);
+          return {
+            ...member,
+            lastReadAt: existing?.lastReadAt,
+          };
+        });
+
+        return {
+          ...c,
+          name: update.name ?? c.name,
+          description: update.description ?? c.description,
+          members: mergedMembers,
+        };
+      }),
+    );
   }, []);
 
   const applyConversationMessagesDeleted = useCallback(
@@ -682,6 +705,10 @@ export function ChatPage() {
       applyConversationMessagesDeleted(update);
     });
 
+    const unsubConvUpdated = realtime.onConversationUpdated((update) => {
+      applyConversationUpdate(update);
+    });
+
     return () => {
       unsubMsg();
       unsubAck();
@@ -692,11 +719,13 @@ export function ChatPage() {
       unsubReaction();
       unsubConvHidden();
       unsubConvDeleted();
+      unsubConvUpdated();
     };
   }, [
     acknowledgeIncoming,
     applyConversationHidden,
     applyConversationMessagesDeleted,
+    applyConversationUpdate,
     applyMessageUpdate,
     applyReactionUpdate,
     applyStatusUpdate,

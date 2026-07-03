@@ -872,6 +872,11 @@ body {
   letter-spacing: 0.03em;
 }
 
+.member-role--owner {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .messages {
   flex: 1;
   overflow-y: auto;

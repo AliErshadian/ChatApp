@@ -25,6 +25,7 @@ CREATE TABLE conversations (
     name VARCHAR(128),
     description TEXT,
     created_by UUID NOT NULL REFERENCES users(id),
+    pending_owner_id UUID REFERENCES users(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT channel_requires_name CHECK (

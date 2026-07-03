@@ -19,6 +19,7 @@ import { Message } from '../messages/entities/message.entity';
 import { randomBytes } from 'crypto';
 import { MessageUserHidden } from '../messages/entities/message-user-hidden.entity';
 import { CreateChannelDto, CreateDirectDto } from './dto/conversation.dto';
+import { ConversationRealtimePublisher } from './conversation-realtime.publisher';
 
 @Injectable()
 export class ConversationsService {
@@ -36,6 +37,7 @@ export class ConversationsService {
     @InjectRepository(Message)
     private readonly messageRepo: Repository<Message>,
     private readonly dataSource: DataSource,
+    private readonly conversationPublisher: ConversationRealtimePublisher,
   ) {}
 
   async listForUser(userId: string) {
@@ -228,6 +230,8 @@ export class ConversationsService {
 
     if (existing) {
       await this.unhideConversation(conversationId, userId);
+      await this.tryRestoreOrphanedOwner(conversationId, userId);
+      await this.publishChannelUpdate(conversationId);
       return this.getById(conversationId, userId);
     }
 
@@ -239,8 +243,42 @@ export class ConversationsService {
       }),
     );
     await this.unhideConversation(conversationId, userId);
+    await this.tryRestoreOrphanedOwner(conversationId, userId);
+    await this.publishChannelUpdate(conversationId);
 
     return this.getById(conversationId, userId);
+  }
+
+  async getChannelUpdatePayload(conversationId: string) {
+    const conversation = await this.conversationRepo.findOne({
+      where: { id: conversationId, type: ConversationType.CHANNEL },
+      relations: ['members', 'members.user'],
+    });
+    if (!conversation) return null;
+
+    const members = (conversation.members ?? []).map((m) => ({
+      userId: m.userId,
+      role: m.role,
+      displayName: m.user?.displayName,
+      username: m.user?.username,
+      avatarUrl: m.user?.avatarUrl,
+    }));
+
+    const owner = members.find((m) => m.role === MemberRole.OWNER);
+
+    return {
+      conversationId,
+      name: conversation.name,
+      description: conversation.description,
+      members,
+      memberCount: members.length,
+      ownerId: owner?.userId ?? null,
+      memberUserIds: members.map((m) => m.userId),
+    };
+  }
+
+  private async publishChannelUpdate(conversationId: string) {
+    await this.conversationPublisher.publishUpdated(conversationId);
   }
 
   async createDirect(userId: string, dto: CreateDirectDto) {
@@ -306,22 +344,28 @@ export class ConversationsService {
       order: { joinedAt: 'ASC' },
     });
 
-    if (member.role === MemberRole.OWNER && newOwnerId) {
-      if (newOwnerId === userId) {
-        throw new BadRequestException('Cannot transfer ownership to yourself');
-      }
+    if (member.role === MemberRole.OWNER) {
+      if (newOwnerId) {
+        if (newOwnerId === userId) {
+          throw new BadRequestException('Cannot transfer ownership to yourself');
+        }
 
-      const successor = members.find((m) => m.userId === newOwnerId);
-      if (!successor) {
-        throw new BadRequestException('New owner must be a channel member');
-      }
+        const successor = members.find((m) => m.userId === newOwnerId);
+        if (!successor) {
+          throw new BadRequestException('New owner must be a channel member');
+        }
 
-      successor.role = MemberRole.OWNER;
-      await this.memberRepo.save(successor);
+        successor.role = MemberRole.OWNER;
+        await this.memberRepo.save(successor);
+        await this.conversationRepo.update(conversationId, { pendingOwnerId: null });
+      } else {
+        await this.conversationRepo.update(conversationId, { pendingOwnerId: userId });
+      }
     }
 
     await this.memberRepo.delete({ conversationId, userId });
     await this.hideConversation(conversationId, userId);
+    await this.publishChannelUpdate(conversationId);
 
     return { conversationId, newOwnerId: newOwnerId ?? null };
   }
@@ -418,7 +462,37 @@ export class ConversationsService {
       }),
     );
     await this.memberRepo.save(members);
+    for (const uid of toAdd) {
+      await this.tryRestoreOrphanedOwner(conversationId, uid);
+    }
+    await this.publishChannelUpdate(conversationId);
     return { added: toAdd };
+  }
+
+  private async tryRestoreOrphanedOwner(conversationId: string, userId: string) {
+    const conversation = await this.conversationRepo.findOne({
+      where: { id: conversationId },
+    });
+    if (!conversation?.pendingOwnerId || conversation.pendingOwnerId !== userId) {
+      return;
+    }
+
+    const hasOwner = await this.memberRepo.findOne({
+      where: { conversationId, role: MemberRole.OWNER },
+    });
+    if (hasOwner) {
+      await this.conversationRepo.update(conversationId, { pendingOwnerId: null });
+      return;
+    }
+
+    const member = await this.memberRepo.findOne({
+      where: { conversationId, userId },
+    });
+    if (!member) return;
+
+    member.role = MemberRole.OWNER;
+    await this.memberRepo.save(member);
+    await this.conversationRepo.update(conversationId, { pendingOwnerId: null });
   }
 
   async assertMember(conversationId: string, userId: string): Promise<ConversationMember> {

@@ -8,6 +8,7 @@ import { ChannelInvite } from './entities/channel-invite.entity';
 import { Message } from '../messages/entities/message.entity';
 import { MessageUserHidden } from '../messages/entities/message-user-hidden.entity';
 import { ConversationsService } from './conversations.service';
+import { ConversationRealtimePublisher } from './conversation-realtime.publisher';
 import { ConversationsController } from './conversations.controller';
 import { InvitesController } from './invites.controller';
 
@@ -24,7 +25,7 @@ import { InvitesController } from './invites.controller';
     ]),
   ],
   controllers: [ConversationsController, InvitesController],
-  providers: [ConversationsService],
-  exports: [ConversationsService],
+  providers: [ConversationsService, ConversationRealtimePublisher],
+  exports: [ConversationsService, ConversationRealtimePublisher],
 })
 export class ConversationsModule {}

@@ -6,6 +6,7 @@ import { ChatDeleteSection } from './ChatDeleteSection';
 import { ChannelInviteSection } from './ChannelInviteSection';
 import { ChannelLeaveSection } from './ChannelLeaveSection';
 import { usePresence } from '../context/PresenceContext';
+import { getChannelOwner, sortChannelMembers } from '../utils/conversation';
 
 interface Props {
   conversation: Conversation;
@@ -45,6 +46,11 @@ export function ConversationInfoPanel({
 }: Props) {
   const { getPresence, refreshPresence } = usePresence();
   const isDirect = conversation.type === 'direct';
+  const channelOwner = !isDirect ? getChannelOwner(conversation) : undefined;
+  const channelMembers = useMemo(
+    () => (!isDirect ? sortChannelMembers(conversation) : conversation.members),
+    [conversation, isDirect],
+  );
   const otherMember = conversation.members.find((m) => m.userId !== currentUserId);
   const [profile, setProfile] = useState<User | null>(null);
   const [loading, setLoading] = useState(isDirect);
@@ -165,7 +171,7 @@ export function ConversationInfoPanel({
             <section className="profile-section">
               <h4>Members ({conversation.members.length})</h4>
               <ul className="member-list">
-                {conversation.members.map((member) => (
+                {channelMembers.map((member) => (
                   <li key={member.userId} className="member-list-item">
                     <Avatar
                       name={member.displayName ?? member.username ?? '?'}
@@ -180,7 +186,9 @@ export function ConversationInfoPanel({
                       </span>
                       <span className="member-list-username">@{member.username}</span>
                     </div>
-                    <span className="member-role">{member.role}</span>
+                    <span className={`member-role${member.role === 'owner' ? ' member-role--owner' : ''}`}>
+                      {member.role}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -189,6 +197,18 @@ export function ConversationInfoPanel({
             <section className="profile-section">
               <h4>Channel Info</h4>
               <dl className="profile-details">
+                <div className="profile-detail-row">
+                  <dt>Owner</dt>
+                  <dd>
+                    {channelOwner
+                      ? `${channelOwner.displayName ?? 'Unknown'}${channelOwner.userId === currentUserId ? ' (You)' : ''}`
+                      : 'None'}
+                  </dd>
+                </div>
+                <div className="profile-detail-row">
+                  <dt>Members</dt>
+                  <dd>{conversation.members.length}</dd>
+                </div>
                 <div className="profile-detail-row">
                   <dt>Created</dt>
                   <dd>{formatDate(conversation.createdAt)}</dd>

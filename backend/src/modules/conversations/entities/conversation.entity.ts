@@ -34,6 +34,9 @@ export class Conversation {
   @Column({ name: 'created_by' })
   createdBy!: string;
 
+  @Column({ name: 'pending_owner_id', type: 'uuid', nullable: true })
+  pendingOwnerId?: string | null;
+
   @ManyToOne(() => User)
   @JoinColumn({ name: 'created_by' })
   creator!: User;
