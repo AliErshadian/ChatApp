@@ -15,6 +15,13 @@ docker compose up --build -d
 curl http://localhost:3000/api/v1/health
 ```
 
+### Create Database
+```bash
+CREATE USER myuser WITH PASSWORD 'mypass';
+CREATE DATABASE mydatabase OWNER myuser;
+GRANT ALL PRIVILEGES ON DATABASE mydatabase TO myuser;
+```
+
 ### Desktop Client (Development)
 
 ```bash
