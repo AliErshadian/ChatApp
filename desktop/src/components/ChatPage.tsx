@@ -12,6 +12,7 @@ import { ConversationInfoPanel } from './ConversationInfoPanel';
 import { ChannelJoinBanner } from './ChannelJoinBanner';
 import { mergeMessageStatus, mergeOutgoingServerMessage } from '../utils/messageStatus';
 import { ConversationListItem } from './ConversationListItem';
+import { NewGroupModal } from './NewGroupModal';
 import { AppNav } from './AppNav';
 import { bumpConversationFromMessage, reorderConversations } from '../utils/conversationList';
 import { getDirectPeer, partitionChannels } from '../utils/conversation';
@@ -42,6 +43,7 @@ export function ChatPage() {
   const [showProfile, setShowProfile] = useState(false);
   const [showContacts, setShowContacts] = useState(false);
   const [showNewChatPicker, setShowNewChatPicker] = useState(false);
+  const [showNewGroup, setShowNewGroup] = useState(false);
   const [showConversationInfo, setShowConversationInfo] = useState(false);
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [channelName, setChannelName] = useState('');
@@ -60,6 +62,7 @@ export function ChatPage() {
     token: string;
     channelName: string;
     conversationId: string;
+    conversationType?: 'channel' | 'group';
   } | null>(null);
   const [inviteJoinBusy, setInviteJoinBusy] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -305,7 +308,12 @@ export function ChatPage() {
   const applyConversationUpdate = useCallback((update: ConversationUpdatedEvent) => {
     setConversations((prev) =>
       prev.map((c) => {
-        if (c.id !== update.conversationId || c.type !== 'channel') return c;
+        if (
+          c.id !== update.conversationId ||
+          (c.type !== 'channel' && c.type !== 'group')
+        ) {
+          return c;
+        }
 
         const mergedMembers = update.members.map((member) => {
           const existing = c.members.find((m) => m.userId === member.userId);
@@ -320,10 +328,22 @@ export function ChatPage() {
           name: update.name ?? c.name,
           description: update.description ?? c.description,
           avatarUrl: update.avatarUrl ?? c.avatarUrl,
+          isPublic: update.isPublic ?? c.isPublic,
           members: mergedMembers,
         };
       }),
     );
+  }, []);
+
+  const applyConversationCreated = useCallback((conversation: Conversation) => {
+    setConversations((prev) => {
+      if (prev.some((c) => c.id === conversation.id)) {
+        return reorderConversations(
+          prev.map((c) => (c.id === conversation.id ? { ...c, ...conversation } : c)),
+        );
+      }
+      return reorderConversations([conversation, ...prev]);
+    });
   }, []);
 
   const applyConversationMessagesDeleted = useCallback(
@@ -428,7 +448,7 @@ export function ChatPage() {
     const conv = conversationsRef.current.find((c) => c.id === id);
     const list =
       preferredList ??
-      (conv?.type === 'channel' ? 'channels' : conv?.type === 'direct' ? 'chats' : undefined);
+      (conv?.type === 'channel' ? 'channels' : 'chats');
     if (list) setSidebarList(list);
 
     setConversations((prev) => {
@@ -452,9 +472,10 @@ export function ChatPage() {
 
         if (status.isMember) {
           const visible = conversations.find((c) => c.id === status.conversationId);
+          const inviteList = status.conversationType === 'group' ? 'chats' : 'channels';
           if (visible) {
             setPendingChannelInvite(null);
-            openConversation(visible.id, 'channels');
+            openConversation(visible.id, inviteList);
             return;
           }
 
@@ -467,15 +488,17 @@ export function ChatPage() {
             return reorderConversations(next);
           });
           setPendingChannelInvite(null);
-          openConversation(conversation.id, 'channels');
+          openConversation(conversation.id, inviteList);
           return;
         }
 
-        setSidebarList('channels');
+        const inviteList = status.conversationType === 'group' ? 'chats' : 'channels';
+        setSidebarList(inviteList);
         setPendingChannelInvite({
           token,
           channelName: status.channelName,
           conversationId: status.conversationId,
+          conversationType: status.conversationType,
         });
         setActiveId(null);
         setIsPanelOpen(true);
@@ -506,7 +529,11 @@ export function ChatPage() {
         return reorderConversations(next);
       });
       setPendingChannelInvite(null);
-      openConversation(conversation.id, 'channels');
+      const inviteList =
+        conversation.type === 'group' || pendingChannelInvite.conversationType === 'group'
+          ? 'chats'
+          : 'channels';
+      openConversation(conversation.id, inviteList);
     } catch {
       // Keep the prompt open on failure.
     } finally {
@@ -805,6 +832,10 @@ export function ChatPage() {
       applyConversationUpdate(update);
     });
 
+    const unsubConvCreated = realtime.onConversationCreated((conversation) => {
+      applyConversationCreated(conversation);
+    });
+
     return () => {
       unsubMsg();
       unsubAck();
@@ -816,9 +847,11 @@ export function ChatPage() {
       unsubConvHidden();
       unsubConvDeleted();
       unsubConvUpdated();
+      unsubConvCreated();
     };
   }, [
     acknowledgeIncoming,
+    applyConversationCreated,
     applyConversationHidden,
     applyConversationMessagesDeleted,
     applyConversationUpdate,
@@ -934,6 +967,15 @@ export function ChatPage() {
     }, 2000);
   };
 
+  const handleGroupCreated = useCallback(
+    (group: Conversation) => {
+      applyConversationCreated(group);
+      openConversation(group.id, 'chats');
+      setShowNewGroup(false);
+    },
+    [applyConversationCreated, openConversation],
+  );
+
   const createChannel = async () => {
     if (!channelName.trim()) return;
     const ch = await api.createChannel(channelName.trim());
@@ -986,7 +1028,7 @@ export function ChatPage() {
   };
 
   const chatConversations = useMemo(
-    () => conversations.filter((c) => c.type === 'direct'),
+    () => conversations.filter((c) => c.type === 'direct' || c.type === 'group'),
     [conversations],
   );
   const channelConversations = useMemo(
@@ -1083,7 +1125,7 @@ export function ChatPage() {
         onClick={() => openConversation(c.id)}
         onDeleteChat={(scope) => handleDeleteChat(c.id, scope)}
         onLeaveChannel={
-          c.type === 'channel'
+          c.type === 'channel' || c.type === 'group'
             ? (newOwnerId) => handleLeaveChannel(c.id, newOwnerId)
             : undefined
         }
@@ -1121,9 +1163,14 @@ export function ChatPage() {
               + Channel
             </button>
           ) : (
-            <button className="sidebar-action-primary" onClick={openNewChatPicker}>
-              + New Chat
-            </button>
+            <div className="sidebar-actions-row">
+              <button className="sidebar-action-primary" onClick={openNewChatPicker}>
+                + New Chat
+              </button>
+              <button className="sidebar-action-secondary" onClick={() => setShowNewGroup(true)}>
+                + New Group
+              </button>
+            </div>
           )}
         </div>
 
@@ -1159,7 +1206,7 @@ export function ChatPage() {
           ) : sidebarConversations.length === 0 ? (
             <div className="conversation-list-empty">
               <p>No conversations yet</p>
-              <span>Use New Chat to start messaging</span>
+              <span>Use New Chat or New Group to start messaging</span>
             </div>
           ) : (
             <>
@@ -1214,8 +1261,13 @@ export function ChatPage() {
                 {isMobile ? '←' : '✕'}
               </button>
               <div className="chat-header-info">
-                <h3>#{pendingChannelInvite.channelName}</h3>
-                <span className="member-count">Channel invite</span>
+                <h3>
+                  {pendingChannelInvite.conversationType === 'group' ? '' : '#'}
+                  {pendingChannelInvite.channelName}
+                </h3>
+                <span className="member-count">
+                  {pendingChannelInvite.conversationType === 'group' ? 'Group invite' : 'Channel invite'}
+                </span>
               </div>
             </header>
 
@@ -1227,9 +1279,18 @@ export function ChatPage() {
                 onDecline={dismissChannelInvite}
               />
               <div className="channel-invite-preview-empty">
-                <div className="empty-state-icon">#</div>
-                <h3>#{pendingChannelInvite.channelName}</h3>
-                <p>Join the channel to start chatting</p>
+                <div className="empty-state-icon">
+                  {pendingChannelInvite.conversationType === 'group' ? '👥' : '#'}
+                </div>
+                <h3>
+                  {pendingChannelInvite.conversationType === 'group' ? '' : '#'}
+                  {pendingChannelInvite.channelName}
+                </h3>
+                <p>
+                  {pendingChannelInvite.conversationType === 'group'
+                    ? 'Join the group to start chatting'
+                    : 'Join the channel to start chatting'}
+                </p>
               </div>
             </div>
           </>
@@ -1391,7 +1452,7 @@ export function ChatPage() {
                       : undefined
                   }
                   onLeaveChannel={
-                    activeConversation.type === 'channel'
+                    activeConversation.type === 'channel' || activeConversation.type === 'group'
                       ? (newOwnerId) => handleLeaveChannel(activeConversation.id, newOwnerId)
                       : undefined
                   }
@@ -1450,6 +1511,14 @@ export function ChatPage() {
           onContacts={openContacts}
           onProfile={openProfile}
           onLogout={logout}
+        />
+      )}
+
+      {showNewGroup && (
+        <NewGroupModal
+          open={showNewGroup}
+          onClose={() => setShowNewGroup(false)}
+          onCreated={(group) => handleGroupCreated(group)}
         />
       )}
 

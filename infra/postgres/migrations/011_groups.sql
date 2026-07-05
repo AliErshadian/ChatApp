@@ -1,0 +1,4 @@
+ALTER TYPE conversation_type ADD VALUE IF NOT EXISTS 'group';
+
+ALTER TABLE conversations
+    ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE;

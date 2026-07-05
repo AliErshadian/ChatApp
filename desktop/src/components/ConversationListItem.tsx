@@ -53,6 +53,8 @@ export function ConversationListItem({
 
   const peer = getDirectPeer(conversation, currentUserId);
   const isChannel = conversation.type === 'channel';
+  const isGroup = conversation.type === 'group';
+  const isMultiMember = isChannel || isGroup;
   const preview = formatConversationPreview(conversation, currentUserId);
   const time = conversation.lastMessage?.createdAt
     ? formatRelativeTime(conversation.lastMessage.createdAt)
@@ -258,7 +260,7 @@ export function ConversationListItem({
             />
             {menuStyle && (
               <div className="conversation-menu conversation-menu--fixed" style={menuStyle} role="menu">
-                {isChannel ? (
+                {isMultiMember ? (
                   <button
                     type="button"
                     role="menuitem"
@@ -266,7 +268,7 @@ export function ConversationListItem({
                     disabled={deleteBusy || confirming}
                     onClick={handleLeaveRequest}
                   >
-                    Leave channel
+                    {isGroup ? 'Leave group' : 'Leave channel'}
                   </button>
                 ) : (
                   <>

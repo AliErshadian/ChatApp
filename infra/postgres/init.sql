@@ -3,7 +3,7 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
-CREATE TYPE conversation_type AS ENUM ('direct', 'channel');
+CREATE TYPE conversation_type AS ENUM ('direct', 'channel', 'group');
 CREATE TYPE member_role AS ENUM ('owner', 'admin', 'member');
 CREATE TYPE presence_status AS ENUM ('online', 'away', 'offline');
 
@@ -27,6 +27,7 @@ CREATE TABLE conversations (
     avatar_url TEXT,
     created_by UUID NOT NULL REFERENCES users(id),
     pending_owner_id UUID REFERENCES users(id),
+    is_public BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT channel_requires_name CHECK (

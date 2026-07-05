@@ -18,7 +18,7 @@ export function formatConversationPreview(
   let text = lastMessage.content.replace(/\s+/g, ' ').trim();
   if (text.length > 72) text = `${text.slice(0, 69)}...`;
 
-  if (conversation.type === 'channel') {
+  if (conversation.type === 'channel' || conversation.type === 'group') {
     const prefix =
       lastMessage.senderId === currentUserId
         ? 'You: '

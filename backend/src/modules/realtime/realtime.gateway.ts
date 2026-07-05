@@ -47,6 +47,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.conversationPublisher.setEmitter((conversationId) =>
       this.broadcastConversationUpdated(conversationId),
     );
+    this.conversationPublisher.setCreatedEmitter((conversationId) =>
+      this.broadcastConversationCreated(conversationId),
+    );
+    this.conversationPublisher.setMemberRemovedEmitter((conversationId, removedUserId) =>
+      this.broadcastMemberRemoved(conversationId, removedUserId),
+    );
   }
 
   async handleConnection(client: AuthenticatedSocket) {
@@ -274,7 +280,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   private async broadcastConversationUpdated(conversationId: string) {
-    const data = await this.conversationsService.getChannelUpdatePayload(conversationId);
+    const data = await this.conversationsService.getConversationUpdatePayload(conversationId);
     if (!data) return;
 
     const { memberUserIds, ...payload } = data;
@@ -286,6 +292,22 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     for (const memberId of memberUserIds) {
       this.server.to(`user:${memberId}`).emit('conversation:updated', payload);
     }
+  }
+
+  private async broadcastConversationCreated(conversationId: string) {
+    const memberIds = await this.conversationsService.getMemberUserIds(conversationId);
+
+    for (const memberId of memberIds) {
+      const summary = await this.conversationsService.getById(conversationId, memberId);
+      this.server.to(`user:${memberId}`).emit('conversation:created', summary);
+    }
+  }
+
+  private async broadcastMemberRemoved(conversationId: string, removedUserId: string) {
+    this.server
+      .to(`user:${removedUserId}`)
+      .emit('conversation:hidden', { conversationId });
+    await this.broadcastConversationUpdated(conversationId);
   }
 
   private async broadcastMessageUpdate(message: {

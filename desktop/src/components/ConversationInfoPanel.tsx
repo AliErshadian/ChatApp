@@ -5,8 +5,10 @@ import { ContactInfoPrompt } from './ContactInfoPrompt';
 import { ChatDeleteSection } from './ChatDeleteSection';
 import { ChannelInviteSection } from './ChannelInviteSection';
 import { ChannelLeaveSection } from './ChannelLeaveSection';
+import { AddParticipantsModal } from './AddParticipantsModal';
+import { ConfirmModal } from './ConfirmModal';
 import { usePresence } from '../context/PresenceContext';
-import { getChannelOwner, isChannelOwner, sortChannelMembers } from '../utils/conversation';
+import { canManageParticipants, getChannelOwner, isChannelOwner, sortChannelMembers } from '../utils/conversation';
 
 interface Props {
   conversation: Conversation;
@@ -48,11 +50,16 @@ export function ConversationInfoPanel({
 }: Props) {
   const { getPresence, refreshPresence } = usePresence();
   const isDirect = conversation.type === 'direct';
-  const channelOwner = !isDirect ? getChannelOwner(conversation) : undefined;
-  const canEditChannelAvatar = !isDirect && isChannelOwner(conversation, currentUserId);
+  const isChannel = conversation.type === 'channel';
+  const isGroup = conversation.type === 'group';
+  const isMultiMember = isChannel || isGroup;
+  const channelOwner = isMultiMember ? getChannelOwner(conversation) : undefined;
+  const canEditChannelAvatar = isMultiMember && isChannelOwner(conversation, currentUserId);
+  const canAddParticipants = isGroup && canManageParticipants(conversation, currentUserId);
+  const canRemoveMembers = isGroup && isChannelOwner(conversation, currentUserId);
   const channelMembers = useMemo(
-    () => (!isDirect ? sortChannelMembers(conversation) : conversation.members),
-    [conversation, isDirect],
+    () => (isMultiMember ? sortChannelMembers(conversation) : conversation.members),
+    [conversation, isMultiMember],
   );
   const otherMember = conversation.members.find((m) => m.userId !== currentUserId);
   const [profile, setProfile] = useState<User | null>(null);
@@ -60,6 +67,10 @@ export function ConversationInfoPanel({
   const [error, setError] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarError, setAvatarError] = useState('');
+  const [showAddParticipants, setShowAddParticipants] = useState(false);
+  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
+  const [removeMemberBusy, setRemoveMemberBusy] = useState(false);
+  const [memberActionError, setMemberActionError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -105,13 +116,31 @@ export function ConversationInfoPanel({
     }
   };
 
+  const removingMember = removingMemberId
+    ? channelMembers.find((m) => m.userId === removingMemberId)
+    : undefined;
+
+  const handleRemoveMemberConfirm = async () => {
+    if (!removingMemberId) return;
+    setRemoveMemberBusy(true);
+    setMemberActionError('');
+    try {
+      await api.removeConversationMember(conversation.id, removingMemberId);
+      setRemovingMemberId(null);
+    } catch (err) {
+      setMemberActionError(err instanceof Error ? err.message : 'Failed to remove member');
+    } finally {
+      setRemoveMemberBusy(false);
+    }
+  };
+
   return (
     <div className="conversation-info-panel">
       <header className="conversation-info-header">
         <button className="icon-btn back-btn" onClick={onClose} aria-label="Back to chat">
           ←
         </button>
-        <h3>{isDirect ? 'Contact Info' : 'Channel Info'}</h3>
+        <h3>{isDirect ? 'Contact Info' : isGroup ? 'Group Info' : 'Channel Info'}</h3>
       </header>
 
       <div className="conversation-info-content">
@@ -200,7 +229,13 @@ export function ConversationInfoPanel({
                 )}
               </div>
               <h2>{conversation.name}</h2>
-              <p className="profile-username">Channel</p>
+              <p className="profile-username">
+                {isGroup
+                  ? conversation.isPublic
+                    ? 'Public group'
+                    : 'Private group'
+                  : 'Channel'}
+              </p>
               {avatarError && <p className="profile-error-inline">{avatarError}</p>}
             </div>
 
@@ -211,10 +246,23 @@ export function ConversationInfoPanel({
               </section>
             )}
 
-            <ChannelInviteSection conversationId={conversation.id} />
+            {(isChannel || (isGroup && conversation.isPublic)) && (
+              <ChannelInviteSection conversationId={conversation.id} />
+            )}
 
             <section className="profile-section">
-              <h4>Members ({conversation.members.length})</h4>
+              <div className="profile-section-header">
+                <h4>Members ({conversation.members.length})</h4>
+                {canAddParticipants && (
+                  <button
+                    type="button"
+                    className="btn-link profile-section-action"
+                    onClick={() => setShowAddParticipants(true)}
+                  >
+                    Add participants
+                  </button>
+                )}
+              </div>
               <ul className="member-list">
                 {channelMembers.map((member) => (
                   <li key={member.userId} className="member-list-item">
@@ -231,16 +279,34 @@ export function ConversationInfoPanel({
                       </span>
                       <span className="member-list-username">@{member.username}</span>
                     </div>
-                    <span className={`member-role${member.role === 'owner' ? ' member-role--owner' : ''}`}>
-                      {member.role}
-                    </span>
+                    <div className="member-list-actions">
+                      <span className={`member-role${member.role === 'owner' ? ' member-role--owner' : ''}`}>
+                        {member.role}
+                      </span>
+                      {canRemoveMembers &&
+                        member.userId !== currentUserId &&
+                        member.role !== 'owner' && (
+                          <button
+                            type="button"
+                            className="member-remove-btn"
+                            onClick={() => {
+                              setMemberActionError('');
+                              setRemovingMemberId(member.userId);
+                            }}
+                            aria-label={`Remove ${member.displayName ?? 'member'}`}
+                          >
+                            Remove
+                          </button>
+                        )}
+                    </div>
                   </li>
                 ))}
               </ul>
+              {memberActionError && <p className="profile-error-inline">{memberActionError}</p>}
             </section>
 
             <section className="profile-section">
-              <h4>Channel Info</h4>
+              <h4>{isGroup ? 'Group Info' : 'Channel Info'}</h4>
               <dl className="profile-details">
                 <div className="profile-detail-row">
                   <dt>Owner</dt>
@@ -250,10 +316,12 @@ export function ConversationInfoPanel({
                       : 'None'}
                   </dd>
                 </div>
-                <div className="profile-detail-row">
-                  <dt>Members</dt>
-                  <dd>{conversation.members.length}</dd>
-                </div>
+                {isGroup && (
+                  <div className="profile-detail-row">
+                    <dt>Visibility</dt>
+                    <dd>{conversation.isPublic ? 'Public' : 'Private'}</dd>
+                  </div>
+                )}
                 <div className="profile-detail-row">
                   <dt>Created</dt>
                   <dd>{formatDate(conversation.createdAt)}</dd>
@@ -269,6 +337,30 @@ export function ConversationInfoPanel({
                 onLeave={onLeaveChannel}
               />
             )}
+
+            <AddParticipantsModal
+              open={showAddParticipants}
+              conversationId={conversation.id}
+              existingMemberIds={conversation.members.map((m) => m.userId)}
+              onClose={() => setShowAddParticipants(false)}
+            />
+
+            <ConfirmModal
+              open={!!removingMemberId}
+              title="Remove member"
+              message={
+                removingMember
+                  ? `Remove ${removingMember.displayName ?? 'this member'} from the group? They will no longer see group messages.`
+                  : 'Remove this member from the group?'
+              }
+              confirmLabel="Remove"
+              danger
+              busy={removeMemberBusy}
+              onConfirm={() => void handleRemoveMemberConfirm()}
+              onCancel={() => {
+                if (!removeMemberBusy) setRemovingMemberId(null);
+              }}
+            />
           </>
         )}
       </div>

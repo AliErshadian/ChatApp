@@ -24,6 +24,21 @@ export function partitionChannels(conversations: Conversation[], userId: string)
   return { owned, joined };
 }
 
+export function isGroupConversation(conversation: Conversation) {
+  return conversation.type === 'group';
+}
+
+export function isMultiMemberConversation(conversation: Conversation) {
+  return conversation.type === 'channel' || conversation.type === 'group';
+}
+
+export function canManageParticipants(conversation: Conversation, userId: string) {
+  if (!isMultiMemberConversation(conversation)) return false;
+  return conversation.members.some(
+    (m) => m.userId === userId && (m.role === 'owner' || m.role === 'admin'),
+  );
+}
+
 export function getChannelOwner(conversation: Conversation) {
   return conversation.members.find((m) => m.role === 'owner');
 }

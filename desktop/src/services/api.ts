@@ -23,10 +23,11 @@ export interface AuthTokens {
 
 export interface Conversation {
   id: string;
-  type: 'direct' | 'channel';
+  type: 'direct' | 'channel' | 'group';
   name: string;
   description?: string;
   avatarUrl?: string;
+  isPublic?: boolean;
   members: Array<{
     userId: string;
     role: string;
@@ -50,6 +51,8 @@ export interface Conversation {
 
 export interface ConversationUpdatedEvent {
   conversationId: string;
+  type?: Conversation['type'];
+  isPublic?: boolean;
   name?: string;
   description?: string;
   avatarUrl?: string;
@@ -203,18 +206,51 @@ class ApiClient {
     });
   }
 
+  createGroup(input: {
+    name: string;
+    description?: string;
+    memberIds?: string[];
+    isPublic?: boolean;
+  }) {
+    return this.request<Conversation>('/conversations/groups', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  addConversationMembers(conversationId: string, userIds: string[]) {
+    return this.request<{ added: string[] }>(`/conversations/${conversationId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ userIds }),
+    });
+  }
+
+  removeConversationMember(conversationId: string, userId: string) {
+    return this.request<{ conversationId: string; removedUserId: string }>(
+      `/conversations/${conversationId}/members/${userId}`,
+      { method: 'DELETE' },
+    );
+  }
+
   getChannelInvite(conversationId: string) {
     return this.request<{ token: string }>(`/conversations/${conversationId}/invite`);
   }
 
   getInvitePreview(token: string) {
-    return this.request<{ channelName: string; conversationId: string }>(
-      `/invites/${encodeURIComponent(token)}`,
-    );
+    return this.request<{
+      channelName: string;
+      conversationId: string;
+      conversationType?: 'channel' | 'group';
+    }>(`/invites/${encodeURIComponent(token)}`);
   }
 
   getInviteStatus(token: string) {
-    return this.request<{ channelName: string; conversationId: string; isMember: boolean }>(
+    return this.request<{
+      channelName: string;
+      conversationId: string;
+      isMember: boolean;
+      conversationType?: 'channel' | 'group';
+    }>(
       `/invites/${encodeURIComponent(token)}/status`,
     );
   }

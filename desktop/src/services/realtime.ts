@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { api } from './api';
 import { createClientMessageId } from '../utils/uuid';
-import type { Message, MessageReaction, MessageStatus, ConversationUpdatedEvent } from './api';
+import type { Message, MessageReaction, MessageStatus, Conversation, ConversationUpdatedEvent } from './api';
 
 type MessageHandler = (message: Message) => void;
 type TypingHandler = (data: { conversationId: string; userId: string; isTyping: boolean }) => void;
@@ -42,6 +42,7 @@ type ConversationMessagesDeletedHandler = (data: {
   messageIds: string[];
 }) => void;
 type ConversationUpdatedHandler = (data: ConversationUpdatedEvent) => void;
+type ConversationCreatedHandler = (conversation: Conversation) => void;
 
 interface PendingSend {
   resolve: (message: Message) => void;
@@ -80,6 +81,7 @@ class RealtimeClient {
   private conversationHiddenHandlers = new Set<ConversationHiddenHandler>();
   private conversationMessagesDeletedHandlers = new Set<ConversationMessagesDeletedHandler>();
   private conversationUpdatedHandlers = new Set<ConversationUpdatedHandler>();
+  private conversationCreatedHandlers = new Set<ConversationCreatedHandler>();
   private connectHandlers = new Set<ConnectHandler>();
   private presenceChangeHandlers = new Set<PresenceChangeHandler>();
   private pendingSends = new Map<string, PendingSend>();
@@ -159,6 +161,10 @@ class RealtimeClient {
 
     this.socket.on('conversation:updated', (data: ConversationUpdatedEvent) => {
       this.conversationUpdatedHandlers.forEach((h) => h(data));
+    });
+
+    this.socket.on('conversation:created', (data: Conversation) => {
+      this.conversationCreatedHandlers.forEach((h) => h(data));
     });
 
     this.socket.on('user:typing', (data) => {
@@ -536,6 +542,11 @@ class RealtimeClient {
   onConversationUpdated(handler: ConversationUpdatedHandler) {
     this.conversationUpdatedHandlers.add(handler);
     return () => this.conversationUpdatedHandlers.delete(handler);
+  }
+
+  onConversationCreated(handler: ConversationCreatedHandler) {
+    this.conversationCreatedHandlers.add(handler);
+    return () => this.conversationCreatedHandlers.delete(handler);
   }
 
   onTyping(handler: TypingHandler) {
