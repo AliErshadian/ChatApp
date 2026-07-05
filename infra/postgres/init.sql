@@ -55,6 +55,7 @@ CREATE TABLE messages (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     edited_at TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ,
+    reply_to_message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
     CONSTRAINT content_not_empty CHECK (length(trim(content)) > 0)
 );
 

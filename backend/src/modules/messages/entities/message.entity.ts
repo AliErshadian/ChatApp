@@ -53,6 +53,13 @@ export class Message {
   @Column({ name: 'deleted_at', nullable: true })
   deletedAt?: Date;
 
+  @Column({ name: 'reply_to_message_id', type: 'uuid', nullable: true })
+  replyToMessageId?: string;
+
+  @ManyToOne(() => Message, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'reply_to_message_id' })
+  replyTo?: Message;
+
   @OneToMany(() => MessageReadReceipt, (r) => r.message)
   readReceipts!: MessageReadReceipt[];
 }

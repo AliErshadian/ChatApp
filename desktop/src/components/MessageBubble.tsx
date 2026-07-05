@@ -6,6 +6,7 @@ import { clearTextSelection, usePreventTouchSelection } from '../hooks/usePreven
 import { useGhostClickGuard } from '../hooks/useGhostClickGuard';
 import { MessageStatusTicks } from './MessageStatusTicks';
 import { LinkifiedMessageText } from './LinkifiedMessageText';
+import { MessageReplyQuote } from './MessageReplyQuote';
 
 interface Props {
   message: Message;
@@ -14,6 +15,8 @@ interface Props {
   isBeingEdited?: boolean;
   allowMessageMenu?: boolean;
   onStartEdit?: (messageId: string, content: string) => void;
+  onReply?: (message: Message) => void;
+  onScrollToMessage?: (messageId: string) => void;
   onDelete: (messageId: string, scope: 'me' | 'everyone') => Promise<void>;
   onReaction: (messageId: string, emoji: string) => Promise<void>;
 }
@@ -25,6 +28,8 @@ export function MessageBubble({
   isBeingEdited = false,
   allowMessageMenu = true,
   onStartEdit,
+  onReply,
+  onScrollToMessage,
   onDelete,
   onReaction,
 }: Props) {
@@ -45,6 +50,7 @@ export function MessageBubble({
   const { arm: armGhostClick, isSuppressed: isGhostClickSuppressed } = useGhostClickGuard();
 
   const canEdit = isOwn && !message.deletedForEveryone && Boolean(onStartEdit);
+  const canReply = !message.deletedForEveryone && Boolean(onReply);
   const showMenu = allowMessageMenu;
   const isFocused = menuOpen && layout !== null;
 
@@ -253,9 +259,18 @@ export function MessageBubble({
       {message.deletedForEveryone ? (
         <div className="message-content deleted">Message deleted</div>
       ) : (
-        <div className="message-content">
-          <LinkifiedMessageText text={message.content} />
-        </div>
+        <>
+          {message.replyTo && (
+            <MessageReplyQuote
+              replyTo={message.replyTo}
+              isOwn={isOwn}
+              onScrollToMessage={onScrollToMessage}
+            />
+          )}
+          <div className="message-content">
+            <LinkifiedMessageText text={message.content} />
+          </div>
+        </>
       )}
 
       {reactionsBar}
@@ -319,6 +334,17 @@ export function MessageBubble({
         </div>
       )}
       <div className="message-menu">
+        {canReply && (
+          <button
+            type="button"
+            onClick={() => {
+              onReply?.(message);
+              setMenuOpen(false);
+            }}
+          >
+            Reply
+          </button>
+        )}
         {canEdit && (
           <button
             type="button"

@@ -122,12 +122,18 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   async handleMessageSend(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody()
-    data: { conversationId: string; content: string; clientMessageId?: string },
+    data: {
+      conversationId: string;
+      content: string;
+      clientMessageId?: string;
+      replyToMessageId?: string;
+    },
   ) {
     const message = await this.messagesService.send(client.data.userId, {
       conversationId: data.conversationId,
       content: data.content,
       clientMessageId: data.clientMessageId,
+      replyToMessageId: data.replyToMessageId,
     });
 
     const ackPayload = {

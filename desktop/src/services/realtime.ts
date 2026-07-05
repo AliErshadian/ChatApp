@@ -316,7 +316,12 @@ class RealtimeClient {
     this.socket?.emit('conversation:leave', { conversationId });
   }
 
-  sendMessage(conversationId: string, content: string, clientMessageId?: string) {
+  sendMessage(
+    conversationId: string,
+    content: string,
+    clientMessageId?: string,
+    replyToMessageId?: string,
+  ) {
     const msgId = clientMessageId ?? createClientMessageId();
 
     return new Promise<Message>((resolve, reject) => {
@@ -334,7 +339,7 @@ class RealtimeClient {
 
       this.socket!.emit(
         'message:send',
-        { conversationId, content, clientMessageId: msgId },
+        { conversationId, content, clientMessageId: msgId, replyToMessageId },
         (ack: unknown) => {
           const message = parseSendAck(ack);
           if (message) {

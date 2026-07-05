@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -24,6 +25,14 @@ export interface ReactionSummary {
   reactedByMe: boolean;
 }
 
+export interface MessageReplyPreview {
+  id: string;
+  senderId: string;
+  content: string;
+  deletedForEveryone?: boolean;
+  sender?: { id: string; displayName: string; username: string };
+}
+
 export interface MessagePayload {
   id: string;
   conversationId: string;
@@ -37,6 +46,7 @@ export interface MessagePayload {
   deletedForEveryone?: boolean;
   status?: MessageStatus;
   reactions?: ReactionSummary[];
+  replyTo?: MessageReplyPreview;
   sender?: { id: string; displayName: string; username: string };
 }
 
@@ -85,11 +95,20 @@ export class MessagesService {
           senderId: userId,
           clientMessageId: dto.clientMessageId,
         },
-        relations: ['sender'],
+        relations: ['sender', 'replyTo', 'replyTo.sender'],
       });
       if (existing) {
         return this.toPayload(existing, userId, 'sent');
       }
+    }
+
+    let replyToMessageId: string | undefined;
+    if (dto.replyToMessageId) {
+      replyToMessageId = await this.resolveReplyTarget(
+        dto.conversationId,
+        userId,
+        dto.replyToMessageId,
+      );
     }
 
     const message = this.messageRepo.create({
@@ -97,12 +116,13 @@ export class MessagesService {
       senderId: userId,
       content,
       clientMessageId: dto.clientMessageId,
+      replyToMessageId,
     });
 
     const saved = await this.messageRepo.save(message);
     const withSender = await this.messageRepo.findOne({
       where: { id: saved.id },
-      relations: ['sender'],
+      relations: ['sender', 'replyTo', 'replyTo.sender'],
     });
 
     return this.toPayload(withSender!, userId, 'sent');
@@ -114,6 +134,8 @@ export class MessagesService {
     const qb = this.messageRepo
       .createQueryBuilder('message')
       .leftJoinAndSelect('message.sender', 'sender')
+      .leftJoinAndSelect('message.replyTo', 'replyTo')
+      .leftJoinAndSelect('replyTo.sender', 'replyToSender')
       .leftJoin(
         MessageUserHidden,
         'hidden',
@@ -222,7 +244,7 @@ export class MessagesService {
   async edit(userId: string, messageId: string, content: string): Promise<MessagePayload> {
     const message = await this.messageRepo.findOne({
       where: { id: messageId },
-      relations: ['sender'],
+      relations: ['sender', 'replyTo', 'replyTo.sender'],
     });
     if (!message) throw new NotFoundException('Message not found');
 
@@ -342,7 +364,7 @@ export class MessagesService {
   ): Promise<{ message?: MessagePayload; messageId: string; scope: 'me' | 'everyone' }> {
     const message = await this.messageRepo.findOne({
       where: { id: messageId },
-      relations: ['sender'],
+      relations: ['sender', 'replyTo', 'replyTo.sender'],
     });
     if (!message) throw new NotFoundException('Message not found');
 
@@ -463,6 +485,46 @@ export class MessagesService {
     return 'sent';
   }
 
+  private async resolveReplyTarget(
+    conversationId: string,
+    userId: string,
+    replyToMessageId: string,
+  ): Promise<string> {
+    const target = await this.messageRepo.findOne({ where: { id: replyToMessageId } });
+    if (!target || target.conversationId !== conversationId) {
+      throw new BadRequestException('Reply target not found in this conversation');
+    }
+
+    await this.conversationsService.assertMember(conversationId, userId);
+
+    const hidden = await this.hiddenRepo.findOne({
+      where: { messageId: replyToMessageId, userId },
+    });
+    if (hidden) {
+      throw new BadRequestException('Cannot reply to a hidden message');
+    }
+
+    return replyToMessageId;
+  }
+
+  private toReplyPreview(message: Message): MessageReplyPreview {
+    const deletedForEveryone = !!message.deletedAt;
+
+    return {
+      id: message.id,
+      senderId: message.senderId,
+      content: deletedForEveryone ? '' : message.content,
+      deletedForEveryone,
+      sender: message.sender
+        ? {
+            id: message.sender.id,
+            displayName: message.sender.displayName,
+            username: message.sender.username,
+          }
+        : undefined,
+    };
+  }
+
   toPayload(
     message: Message,
     viewerId?: string,
@@ -484,6 +546,7 @@ export class MessagesService {
       deletedForEveryone,
       status: message.senderId === viewerId ? status : undefined,
       reactions,
+      replyTo: message.replyTo ? this.toReplyPreview(message.replyTo) : undefined,
       sender: message.sender
         ? {
             id: message.sender.id,

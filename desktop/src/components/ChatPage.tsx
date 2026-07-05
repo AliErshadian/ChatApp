@@ -5,6 +5,7 @@ import { realtime } from '../services/realtime';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
 import { MessageBubble } from './MessageBubble';
+import { MessageReplyQuote } from './MessageReplyQuote';
 import { ProfilePanel } from './ProfilePanel';
 import { ContactsPanel } from './ContactsPanel';
 import { ConversationInfoPanel } from './ConversationInfoPanel';
@@ -35,6 +36,7 @@ export function ChatPage() {
   const [input, setInput] = useState('');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editBusy, setEditBusy] = useState(false);
+  const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [sidebarList, setSidebarList] = useState<'chats' | 'channels'>('chats');
   const [showProfile, setShowProfile] = useState(false);
@@ -139,9 +141,22 @@ export function ChatPage() {
 
   const applyMessageUpdate = useCallback((updated: Message) => {
     setMessages((prev) =>
-      prev.map((m) =>
-        m.id === updated.id ? { ...m, ...updated, status: m.status ?? updated.status } : m,
-      ),
+      prev.map((m) => {
+        if (m.id === updated.id) {
+          return { ...m, ...updated, status: m.status ?? updated.status };
+        }
+        if (updated.deletedForEveryone && m.replyTo?.id === updated.id) {
+          return {
+            ...m,
+            replyTo: {
+              ...m.replyTo,
+              content: '',
+              deletedForEveryone: true,
+            },
+          };
+        }
+        return m;
+      }),
     );
 
     setConversations((prev) =>
@@ -181,15 +196,35 @@ export function ChatPage() {
     setSendError('');
   }, []);
 
+  const cancelReplyMessage = useCallback(() => {
+    setReplyingToMessage(null);
+    setSendError('');
+  }, []);
+
+  const scrollToMessage = useCallback((messageId: string) => {
+    document.getElementById(`msg-${messageId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, []);
+
   const startEditMessage = useCallback((messageId: string, content: string) => {
+    cancelReplyMessage();
     setEditingMessageId(messageId);
     setInput(content);
     setSendError('');
     window.requestAnimationFrame(() => {
       composerInputRef.current?.focus();
-      document.getElementById(`msg-${messageId}`)?.scrollIntoView({ block: 'nearest' });
+      scrollToMessage(messageId);
     });
-  }, []);
+  }, [cancelReplyMessage, scrollToMessage]);
+
+  const startReplyMessage = useCallback((message: Message) => {
+    cancelEditMessage();
+    setReplyingToMessage(message);
+    setSendError('');
+    window.requestAnimationFrame(() => {
+      composerInputRef.current?.focus();
+      scrollToMessage(message.id);
+    });
+  }, [cancelEditMessage, scrollToMessage]);
 
   const handleSaveEdit = useCallback(async () => {
     if (!editingMessageId) return;
@@ -295,9 +330,22 @@ export function ChatPage() {
     (update: { conversationId: string; messageIds: string[] }) => {
       const idSet = new Set(update.messageIds);
       setMessages((prev) =>
-        prev.map((m) =>
-          idSet.has(m.id) ? { ...m, content: '', deletedForEveryone: true } : m,
-        ),
+        prev.map((m) => {
+          if (idSet.has(m.id)) {
+            return { ...m, content: '', deletedForEveryone: true };
+          }
+          if (m.replyTo && idSet.has(m.replyTo.id)) {
+            return {
+              ...m,
+              replyTo: {
+                ...m.replyTo,
+                content: '',
+                deletedForEveryone: true,
+              },
+            };
+          }
+          return m;
+        }),
       );
       setConversations((prev) =>
         prev.map((c) => {
@@ -627,6 +675,7 @@ export function ChatPage() {
     setMessages([]);
     setFirstUnreadMessageId(null);
     setEditingMessageId(null);
+    setReplyingToMessage(null);
     setInput('');
 
     api.getMessages(activeId).then((res) => {
@@ -805,7 +854,19 @@ export function ChatPage() {
     if (!input.trim() || !activeId || !canSendInActiveChat) return;
     const content = input.trim();
     const clientMessageId = createClientMessageId();
+    const replyTarget = replyingToMessage;
+    const replyPreview = replyTarget
+      ? {
+          id: replyTarget.id,
+          senderId: replyTarget.senderId,
+          content: replyTarget.deletedForEveryone ? '' : replyTarget.content,
+          deletedForEveryone: replyTarget.deletedForEveryone,
+          sender: replyTarget.sender,
+        }
+      : undefined;
+
     setInput('');
+    setReplyingToMessage(null);
     setSendError('');
 
     const optimistic: Message = {
@@ -818,6 +879,7 @@ export function ChatPage() {
       sequence: '0',
       createdAt: new Date().toISOString(),
       status: 'sending',
+      replyTo: replyPreview,
       sender: { id: user!.id, displayName: user!.displayName, username: user!.username },
     };
     setMessages((prev) => [...prev, optimistic]);
@@ -832,7 +894,12 @@ export function ChatPage() {
     );
 
     try {
-      const sent = await realtime.sendMessage(activeId, content, clientMessageId);
+      const sent = await realtime.sendMessage(
+        activeId,
+        content,
+        clientMessageId,
+        replyTarget?.id,
+      );
       confirmOutgoing(sent, clientMessageId);
     } catch (err) {
       setMessages((prev) => {
@@ -841,6 +908,7 @@ export function ChatPage() {
         return prev.filter((m) => m.clientMessageId !== clientMessageId);
       });
       setInput(content);
+      if (replyTarget) setReplyingToMessage(replyTarget);
       setSendError(err instanceof Error ? err.message : 'Failed to send message');
     }
   };
@@ -1226,6 +1294,8 @@ export function ChatPage() {
                   isBeingEdited={editingMessageId === m.id}
                   allowMessageMenu={canSendInActiveChat}
                   onStartEdit={startEditMessage}
+                  onReply={startReplyMessage}
+                  onScrollToMessage={scrollToMessage}
                   onDelete={handleDeleteMessage}
                   onReaction={handleReactionMessage}
                 />
@@ -1247,6 +1317,32 @@ export function ChatPage() {
                         className="composer-edit-cancel"
                         onClick={cancelEditMessage}
                         disabled={editBusy}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                  {replyingToMessage && !editingMessageId && (
+                    <div className="composer-reply-banner">
+                      <div className="composer-reply-preview">
+                        <span className="composer-reply-label">Replying to</span>
+                        <MessageReplyQuote
+                          replyTo={{
+                            id: replyingToMessage.id,
+                            senderId: replyingToMessage.senderId,
+                            content: replyingToMessage.deletedForEveryone
+                              ? ''
+                              : replyingToMessage.content,
+                            deletedForEveryone: replyingToMessage.deletedForEveryone,
+                            sender: replyingToMessage.sender,
+                          }}
+                          compact
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="composer-edit-cancel"
+                        onClick={cancelReplyMessage}
                       >
                         Cancel
                       </button>

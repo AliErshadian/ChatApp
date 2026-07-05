@@ -13,6 +13,10 @@ export class SendMessageDto {
   @IsString()
   @MaxLength(64)
   clientMessageId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  replyToMessageId?: string;
 }
 
 export class MarkReadDto {

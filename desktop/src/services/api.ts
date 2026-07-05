@@ -66,6 +66,14 @@ export interface MessageReaction {
   reactedByMe: boolean;
 }
 
+export interface MessageReplyPreview {
+  id: string;
+  senderId: string;
+  content: string;
+  deletedForEveryone?: boolean;
+  sender?: { id: string; displayName: string; username: string };
+}
+
 export interface Message {
   id: string;
   conversationId: string;
@@ -79,6 +87,7 @@ export interface Message {
   deletedForEveryone?: boolean;
   status?: MessageStatus;
   reactions?: MessageReaction[];
+  replyTo?: MessageReplyPreview;
   sender?: { id: string; displayName: string; username: string };
 }
 
