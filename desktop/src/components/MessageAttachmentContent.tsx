@@ -8,6 +8,7 @@ import {
 } from '../utils/messageMedia';
 import { LinkifiedMessageText } from './LinkifiedMessageText';
 import { ImageViewerModal } from './ImageViewerModal';
+import { VideoViewerModal } from './VideoViewerModal';
 
 interface Props {
   message: Message;
@@ -15,6 +16,7 @@ interface Props {
 
 export function MessageAttachmentContent({ message }: Props) {
   const [imageViewerOpen, setImageViewerOpen] = useState(false);
+  const [videoViewerOpen, setVideoViewerOpen] = useState(false);
   const kind = getMessageMediaKind(message.contentType);
   const mediaUrl = resolveMediaUrl(message.content);
   const caption = message.caption?.trim();
@@ -49,12 +51,34 @@ export function MessageAttachmentContent({ message }: Props) {
       )}
 
       {kind === 'video' && (
-        <video
-          src={mediaUrl}
-          controls
-          className="message-attachment-video"
-          preload="metadata"
-        />
+        <>
+          <button
+            type="button"
+            className="message-attachment-video-preview"
+            onClick={(e) => {
+              e.stopPropagation();
+              setVideoViewerOpen(true);
+            }}
+            aria-label={`Play ${message.fileName ?? 'video'}`}
+          >
+            <video
+              src={mediaUrl}
+              className="message-attachment-video-thumb"
+              preload="metadata"
+              muted
+              playsInline
+            />
+            <span className="message-attachment-play-icon" aria-hidden>
+              ▶
+            </span>
+          </button>
+          <VideoViewerModal
+            open={videoViewerOpen}
+            src={mediaUrl}
+            fileName={message.fileName}
+            onClose={() => setVideoViewerOpen(false)}
+          />
+        </>
       )}
 
       {kind === 'audio' && (
