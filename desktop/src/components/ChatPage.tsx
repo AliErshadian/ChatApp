@@ -26,6 +26,7 @@ import { formatTypingIndicator } from '../utils/typingIndicator';
 import { formatLastSeen } from '../utils/time';
 import { createClientMessageId } from '../utils/uuid';
 import { takePendingInviteToken } from '../utils/channelInvite';
+import { ATTACHMENT_ACCEPT, getMessagePreviewText } from '../utils/messageMedia';
 
 export function ChatPage() {
   const { user, logout } = useAuth();
@@ -55,6 +56,7 @@ export function ChatPage() {
   const [contactActionBusy, setContactActionBusy] = useState(false);
   const [deleteChatBusy, setDeleteChatBusy] = useState(false);
   const [sendError, setSendError] = useState('');
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [lastSeenTick, setLastSeenTick] = useState(0);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [swipeTransition, setSwipeTransition] = useState(false);
@@ -67,6 +69,7 @@ export function ChatPage() {
   const [inviteJoinBusy, setInviteJoinBusy] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerInputRef = useRef<HTMLInputElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const chatMainRef = useRef<HTMLElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const scrollIntentRef = useRef<{ kind: 'unread' | 'bottom'; messageId?: string } | null>(null);
@@ -772,7 +775,7 @@ export function ChatPage() {
       if (msg.senderId !== userIdRef.current && document.hidden) {
         window.electronAPI?.notify(
           msg.sender?.displayName ?? 'New message',
-          msg.content.slice(0, 100),
+          getMessagePreviewText(msg).slice(0, 100),
         );
       }
     });
@@ -893,6 +896,9 @@ export function ChatPage() {
           id: replyTarget.id,
           senderId: replyTarget.senderId,
           content: replyTarget.deletedForEveryone ? '' : replyTarget.content,
+          contentType: replyTarget.contentType,
+          fileName: replyTarget.fileName,
+          caption: replyTarget.caption,
           deletedForEveryone: replyTarget.deletedForEveryone,
           sender: replyTarget.sender,
         }
@@ -943,6 +949,79 @@ export function ChatPage() {
       setInput(content);
       if (replyTarget) setReplyingToMessage(replyTarget);
       setSendError(err instanceof Error ? err.message : 'Failed to send message');
+    }
+  };
+
+  const handleAttachmentSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !activeId || !canSendInActiveChat || editingMessageId || attachmentBusy) return;
+
+    const caption = input.trim() || undefined;
+    const clientMessageId = createClientMessageId();
+    const replyTarget = replyingToMessage;
+    const previewUrl = URL.createObjectURL(file);
+    const replyPreview = replyTarget
+      ? {
+          id: replyTarget.id,
+          senderId: replyTarget.senderId,
+          content: replyTarget.deletedForEveryone ? '' : replyTarget.content,
+          contentType: replyTarget.contentType,
+          fileName: replyTarget.fileName,
+          caption: replyTarget.caption,
+          deletedForEveryone: replyTarget.deletedForEveryone,
+          sender: replyTarget.sender,
+        }
+      : undefined;
+
+    setInput('');
+    setReplyingToMessage(null);
+    setSendError('');
+    setAttachmentBusy(true);
+
+    const optimistic: Message = {
+      id: clientMessageId,
+      conversationId: activeId,
+      senderId: user!.id,
+      content: previewUrl,
+      contentType: file.type || 'application/octet-stream',
+      fileName: file.name,
+      fileSize: String(file.size),
+      caption,
+      clientMessageId,
+      sequence: '0',
+      createdAt: new Date().toISOString(),
+      status: 'sending',
+      replyTo: replyPreview,
+      sender: { id: user!.id, displayName: user!.displayName, username: user!.username },
+    };
+
+    setMessages((prev) => [...prev, optimistic]);
+    shouldScrollToBottomRef.current = true;
+    setFirstUnreadMessageId(null);
+    setConversations((prev) =>
+      reorderConversations(
+        prev.map((c) =>
+          c.id === activeId ? bumpConversationFromMessage(c, optimistic) : c,
+        ),
+      ),
+    );
+
+    try {
+      const sent = await api.sendMessageAttachment(activeId, file, {
+        caption,
+        clientMessageId,
+        replyToMessageId: replyTarget?.id,
+      });
+      confirmOutgoing(sent, clientMessageId);
+    } catch (err) {
+      setMessages((prev) => prev.filter((m) => m.clientMessageId !== clientMessageId));
+      setInput(caption ?? '');
+      if (replyTarget) setReplyingToMessage(replyTarget);
+      setSendError(err instanceof Error ? err.message : 'Failed to send attachment');
+    } finally {
+      URL.revokeObjectURL(previewUrl);
+      setAttachmentBusy(false);
     }
   };
 
@@ -1394,6 +1473,9 @@ export function ChatPage() {
                             content: replyingToMessage.deletedForEveryone
                               ? ''
                               : replyingToMessage.content,
+                            contentType: replyingToMessage.contentType,
+                            fileName: replyingToMessage.fileName,
+                            caption: replyingToMessage.caption,
                             deletedForEveryone: replyingToMessage.deletedForEveryone,
                             sender: replyingToMessage.sender,
                           }}
@@ -1410,6 +1492,23 @@ export function ChatPage() {
                     </div>
                   )}
                   <form className="composer-form" onSubmit={handleComposerSubmit}>
+                    <button
+                      type="button"
+                      className="composer-attach-btn"
+                      onClick={() => attachmentInputRef.current?.click()}
+                      disabled={attachmentBusy || editBusy || !!editingMessageId}
+                      aria-label="Attach file"
+                      title="Attach photo, video, audio, or document"
+                    >
+                      📎
+                    </button>
+                    <input
+                      ref={attachmentInputRef}
+                      type="file"
+                      className="avatar-file-input"
+                      accept={ATTACHMENT_ACCEPT}
+                      onChange={(e) => void handleAttachmentSelect(e)}
+                    />
                     <input
                       ref={composerInputRef}
                       value={input}
@@ -1417,11 +1516,14 @@ export function ChatPage() {
                       placeholder={
                         editingMessageId
                           ? 'Edit your message'
-                          : `Message ${activeConversation.name}`
+                          : attachmentBusy
+                            ? 'Sending attachment...'
+                            : `Message ${activeConversation.name}`
                       }
+                      disabled={attachmentBusy}
                       enterKeyHint={editingMessageId ? 'done' : 'send'}
                     />
-                    <button type="submit" disabled={!input.trim() || editBusy}>
+                    <button type="submit" disabled={!input.trim() || editBusy || attachmentBusy}>
                       {editBusy ? 'Saving...' : editingMessageId ? 'Save' : 'Send'}
                     </button>
                   </form>

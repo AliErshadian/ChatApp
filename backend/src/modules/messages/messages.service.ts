@@ -16,6 +16,11 @@ import { ConversationMember } from '../conversations/entities/conversation-membe
 import { ConversationsService } from '../conversations/conversations.service';
 import { SanitizationService } from '../../common/services/sanitization.service';
 import { SendMessageDto } from './dto/message.dto';
+import { validateMessageMediaFile, isTextContentType } from './message-media.util';
+import { MessageRealtimePublisher } from './message-realtime.publisher';
+import { randomUUID } from 'crypto';
+import { join } from 'path';
+import { existsSync, mkdirSync, renameSync } from 'fs';
 
 export type MessageStatus = 'sent' | 'delivered' | 'read';
 
@@ -29,6 +34,9 @@ export interface MessageReplyPreview {
   id: string;
   senderId: string;
   content: string;
+  contentType?: string;
+  fileName?: string;
+  caption?: string;
   deletedForEveryone?: boolean;
   sender?: { id: string; displayName: string; username: string };
 }
@@ -39,6 +47,9 @@ export interface MessagePayload {
   senderId: string;
   content: string;
   contentType: string;
+  fileName?: string;
+  fileSize?: string;
+  caption?: string;
   clientMessageId?: string;
   sequence: string;
   createdAt: Date;
@@ -80,6 +91,7 @@ export class MessagesService {
     private readonly memberRepo: Repository<ConversationMember>,
     private readonly conversationsService: ConversationsService,
     private readonly sanitization: SanitizationService,
+    private readonly messagePublisher: MessageRealtimePublisher,
   ) {}
 
   async send(userId: string, dto: SendMessageDto): Promise<MessagePayload> {
@@ -126,6 +138,84 @@ export class MessagesService {
     });
 
     return this.toPayload(withSender!, userId, 'sent');
+  }
+
+  async sendAttachment(
+    userId: string,
+    conversationId: string,
+    file: Express.Multer.File,
+    options: {
+      clientMessageId?: string;
+      replyToMessageId?: string;
+      caption?: string;
+    } = {},
+  ): Promise<MessagePayload> {
+    await this.conversationsService.assertCanSendMessage(conversationId, userId);
+
+    if (options.clientMessageId) {
+      const existing = await this.messageRepo.findOne({
+        where: {
+          conversationId,
+          senderId: userId,
+          clientMessageId: options.clientMessageId,
+        },
+        relations: ['sender', 'replyTo', 'replyTo.sender'],
+      });
+      if (existing) {
+        return this.toPayload(existing, userId, 'sent');
+      }
+    }
+
+    const media = validateMessageMediaFile(file);
+
+    let replyToMessageId: string | undefined;
+    if (options.replyToMessageId) {
+      replyToMessageId = await this.resolveReplyTarget(
+        conversationId,
+        userId,
+        options.replyToMessageId,
+      );
+    }
+
+    const caption = options.caption
+      ? this.sanitization.sanitizeMessage(options.caption)
+      : undefined;
+
+    const storedName = `${randomUUID()}${media.ext}`;
+    const attachmentDir = join(
+      process.cwd(),
+      'uploads',
+      'message-attachments',
+      conversationId,
+    );
+    if (!existsSync(attachmentDir)) {
+      mkdirSync(attachmentDir, { recursive: true });
+    }
+
+    renameSync(file.path, join(attachmentDir, storedName));
+    const content = `/uploads/message-attachments/${conversationId}/${storedName}`;
+
+    const message = this.messageRepo.create({
+      conversationId,
+      senderId: userId,
+      content,
+      contentType: media.mimeType,
+      fileName: media.originalName,
+      fileSize: String(file.size),
+      caption: caption || undefined,
+      clientMessageId: options.clientMessageId,
+      replyToMessageId,
+    });
+
+    const saved = await this.messageRepo.save(message);
+    const withSender = await this.messageRepo.findOne({
+      where: { id: saved.id },
+      relations: ['sender', 'replyTo', 'replyTo.sender'],
+    });
+
+    const payload = this.toPayload(withSender!, userId, 'sent');
+    await this.messagePublisher.publishNewMessage(payload, userId);
+    return payload;
   }
 
   async list(conversationId: string, userId: string, cursor?: string, limit = 50) {
@@ -254,6 +344,9 @@ export class MessagesService {
     }
     if (message.deletedAt) {
       throw new ConflictException('Cannot edit a deleted message');
+    }
+    if (!isTextContentType(message.contentType)) {
+      throw new ConflictException('Only text messages can be edited');
     }
 
     const sanitized = this.sanitization.sanitizeMessage(content);
@@ -514,6 +607,9 @@ export class MessagesService {
       id: message.id,
       senderId: message.senderId,
       content: deletedForEveryone ? '' : message.content,
+      contentType: message.contentType,
+      fileName: message.fileName,
+      caption: message.caption,
       deletedForEveryone,
       sender: message.sender
         ? {
@@ -539,6 +635,9 @@ export class MessagesService {
       senderId: message.senderId,
       content: deletedForEveryone ? '' : message.content,
       contentType: message.contentType,
+      fileName: message.fileName,
+      fileSize: message.fileSize,
+      caption: message.caption,
       clientMessageId: message.clientMessageId,
       sequence: message.sequence,
       createdAt: message.createdAt,

@@ -1,4 +1,5 @@
 import { MessageReplyPreview } from '../services/api';
+import { getReplyPreviewText } from '../utils/messageMedia';
 import { truncateMessagePreview } from '../utils/messagePreview';
 
 interface Props {
@@ -16,7 +17,7 @@ export function MessageReplyQuote({
 }: Props) {
   const senderName = replyTo.sender?.displayName ?? 'Unknown';
   const deleted = replyTo.deletedForEveryone;
-  const preview = deleted ? 'Message deleted' : truncateMessagePreview(replyTo.content);
+  const preview = deleted ? 'Message deleted' : truncateMessagePreview(getReplyPreviewText(replyTo));
 
   const handleClick = () => {
     if (!deleted && onScrollToMessage) {

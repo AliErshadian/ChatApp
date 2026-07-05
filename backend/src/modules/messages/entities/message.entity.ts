@@ -34,8 +34,17 @@ export class Message {
   @Column({ type: 'text' })
   content!: string;
 
-  @Column({ name: 'content_type', default: 'text/plain' })
+  @Column({ name: 'content_type', length: 128, default: 'text/plain' })
   contentType!: string;
+
+  @Column({ name: 'file_name', nullable: true })
+  fileName?: string;
+
+  @Column({ name: 'file_size', type: 'bigint', nullable: true })
+  fileSize?: string;
+
+  @Column({ type: 'text', nullable: true })
+  caption?: string;
 
   @Column({ name: 'client_message_id', nullable: true })
   clientMessageId?: string;

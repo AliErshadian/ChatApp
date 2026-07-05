@@ -10,6 +10,7 @@ import { MessagesService } from './messages.service';
 import { MessagesController } from './messages.controller';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { SanitizationService } from '../../common/services/sanitization.service';
+import { MessageRealtimePublisher } from './message-realtime.publisher';
 
 @Module({
   imports: [
@@ -24,7 +25,7 @@ import { SanitizationService } from '../../common/services/sanitization.service'
     ConversationsModule,
   ],
   controllers: [MessagesController],
-  providers: [MessagesService, SanitizationService],
-  exports: [MessagesService],
+  providers: [MessagesService, SanitizationService, MessageRealtimePublisher],
+  exports: [MessagesService, MessageRealtimePublisher],
 })
 export class MessagesModule {}

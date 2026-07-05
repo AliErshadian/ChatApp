@@ -7,6 +7,8 @@ import { useGhostClickGuard } from '../hooks/useGhostClickGuard';
 import { MessageStatusTicks } from './MessageStatusTicks';
 import { LinkifiedMessageText } from './LinkifiedMessageText';
 import { MessageReplyQuote } from './MessageReplyQuote';
+import { MessageAttachmentContent, isAttachmentMessage } from './MessageAttachmentContent';
+import { isTextMessage } from '../utils/messageMedia';
 
 interface Props {
   message: Message;
@@ -49,7 +51,11 @@ export function MessageBubble({
   usePreventTouchSelection(bubbleRef, true);
   const { arm: armGhostClick, isSuppressed: isGhostClickSuppressed } = useGhostClickGuard();
 
-  const canEdit = isOwn && !message.deletedForEveryone && Boolean(onStartEdit);
+  const canEdit =
+    isOwn &&
+    isTextMessage(message) &&
+    !message.deletedForEveryone &&
+    Boolean(onStartEdit);
   const canReply = !message.deletedForEveryone && Boolean(onReply);
   const showMenu = allowMessageMenu;
   const isFocused = menuOpen && layout !== null;
@@ -267,9 +273,13 @@ export function MessageBubble({
               onScrollToMessage={onScrollToMessage}
             />
           )}
-          <div className="message-content">
-            <LinkifiedMessageText text={message.content} />
-          </div>
+          {isAttachmentMessage(message) ? (
+            <MessageAttachmentContent message={message} />
+          ) : (
+            <div className="message-content">
+              <LinkifiedMessageText text={message.content} />
+            </div>
+          )}
         </>
       )}
 

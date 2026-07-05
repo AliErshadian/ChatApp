@@ -759,6 +759,9 @@ export class ConversationsService {
       id: string;
       sender_id: string;
       content: string;
+      content_type: string;
+      file_name: string | null;
+      caption: string | null;
       created_at: Date;
       deleted_at: Date | null;
       sender_display_name: string;
@@ -768,6 +771,9 @@ export class ConversationsService {
         m.id,
         m.sender_id,
         m.content,
+        m.content_type,
+        m.file_name,
+        m.caption,
         m.created_at,
         m.deleted_at,
         u.display_name AS sender_display_name
@@ -785,6 +791,9 @@ export class ConversationsService {
       {
         id: string;
         content: string;
+        contentType?: string;
+        fileName?: string;
+        caption?: string;
         senderId: string;
         senderName: string;
         createdAt: Date;
@@ -797,6 +806,9 @@ export class ConversationsService {
       map.set(row.conversation_id, {
         id: row.id,
         content: deletedForEveryone ? '' : row.content,
+        contentType: row.content_type,
+        fileName: row.file_name ?? undefined,
+        caption: row.caption ?? undefined,
         senderId: row.sender_id,
         senderName: row.sender_display_name,
         createdAt: row.created_at,

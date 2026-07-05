@@ -42,6 +42,9 @@ export interface Conversation {
   lastMessage?: {
     id: string;
     content: string;
+    contentType?: string;
+    fileName?: string;
+    caption?: string;
     senderId: string;
     senderName?: string;
     createdAt: string;
@@ -73,6 +76,9 @@ export interface MessageReplyPreview {
   id: string;
   senderId: string;
   content: string;
+  contentType?: string;
+  fileName?: string;
+  caption?: string;
   deletedForEveryone?: boolean;
   sender?: { id: string; displayName: string; username: string };
 }
@@ -83,6 +89,9 @@ export interface Message {
   senderId: string;
   content: string;
   contentType: string;
+  fileName?: string;
+  fileSize?: string;
+  caption?: string;
   clientMessageId?: string;
   sequence: string;
   createdAt: string;
@@ -294,6 +303,50 @@ class ApiClient {
     return this.request<{ messages: Message[]; nextCursor: string | null }>(
       `/conversations/${conversationId}/messages${qs}`,
     );
+  }
+
+  async sendMessageAttachment(
+    conversationId: string,
+    file: File,
+    options?: {
+      caption?: string;
+      clientMessageId?: string;
+      replyToMessageId?: string;
+    },
+  ) {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (options?.caption) formData.append('caption', options.caption);
+    if (options?.clientMessageId) formData.append('clientMessageId', options.clientMessageId);
+    if (options?.replyToMessageId) formData.append('replyToMessageId', options.replyToMessageId);
+
+    const headers: Record<string, string> = {};
+    if (this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`;
+
+    let res = await fetch(`${this.apiBase()}/conversations/${conversationId}/messages/attachment`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (res.status === 401 && this.refreshToken) {
+      const refreshed = await this.refresh();
+      if (refreshed) {
+        headers.Authorization = `Bearer ${this.accessToken}`;
+        res = await fetch(`${this.apiBase()}/conversations/${conversationId}/messages/attachment`, {
+          method: 'POST',
+          headers,
+          body: formData,
+        });
+      }
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message ?? `HTTP ${res.status}`);
+    }
+
+    return res.json() as Promise<Message>;
   }
 
   editMessage(conversationId: string, messageId: string, content: string) {
