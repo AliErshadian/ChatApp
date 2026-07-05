@@ -11,8 +11,9 @@ interface Props {
   message: Message;
   isOwn: boolean;
   isFirstUnread?: boolean;
+  isBeingEdited?: boolean;
   allowMessageMenu?: boolean;
-  onEdit: (messageId: string, content: string) => Promise<void>;
+  onStartEdit?: (messageId: string, content: string) => void;
   onDelete: (messageId: string, scope: 'me' | 'everyone') => Promise<void>;
   onReaction: (messageId: string, emoji: string) => Promise<void>;
 }
@@ -21,14 +22,13 @@ export function MessageBubble({
   message,
   isOwn,
   isFirstUnread,
+  isBeingEdited = false,
   allowMessageMenu = true,
-  onEdit,
+  onStartEdit,
   onDelete,
   onReaction,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(message.content);
   const [busy, setBusy] = useState(false);
   const [layout, setLayout] = useState<{
     anchor: DOMRect;
@@ -41,11 +41,11 @@ export function MessageBubble({
   const touchOriginRef = useRef<{ x: number; y: number } | null>(null);
   const openedViaTouchRef = useRef(false);
 
-  usePreventTouchSelection(bubbleRef, !editing);
+  usePreventTouchSelection(bubbleRef, true);
   const { arm: armGhostClick, isSuppressed: isGhostClickSuppressed } = useGhostClickGuard();
 
-  const canEdit = isOwn && !message.deletedForEveryone;
-  const showMenu = allowMessageMenu && !editing;
+  const canEdit = isOwn && !message.deletedForEveryone && Boolean(onStartEdit);
+  const showMenu = allowMessageMenu;
   const isFocused = menuOpen && layout !== null;
 
   const measureLayout = () => {
@@ -88,7 +88,7 @@ export function MessageBubble({
   };
 
   const openMenu = (options?: { viaTouch?: boolean; origin?: { x: number; y: number } }) => {
-    if (editing || !allowMessageMenu) return;
+    if (!allowMessageMenu) return;
     if (options?.origin) {
       touchOriginRef.current = options.origin;
     }
@@ -141,10 +141,6 @@ export function MessageBubble({
     };
   }, []);
 
-  useEffect(() => {
-    if (!editing) setDraft(message.content);
-  }, [message.content, editing]);
-
   const clearLongPress = () => {
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
@@ -158,13 +154,13 @@ export function MessageBubble({
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
-    if (editing || !allowMessageMenu) return;
+    if (!allowMessageMenu) return;
     e.preventDefault();
     openMenu();
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (editing || !allowMessageMenu) return;
+    if (!allowMessageMenu) return;
     const touch = e.touches[0];
     touchOriginRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
     longPressTriggered.current = false;
@@ -188,22 +184,6 @@ export function MessageBubble({
 
   const handleTouchMove = () => {
     clearLongPress();
-  };
-
-  const handleSaveEdit = async () => {
-    const next = draft.trim();
-    if (!next || next === message.content) {
-      setEditing(false);
-      return;
-    }
-    setBusy(true);
-    try {
-      await onEdit(message.id, next);
-      setEditing(false);
-      setMenuOpen(false);
-    } finally {
-      setBusy(false);
-    }
   };
 
   const handleDelete = async (scope: 'me' | 'everyone') => {
@@ -258,7 +238,7 @@ export function MessageBubble({
     <div
       ref={bubbleRef}
       id={isFocused ? undefined : `msg-${message.id}`}
-      className={`message ${isOwn ? 'own' : 'incoming'} ${message.deletedForEveryone ? 'deleted' : ''} ${menuOpen ? 'menu-open' : ''}`}
+      className={`message ${isOwn ? 'own' : 'incoming'} ${message.deletedForEveryone ? 'deleted' : ''} ${menuOpen ? 'menu-open' : ''} ${isBeingEdited ? 'being-edited' : ''}`}
       onContextMenu={isFocused ? undefined : handleContextMenu}
       onTouchStart={isFocused ? undefined : handleTouchStart}
       onTouchEnd={isFocused ? undefined : handleTouchEnd}
@@ -270,29 +250,7 @@ export function MessageBubble({
         </div>
       )}
 
-      {editing ? (
-        <div className="message-edit-form">
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            rows={2}
-            autoFocus
-          />
-          <div className="message-edit-actions">
-            <button type="button" onClick={() => setEditing(false)} disabled={busy}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="primary"
-              onClick={handleSaveEdit}
-              disabled={busy || !draft.trim()}
-            >
-              Save
-            </button>
-          </div>
-        </div>
-      ) : message.deletedForEveryone ? (
+      {message.deletedForEveryone ? (
         <div className="message-content deleted">Message deleted</div>
       ) : (
         <div className="message-content">
@@ -365,7 +323,7 @@ export function MessageBubble({
           <button
             type="button"
             onClick={() => {
-              setEditing(true);
+              onStartEdit?.(message.id, message.content);
               setMenuOpen(false);
             }}
           >

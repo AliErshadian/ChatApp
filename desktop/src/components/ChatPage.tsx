@@ -33,6 +33,8 @@ export function ChatPage() {
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [sidebarList, setSidebarList] = useState<'chats' | 'channels'>('chats');
   const [showProfile, setShowProfile] = useState(false);
@@ -59,6 +61,7 @@ export function ChatPage() {
   } | null>(null);
   const [inviteJoinBusy, setInviteJoinBusy] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const composerInputRef = useRef<HTMLInputElement>(null);
   const chatMainRef = useRef<HTMLElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const scrollIntentRef = useRef<{ kind: 'unread' | 'bottom'; messageId?: string } | null>(null);
@@ -171,6 +174,47 @@ export function ChatPage() {
       applyMessageUpdate(updated);
     }
   }, [applyMessageUpdate]);
+
+  const cancelEditMessage = useCallback(() => {
+    setEditingMessageId(null);
+    setInput('');
+    setSendError('');
+  }, []);
+
+  const startEditMessage = useCallback((messageId: string, content: string) => {
+    setEditingMessageId(messageId);
+    setInput(content);
+    setSendError('');
+    window.requestAnimationFrame(() => {
+      composerInputRef.current?.focus();
+      document.getElementById(`msg-${messageId}`)?.scrollIntoView({ block: 'nearest' });
+    });
+  }, []);
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editingMessageId) return;
+    const content = input.trim();
+    const original = messages.find((m) => m.id === editingMessageId);
+    if (!content || !original) {
+      cancelEditMessage();
+      return;
+    }
+    if (content === original.content) {
+      cancelEditMessage();
+      return;
+    }
+
+    setEditBusy(true);
+    setSendError('');
+    try {
+      await handleEditMessage(editingMessageId, content);
+      cancelEditMessage();
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'Failed to edit message');
+    } finally {
+      setEditBusy(false);
+    }
+  }, [editingMessageId, input, messages, cancelEditMessage, handleEditMessage]);
 
   const handleDeleteMessage = useCallback(async (messageId: string, scope: 'me' | 'everyone') => {
     if (!activeIdRef.current) return;
@@ -582,6 +626,8 @@ export function ChatPage() {
     const lastReadAt = lastReadAtOnOpenRef.current;
     setMessages([]);
     setFirstUnreadMessageId(null);
+    setEditingMessageId(null);
+    setInput('');
 
     api.getMessages(activeId).then((res) => {
       const firstUnread = res.messages.find(
@@ -801,6 +847,10 @@ export function ChatPage() {
 
   const handleComposerSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (editingMessageId) {
+      void handleSaveEdit();
+      return;
+    }
     void handleSend();
   };
 
@@ -808,7 +858,7 @@ export function ChatPage() {
     if (!canSendInActiveChat) return;
     setInput(value);
     if (sendError) setSendError('');
-    if (!activeId) return;
+    if (editingMessageId || !activeId) return;
     realtime.setTyping(activeId, true);
     clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
@@ -1173,8 +1223,9 @@ export function ChatPage() {
                   message={m}
                   isOwn={m.senderId === user?.id}
                   isFirstUnread={firstUnreadMessageId === m.id}
+                  isBeingEdited={editingMessageId === m.id}
                   allowMessageMenu={canSendInActiveChat}
-                  onEdit={handleEditMessage}
+                  onStartEdit={startEditMessage}
                   onDelete={handleDeleteMessage}
                   onReaction={handleReactionMessage}
                 />
@@ -1187,17 +1238,37 @@ export function ChatPage() {
 
             <footer className="composer">
               {canSendInActiveChat ? (
-                <form className="composer-form" onSubmit={handleComposerSubmit}>
-                  <input
-                    value={input}
-                    onChange={(e) => handleInputChange(e.target.value)}
-                    placeholder={`Message ${activeConversation.name}`}
-                    enterKeyHint="send"
-                  />
-                  <button type="submit" disabled={!input.trim()}>
-                    Send
-                  </button>
-                </form>
+                <>
+                  {editingMessageId && (
+                    <div className="composer-edit-banner">
+                      <span>Editing message</span>
+                      <button
+                        type="button"
+                        className="composer-edit-cancel"
+                        onClick={cancelEditMessage}
+                        disabled={editBusy}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                  <form className="composer-form" onSubmit={handleComposerSubmit}>
+                    <input
+                      ref={composerInputRef}
+                      value={input}
+                      onChange={(e) => handleInputChange(e.target.value)}
+                      placeholder={
+                        editingMessageId
+                          ? 'Edit your message'
+                          : `Message ${activeConversation.name}`
+                      }
+                      enterKeyHint={editingMessageId ? 'done' : 'send'}
+                    />
+                    <button type="submit" disabled={!input.trim() || editBusy}>
+                      {editBusy ? 'Saving...' : editingMessageId ? 'Save' : 'Send'}
+                    </button>
+                  </form>
+                </>
               ) : (
                 <p className="composer-readonly-notice">
                   Only the channel owner can send messages in this channel.
