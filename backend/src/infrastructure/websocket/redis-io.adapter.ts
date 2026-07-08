@@ -34,7 +34,7 @@ export async function setupRedisAdapter(
     await redisAdapter.connectToRedis(config);
     app.useWebSocketAdapter(redisAdapter);
     console.log(`Socket.IO Redis adapter connected (${redisUrl})`);
-  } catch (err) {
+  } catch (_err) {
     console.warn(
       'Redis unavailable — using in-memory Socket.IO adapter (fine for local dev).',
     );

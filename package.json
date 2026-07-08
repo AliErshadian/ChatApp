@@ -14,7 +14,10 @@
     "docker:down": "docker compose down",
     "build:backend": "npm run build --prefix backend",
     "build:desktop": "npm run build --prefix desktop",
-    "build": "npm run build:backend && npm run build:desktop"
+    "build": "npm run build:backend && npm run build:desktop",
+    "lint:backend": "npm run lint --prefix backend",
+    "lint:desktop": "npm run lint --prefix desktop",
+    "lint": "npm run lint:backend && npm run lint:desktop"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
