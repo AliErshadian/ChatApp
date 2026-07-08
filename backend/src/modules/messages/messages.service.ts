@@ -276,13 +276,7 @@ export class MessagesService {
     }
 
     await this.conversationsService.assertMember(message.conversationId, userId);
-
-    const existing = await this.deliveryRepo.findOne({
-      where: { messageId, userId },
-    });
-    if (!existing) {
-      await this.deliveryRepo.save({ messageId, userId });
-    }
+    await this.ensureDelivery(messageId, userId);
 
     const status = await this.computeStatus(message.id, message.senderId, message.conversationId);
 
@@ -300,20 +294,8 @@ export class MessagesService {
 
     if (message.senderId !== userId) {
       await this.conversationsService.assertMember(message.conversationId, userId);
-
-      const existingDelivery = await this.deliveryRepo.findOne({
-        where: { messageId, userId },
-      });
-      if (!existingDelivery) {
-        await this.deliveryRepo.save({ messageId, userId });
-      }
-
-      const existingReceipt = await this.receiptRepo.findOne({
-        where: { messageId, userId },
-      });
-      if (!existingReceipt) {
-        await this.receiptRepo.save({ messageId, userId });
-      }
+      await this.ensureDelivery(messageId, userId);
+      await this.ensureReadReceipt(messageId, userId);
 
       await this.memberRepo.update(
         { conversationId: message.conversationId, userId },
@@ -329,6 +311,28 @@ export class MessagesService {
       senderId: message.senderId,
       status,
     };
+  }
+
+  /** Concurrent delivery ACKs are common; ignore duplicate (message_id, user_id). */
+  private async ensureDelivery(messageId: string, userId: string): Promise<void> {
+    await this.deliveryRepo
+      .createQueryBuilder()
+      .insert()
+      .into(MessageDelivery)
+      .values({ messageId, userId })
+      .orIgnore()
+      .execute();
+  }
+
+  /** Concurrent read receipts are common; ignore duplicate (message_id, user_id). */
+  private async ensureReadReceipt(messageId: string, userId: string): Promise<void> {
+    await this.receiptRepo
+      .createQueryBuilder()
+      .insert()
+      .into(MessageReadReceipt)
+      .values({ messageId, userId })
+      .orIgnore()
+      .execute();
   }
 
   async edit(userId: string, messageId: string, content: string): Promise<MessagePayload> {
