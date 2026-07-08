@@ -3,7 +3,7 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
-CREATE TYPE conversation_type AS ENUM ('direct', 'channel');
+CREATE TYPE conversation_type AS ENUM ('direct', 'channel', 'group');
 CREATE TYPE member_role AS ENUM ('owner', 'admin', 'member');
 CREATE TYPE presence_status AS ENUM ('online', 'away', 'offline');
 
@@ -27,6 +27,7 @@ CREATE TABLE conversations (
     avatar_url TEXT,
     created_by UUID NOT NULL REFERENCES users(id),
     pending_owner_id UUID REFERENCES users(id),
+    is_public BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT channel_requires_name CHECK (
@@ -49,12 +50,16 @@ CREATE TABLE messages (
     conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     sender_id UUID NOT NULL REFERENCES users(id),
     content TEXT NOT NULL,
-    content_type VARCHAR(32) NOT NULL DEFAULT 'text/plain',
+    content_type VARCHAR(128) NOT NULL DEFAULT 'text/plain',
+    file_name VARCHAR(255),
+    file_size BIGINT,
+    caption TEXT,
     client_message_id VARCHAR(64),
     sequence BIGINT GENERATED ALWAYS AS IDENTITY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     edited_at TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ,
+    reply_to_message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
     CONSTRAINT content_not_empty CHECK (length(trim(content)) > 0)
 );
 

@@ -1,4 +1,32 @@
-import { IsString, IsUUID, IsOptional, MinLength, MaxLength, IsIn } from 'class-validator';
+import {
+  IsString,
+  IsUUID,
+  IsOptional,
+  MinLength,
+  MaxLength,
+  IsIn,
+  IsBoolean,
+} from 'class-validator';
+
+export class CreateGroupDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @IsOptional()
+  @IsUUID('4', { each: true })
+  memberIds?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  isPublic?: boolean;
+}
 
 export class CreateChannelDto {
   @IsString()

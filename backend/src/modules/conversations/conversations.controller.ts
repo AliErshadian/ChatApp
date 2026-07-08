@@ -19,7 +19,14 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
 import { ConversationsService } from './conversations.service';
-import { CreateChannelDto, CreateDirectDto, AddMembersDto, DeleteConversationDto, LeaveChannelDto } from './dto/conversation.dto';
+import {
+  CreateChannelDto,
+  CreateGroupDto,
+  CreateDirectDto,
+  AddMembersDto,
+  DeleteConversationDto,
+  LeaveChannelDto,
+} from './dto/conversation.dto';
 
 const channelAvatarUploadDir = join(process.cwd(), 'uploads', 'channel-avatars');
 if (!existsSync(channelAvatarUploadDir)) {
@@ -46,6 +53,11 @@ export class ConversationsController {
     return this.conversationsService.createChannel(user.id, dto);
   }
 
+  @Post('groups')
+  createGroup(@CurrentUser() user: User, @Body() dto: CreateGroupDto) {
+    return this.conversationsService.createGroup(user.id, dto);
+  }
+
   @Post('direct')
   createDirect(@CurrentUser() user: User, @Body() dto: CreateDirectDto) {
     return this.conversationsService.createDirect(user.id, dto);
@@ -58,6 +70,15 @@ export class ConversationsController {
     @Body() dto: AddMembersDto,
   ) {
     return this.conversationsService.addMembers(id, user.id, dto.userIds);
+  }
+
+  @Delete(':id/members/:userId')
+  removeMember(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.conversationsService.removeMember(id, user.id, userId);
   }
 
   @Get(':id/invite')

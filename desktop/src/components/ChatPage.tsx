@@ -5,12 +5,14 @@ import { realtime } from '../services/realtime';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
 import { MessageBubble } from './MessageBubble';
+import { MessageReplyQuote } from './MessageReplyQuote';
 import { ProfilePanel } from './ProfilePanel';
 import { ContactsPanel } from './ContactsPanel';
 import { ConversationInfoPanel } from './ConversationInfoPanel';
 import { ChannelJoinBanner } from './ChannelJoinBanner';
 import { mergeMessageStatus, mergeOutgoingServerMessage } from '../utils/messageStatus';
 import { ConversationListItem } from './ConversationListItem';
+import { NewGroupModal } from './NewGroupModal';
 import { AppNav } from './AppNav';
 import { bumpConversationFromMessage, reorderConversations } from '../utils/conversationList';
 import { getDirectPeer, partitionChannels } from '../utils/conversation';
@@ -24,6 +26,7 @@ import { formatTypingIndicator } from '../utils/typingIndicator';
 import { formatLastSeen } from '../utils/time';
 import { createClientMessageId } from '../utils/uuid';
 import { takePendingInviteToken } from '../utils/channelInvite';
+import { ATTACHMENT_ACCEPT, getMessagePreviewText } from '../utils/messageMedia';
 
 export function ChatPage() {
   const { user, logout } = useAuth();
@@ -33,11 +36,15 @@ export function ChatPage() {
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [sidebarList, setSidebarList] = useState<'chats' | 'channels'>('chats');
   const [showProfile, setShowProfile] = useState(false);
   const [showContacts, setShowContacts] = useState(false);
   const [showNewChatPicker, setShowNewChatPicker] = useState(false);
+  const [showNewGroup, setShowNewGroup] = useState(false);
   const [showConversationInfo, setShowConversationInfo] = useState(false);
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [channelName, setChannelName] = useState('');
@@ -49,6 +56,7 @@ export function ChatPage() {
   const [contactActionBusy, setContactActionBusy] = useState(false);
   const [deleteChatBusy, setDeleteChatBusy] = useState(false);
   const [sendError, setSendError] = useState('');
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [lastSeenTick, setLastSeenTick] = useState(0);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [swipeTransition, setSwipeTransition] = useState(false);
@@ -56,9 +64,12 @@ export function ChatPage() {
     token: string;
     channelName: string;
     conversationId: string;
+    conversationType?: 'channel' | 'group';
   } | null>(null);
   const [inviteJoinBusy, setInviteJoinBusy] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const composerInputRef = useRef<HTMLInputElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const chatMainRef = useRef<HTMLElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const scrollIntentRef = useRef<{ kind: 'unread' | 'bottom'; messageId?: string } | null>(null);
@@ -136,9 +147,22 @@ export function ChatPage() {
 
   const applyMessageUpdate = useCallback((updated: Message) => {
     setMessages((prev) =>
-      prev.map((m) =>
-        m.id === updated.id ? { ...m, ...updated, status: m.status ?? updated.status } : m,
-      ),
+      prev.map((m) => {
+        if (m.id === updated.id) {
+          return { ...m, ...updated, status: m.status ?? updated.status };
+        }
+        if (updated.deletedForEveryone && m.replyTo?.id === updated.id) {
+          return {
+            ...m,
+            replyTo: {
+              ...m.replyTo,
+              content: '',
+              deletedForEveryone: true,
+            },
+          };
+        }
+        return m;
+      }),
     );
 
     setConversations((prev) =>
@@ -171,6 +195,67 @@ export function ChatPage() {
       applyMessageUpdate(updated);
     }
   }, [applyMessageUpdate]);
+
+  const cancelEditMessage = useCallback(() => {
+    setEditingMessageId(null);
+    setInput('');
+    setSendError('');
+  }, []);
+
+  const cancelReplyMessage = useCallback(() => {
+    setReplyingToMessage(null);
+    setSendError('');
+  }, []);
+
+  const scrollToMessage = useCallback((messageId: string) => {
+    document.getElementById(`msg-${messageId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, []);
+
+  const startEditMessage = useCallback((messageId: string, content: string) => {
+    cancelReplyMessage();
+    setEditingMessageId(messageId);
+    setInput(content);
+    setSendError('');
+    window.requestAnimationFrame(() => {
+      composerInputRef.current?.focus();
+      scrollToMessage(messageId);
+    });
+  }, [cancelReplyMessage, scrollToMessage]);
+
+  const startReplyMessage = useCallback((message: Message) => {
+    cancelEditMessage();
+    setReplyingToMessage(message);
+    setSendError('');
+    window.requestAnimationFrame(() => {
+      composerInputRef.current?.focus();
+      scrollToMessage(message.id);
+    });
+  }, [cancelEditMessage, scrollToMessage]);
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editingMessageId) return;
+    const content = input.trim();
+    const original = messages.find((m) => m.id === editingMessageId);
+    if (!content || !original) {
+      cancelEditMessage();
+      return;
+    }
+    if (content === original.content) {
+      cancelEditMessage();
+      return;
+    }
+
+    setEditBusy(true);
+    setSendError('');
+    try {
+      await handleEditMessage(editingMessageId, content);
+      cancelEditMessage();
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'Failed to edit message');
+    } finally {
+      setEditBusy(false);
+    }
+  }, [editingMessageId, input, messages, cancelEditMessage, handleEditMessage]);
 
   const handleDeleteMessage = useCallback(async (messageId: string, scope: 'me' | 'everyone') => {
     if (!activeIdRef.current) return;
@@ -226,7 +311,12 @@ export function ChatPage() {
   const applyConversationUpdate = useCallback((update: ConversationUpdatedEvent) => {
     setConversations((prev) =>
       prev.map((c) => {
-        if (c.id !== update.conversationId || c.type !== 'channel') return c;
+        if (
+          c.id !== update.conversationId ||
+          (c.type !== 'channel' && c.type !== 'group')
+        ) {
+          return c;
+        }
 
         const mergedMembers = update.members.map((member) => {
           const existing = c.members.find((m) => m.userId === member.userId);
@@ -241,19 +331,44 @@ export function ChatPage() {
           name: update.name ?? c.name,
           description: update.description ?? c.description,
           avatarUrl: update.avatarUrl ?? c.avatarUrl,
+          isPublic: update.isPublic ?? c.isPublic,
           members: mergedMembers,
         };
       }),
     );
   }, []);
 
+  const applyConversationCreated = useCallback((conversation: Conversation) => {
+    setConversations((prev) => {
+      if (prev.some((c) => c.id === conversation.id)) {
+        return reorderConversations(
+          prev.map((c) => (c.id === conversation.id ? { ...c, ...conversation } : c)),
+        );
+      }
+      return reorderConversations([conversation, ...prev]);
+    });
+  }, []);
+
   const applyConversationMessagesDeleted = useCallback(
     (update: { conversationId: string; messageIds: string[] }) => {
       const idSet = new Set(update.messageIds);
       setMessages((prev) =>
-        prev.map((m) =>
-          idSet.has(m.id) ? { ...m, content: '', deletedForEveryone: true } : m,
-        ),
+        prev.map((m) => {
+          if (idSet.has(m.id)) {
+            return { ...m, content: '', deletedForEveryone: true };
+          }
+          if (m.replyTo && idSet.has(m.replyTo.id)) {
+            return {
+              ...m,
+              replyTo: {
+                ...m.replyTo,
+                content: '',
+                deletedForEveryone: true,
+              },
+            };
+          }
+          return m;
+        }),
       );
       setConversations((prev) =>
         prev.map((c) => {
@@ -336,7 +451,7 @@ export function ChatPage() {
     const conv = conversationsRef.current.find((c) => c.id === id);
     const list =
       preferredList ??
-      (conv?.type === 'channel' ? 'channels' : conv?.type === 'direct' ? 'chats' : undefined);
+      (conv?.type === 'channel' ? 'channels' : 'chats');
     if (list) setSidebarList(list);
 
     setConversations((prev) => {
@@ -360,9 +475,10 @@ export function ChatPage() {
 
         if (status.isMember) {
           const visible = conversations.find((c) => c.id === status.conversationId);
+          const inviteList = status.conversationType === 'group' ? 'chats' : 'channels';
           if (visible) {
             setPendingChannelInvite(null);
-            openConversation(visible.id, 'channels');
+            openConversation(visible.id, inviteList);
             return;
           }
 
@@ -375,15 +491,17 @@ export function ChatPage() {
             return reorderConversations(next);
           });
           setPendingChannelInvite(null);
-          openConversation(conversation.id, 'channels');
+          openConversation(conversation.id, inviteList);
           return;
         }
 
-        setSidebarList('channels');
+        const inviteList = status.conversationType === 'group' ? 'chats' : 'channels';
+        setSidebarList(inviteList);
         setPendingChannelInvite({
           token,
           channelName: status.channelName,
           conversationId: status.conversationId,
+          conversationType: status.conversationType,
         });
         setActiveId(null);
         setIsPanelOpen(true);
@@ -414,7 +532,11 @@ export function ChatPage() {
         return reorderConversations(next);
       });
       setPendingChannelInvite(null);
-      openConversation(conversation.id, 'channels');
+      const inviteList =
+        conversation.type === 'group' || pendingChannelInvite.conversationType === 'group'
+          ? 'chats'
+          : 'channels';
+      openConversation(conversation.id, inviteList);
     } catch {
       // Keep the prompt open on failure.
     } finally {
@@ -582,6 +704,9 @@ export function ChatPage() {
     const lastReadAt = lastReadAtOnOpenRef.current;
     setMessages([]);
     setFirstUnreadMessageId(null);
+    setEditingMessageId(null);
+    setReplyingToMessage(null);
+    setInput('');
 
     api.getMessages(activeId).then((res) => {
       const firstUnread = res.messages.find(
@@ -650,7 +775,7 @@ export function ChatPage() {
       if (msg.senderId !== userIdRef.current && document.hidden) {
         window.electronAPI?.notify(
           msg.sender?.displayName ?? 'New message',
-          msg.content.slice(0, 100),
+          getMessagePreviewText(msg).slice(0, 100),
         );
       }
     });
@@ -710,6 +835,10 @@ export function ChatPage() {
       applyConversationUpdate(update);
     });
 
+    const unsubConvCreated = realtime.onConversationCreated((conversation) => {
+      applyConversationCreated(conversation);
+    });
+
     return () => {
       unsubMsg();
       unsubAck();
@@ -721,9 +850,11 @@ export function ChatPage() {
       unsubConvHidden();
       unsubConvDeleted();
       unsubConvUpdated();
+      unsubConvCreated();
     };
   }, [
     acknowledgeIncoming,
+    applyConversationCreated,
     applyConversationHidden,
     applyConversationMessagesDeleted,
     applyConversationUpdate,
@@ -759,7 +890,22 @@ export function ChatPage() {
     if (!input.trim() || !activeId || !canSendInActiveChat) return;
     const content = input.trim();
     const clientMessageId = createClientMessageId();
+    const replyTarget = replyingToMessage;
+    const replyPreview = replyTarget
+      ? {
+          id: replyTarget.id,
+          senderId: replyTarget.senderId,
+          content: replyTarget.deletedForEveryone ? '' : replyTarget.content,
+          contentType: replyTarget.contentType,
+          fileName: replyTarget.fileName,
+          caption: replyTarget.caption,
+          deletedForEveryone: replyTarget.deletedForEveryone,
+          sender: replyTarget.sender,
+        }
+      : undefined;
+
     setInput('');
+    setReplyingToMessage(null);
     setSendError('');
 
     const optimistic: Message = {
@@ -772,6 +918,7 @@ export function ChatPage() {
       sequence: '0',
       createdAt: new Date().toISOString(),
       status: 'sending',
+      replyTo: replyPreview,
       sender: { id: user!.id, displayName: user!.displayName, username: user!.username },
     };
     setMessages((prev) => [...prev, optimistic]);
@@ -786,7 +933,12 @@ export function ChatPage() {
     );
 
     try {
-      const sent = await realtime.sendMessage(activeId, content, clientMessageId);
+      const sent = await realtime.sendMessage(
+        activeId,
+        content,
+        clientMessageId,
+        replyTarget?.id,
+      );
       confirmOutgoing(sent, clientMessageId);
     } catch (err) {
       setMessages((prev) => {
@@ -795,12 +947,90 @@ export function ChatPage() {
         return prev.filter((m) => m.clientMessageId !== clientMessageId);
       });
       setInput(content);
+      if (replyTarget) setReplyingToMessage(replyTarget);
       setSendError(err instanceof Error ? err.message : 'Failed to send message');
+    }
+  };
+
+  const handleAttachmentSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !activeId || !canSendInActiveChat || editingMessageId || attachmentBusy) return;
+
+    const caption = input.trim() || undefined;
+    const clientMessageId = createClientMessageId();
+    const replyTarget = replyingToMessage;
+    const previewUrl = URL.createObjectURL(file);
+    const replyPreview = replyTarget
+      ? {
+          id: replyTarget.id,
+          senderId: replyTarget.senderId,
+          content: replyTarget.deletedForEveryone ? '' : replyTarget.content,
+          contentType: replyTarget.contentType,
+          fileName: replyTarget.fileName,
+          caption: replyTarget.caption,
+          deletedForEveryone: replyTarget.deletedForEveryone,
+          sender: replyTarget.sender,
+        }
+      : undefined;
+
+    setInput('');
+    setReplyingToMessage(null);
+    setSendError('');
+    setAttachmentBusy(true);
+
+    const optimistic: Message = {
+      id: clientMessageId,
+      conversationId: activeId,
+      senderId: user!.id,
+      content: previewUrl,
+      contentType: file.type || 'application/octet-stream',
+      fileName: file.name,
+      fileSize: String(file.size),
+      caption,
+      clientMessageId,
+      sequence: '0',
+      createdAt: new Date().toISOString(),
+      status: 'sending',
+      replyTo: replyPreview,
+      sender: { id: user!.id, displayName: user!.displayName, username: user!.username },
+    };
+
+    setMessages((prev) => [...prev, optimistic]);
+    shouldScrollToBottomRef.current = true;
+    setFirstUnreadMessageId(null);
+    setConversations((prev) =>
+      reorderConversations(
+        prev.map((c) =>
+          c.id === activeId ? bumpConversationFromMessage(c, optimistic) : c,
+        ),
+      ),
+    );
+
+    try {
+      const sent = await api.sendMessageAttachment(activeId, file, {
+        caption,
+        clientMessageId,
+        replyToMessageId: replyTarget?.id,
+      });
+      confirmOutgoing(sent, clientMessageId);
+    } catch (err) {
+      setMessages((prev) => prev.filter((m) => m.clientMessageId !== clientMessageId));
+      setInput(caption ?? '');
+      if (replyTarget) setReplyingToMessage(replyTarget);
+      setSendError(err instanceof Error ? err.message : 'Failed to send attachment');
+    } finally {
+      URL.revokeObjectURL(previewUrl);
+      setAttachmentBusy(false);
     }
   };
 
   const handleComposerSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (editingMessageId) {
+      void handleSaveEdit();
+      return;
+    }
     void handleSend();
   };
 
@@ -808,13 +1038,22 @@ export function ChatPage() {
     if (!canSendInActiveChat) return;
     setInput(value);
     if (sendError) setSendError('');
-    if (!activeId) return;
+    if (editingMessageId || !activeId) return;
     realtime.setTyping(activeId, true);
     clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
       realtime.setTyping(activeId, false);
     }, 2000);
   };
+
+  const handleGroupCreated = useCallback(
+    (group: Conversation) => {
+      applyConversationCreated(group);
+      openConversation(group.id, 'chats');
+      setShowNewGroup(false);
+    },
+    [applyConversationCreated, openConversation],
+  );
 
   const createChannel = async () => {
     if (!channelName.trim()) return;
@@ -868,7 +1107,7 @@ export function ChatPage() {
   };
 
   const chatConversations = useMemo(
-    () => conversations.filter((c) => c.type === 'direct'),
+    () => conversations.filter((c) => c.type === 'direct' || c.type === 'group'),
     [conversations],
   );
   const channelConversations = useMemo(
@@ -965,7 +1204,7 @@ export function ChatPage() {
         onClick={() => openConversation(c.id)}
         onDeleteChat={(scope) => handleDeleteChat(c.id, scope)}
         onLeaveChannel={
-          c.type === 'channel'
+          c.type === 'channel' || c.type === 'group'
             ? (newOwnerId) => handleLeaveChannel(c.id, newOwnerId)
             : undefined
         }
@@ -1003,9 +1242,14 @@ export function ChatPage() {
               + Channel
             </button>
           ) : (
-            <button className="sidebar-action-primary" onClick={openNewChatPicker}>
-              + New Chat
-            </button>
+            <div className="sidebar-actions-row">
+              <button className="sidebar-action-primary" onClick={openNewChatPicker}>
+                + New Chat
+              </button>
+              <button className="sidebar-action-secondary" onClick={() => setShowNewGroup(true)}>
+                + New Group
+              </button>
+            </div>
           )}
         </div>
 
@@ -1041,7 +1285,7 @@ export function ChatPage() {
           ) : sidebarConversations.length === 0 ? (
             <div className="conversation-list-empty">
               <p>No conversations yet</p>
-              <span>Use New Chat to start messaging</span>
+              <span>Use New Chat or New Group to start messaging</span>
             </div>
           ) : (
             <>
@@ -1096,8 +1340,13 @@ export function ChatPage() {
                 {isMobile ? '←' : '✕'}
               </button>
               <div className="chat-header-info">
-                <h3>#{pendingChannelInvite.channelName}</h3>
-                <span className="member-count">Channel invite</span>
+                <h3>
+                  {pendingChannelInvite.conversationType === 'group' ? '' : '#'}
+                  {pendingChannelInvite.channelName}
+                </h3>
+                <span className="member-count">
+                  {pendingChannelInvite.conversationType === 'group' ? 'Group invite' : 'Channel invite'}
+                </span>
               </div>
             </header>
 
@@ -1109,9 +1358,18 @@ export function ChatPage() {
                 onDecline={dismissChannelInvite}
               />
               <div className="channel-invite-preview-empty">
-                <div className="empty-state-icon">#</div>
-                <h3>#{pendingChannelInvite.channelName}</h3>
-                <p>Join the channel to start chatting</p>
+                <div className="empty-state-icon">
+                  {pendingChannelInvite.conversationType === 'group' ? '👥' : '#'}
+                </div>
+                <h3>
+                  {pendingChannelInvite.conversationType === 'group' ? '' : '#'}
+                  {pendingChannelInvite.channelName}
+                </h3>
+                <p>
+                  {pendingChannelInvite.conversationType === 'group'
+                    ? 'Join the group to start chatting'
+                    : 'Join the channel to start chatting'}
+                </p>
               </div>
             </div>
           </>
@@ -1173,8 +1431,11 @@ export function ChatPage() {
                   message={m}
                   isOwn={m.senderId === user?.id}
                   isFirstUnread={firstUnreadMessageId === m.id}
+                  isBeingEdited={editingMessageId === m.id}
                   allowMessageMenu={canSendInActiveChat}
-                  onEdit={handleEditMessage}
+                  onStartEdit={startEditMessage}
+                  onReply={startReplyMessage}
+                  onScrollToMessage={scrollToMessage}
                   onDelete={handleDeleteMessage}
                   onReaction={handleReactionMessage}
                 />
@@ -1187,17 +1448,86 @@ export function ChatPage() {
 
             <footer className="composer">
               {canSendInActiveChat ? (
-                <form className="composer-form" onSubmit={handleComposerSubmit}>
-                  <input
-                    value={input}
-                    onChange={(e) => handleInputChange(e.target.value)}
-                    placeholder={`Message ${activeConversation.name}`}
-                    enterKeyHint="send"
-                  />
-                  <button type="submit" disabled={!input.trim()}>
-                    Send
-                  </button>
-                </form>
+                <>
+                  {editingMessageId && (
+                    <div className="composer-edit-banner">
+                      <span>Editing message</span>
+                      <button
+                        type="button"
+                        className="composer-edit-cancel"
+                        onClick={cancelEditMessage}
+                        disabled={editBusy}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                  {replyingToMessage && !editingMessageId && (
+                    <div className="composer-reply-banner">
+                      <div className="composer-reply-preview">
+                        <span className="composer-reply-label">Replying to</span>
+                        <MessageReplyQuote
+                          replyTo={{
+                            id: replyingToMessage.id,
+                            senderId: replyingToMessage.senderId,
+                            content: replyingToMessage.deletedForEveryone
+                              ? ''
+                              : replyingToMessage.content,
+                            contentType: replyingToMessage.contentType,
+                            fileName: replyingToMessage.fileName,
+                            caption: replyingToMessage.caption,
+                            deletedForEveryone: replyingToMessage.deletedForEveryone,
+                            sender: replyingToMessage.sender,
+                          }}
+                          compact
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="composer-edit-cancel"
+                        onClick={cancelReplyMessage}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                  <form className="composer-form" onSubmit={handleComposerSubmit}>
+                    <button
+                      type="button"
+                      className="composer-attach-btn"
+                      onClick={() => attachmentInputRef.current?.click()}
+                      disabled={attachmentBusy || editBusy || !!editingMessageId}
+                      aria-label="Attach file"
+                      title="Attach photo, video, audio, or document"
+                    >
+                      📎
+                    </button>
+                    <input
+                      ref={attachmentInputRef}
+                      type="file"
+                      className="avatar-file-input"
+                      accept={ATTACHMENT_ACCEPT}
+                      onChange={(e) => void handleAttachmentSelect(e)}
+                    />
+                    <input
+                      ref={composerInputRef}
+                      value={input}
+                      onChange={(e) => handleInputChange(e.target.value)}
+                      placeholder={
+                        editingMessageId
+                          ? 'Edit your message'
+                          : attachmentBusy
+                            ? 'Sending attachment...'
+                            : `Message ${activeConversation.name}`
+                      }
+                      disabled={attachmentBusy}
+                      enterKeyHint={editingMessageId ? 'done' : 'send'}
+                    />
+                    <button type="submit" disabled={!input.trim() || editBusy || attachmentBusy}>
+                      {editBusy ? 'Saving...' : editingMessageId ? 'Save' : 'Send'}
+                    </button>
+                  </form>
+                </>
               ) : (
                 <p className="composer-readonly-notice">
                   Only the channel owner can send messages in this channel.
@@ -1224,7 +1554,7 @@ export function ChatPage() {
                       : undefined
                   }
                   onLeaveChannel={
-                    activeConversation.type === 'channel'
+                    activeConversation.type === 'channel' || activeConversation.type === 'group'
                       ? (newOwnerId) => handleLeaveChannel(activeConversation.id, newOwnerId)
                       : undefined
                   }
@@ -1283,6 +1613,14 @@ export function ChatPage() {
           onContacts={openContacts}
           onProfile={openProfile}
           onLogout={logout}
+        />
+      )}
+
+      {showNewGroup && (
+        <NewGroupModal
+          open={showNewGroup}
+          onClose={() => setShowNewGroup(false)}
+          onCreated={(group) => handleGroupCreated(group)}
         />
       )}
 

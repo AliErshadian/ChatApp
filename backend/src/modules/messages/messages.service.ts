@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -15,6 +16,11 @@ import { ConversationMember } from '../conversations/entities/conversation-membe
 import { ConversationsService } from '../conversations/conversations.service';
 import { SanitizationService } from '../../common/services/sanitization.service';
 import { SendMessageDto } from './dto/message.dto';
+import { validateMessageMediaFile, isTextContentType } from './message-media.util';
+import { MessageRealtimePublisher } from './message-realtime.publisher';
+import { randomUUID } from 'crypto';
+import { join } from 'path';
+import { existsSync, mkdirSync, renameSync } from 'fs';
 
 export type MessageStatus = 'sent' | 'delivered' | 'read';
 
@@ -24,12 +30,26 @@ export interface ReactionSummary {
   reactedByMe: boolean;
 }
 
+export interface MessageReplyPreview {
+  id: string;
+  senderId: string;
+  content: string;
+  contentType?: string;
+  fileName?: string;
+  caption?: string;
+  deletedForEveryone?: boolean;
+  sender?: { id: string; displayName: string; username: string };
+}
+
 export interface MessagePayload {
   id: string;
   conversationId: string;
   senderId: string;
   content: string;
   contentType: string;
+  fileName?: string;
+  fileSize?: string;
+  caption?: string;
   clientMessageId?: string;
   sequence: string;
   createdAt: Date;
@@ -37,6 +57,7 @@ export interface MessagePayload {
   deletedForEveryone?: boolean;
   status?: MessageStatus;
   reactions?: ReactionSummary[];
+  replyTo?: MessageReplyPreview;
   sender?: { id: string; displayName: string; username: string };
 }
 
@@ -70,6 +91,7 @@ export class MessagesService {
     private readonly memberRepo: Repository<ConversationMember>,
     private readonly conversationsService: ConversationsService,
     private readonly sanitization: SanitizationService,
+    private readonly messagePublisher: MessageRealtimePublisher,
   ) {}
 
   async send(userId: string, dto: SendMessageDto): Promise<MessagePayload> {
@@ -85,11 +107,20 @@ export class MessagesService {
           senderId: userId,
           clientMessageId: dto.clientMessageId,
         },
-        relations: ['sender'],
+        relations: ['sender', 'replyTo', 'replyTo.sender'],
       });
       if (existing) {
         return this.toPayload(existing, userId, 'sent');
       }
+    }
+
+    let replyToMessageId: string | undefined;
+    if (dto.replyToMessageId) {
+      replyToMessageId = await this.resolveReplyTarget(
+        dto.conversationId,
+        userId,
+        dto.replyToMessageId,
+      );
     }
 
     const message = this.messageRepo.create({
@@ -97,15 +128,94 @@ export class MessagesService {
       senderId: userId,
       content,
       clientMessageId: dto.clientMessageId,
+      replyToMessageId,
     });
 
     const saved = await this.messageRepo.save(message);
     const withSender = await this.messageRepo.findOne({
       where: { id: saved.id },
-      relations: ['sender'],
+      relations: ['sender', 'replyTo', 'replyTo.sender'],
     });
 
     return this.toPayload(withSender!, userId, 'sent');
+  }
+
+  async sendAttachment(
+    userId: string,
+    conversationId: string,
+    file: Express.Multer.File,
+    options: {
+      clientMessageId?: string;
+      replyToMessageId?: string;
+      caption?: string;
+    } = {},
+  ): Promise<MessagePayload> {
+    await this.conversationsService.assertCanSendMessage(conversationId, userId);
+
+    if (options.clientMessageId) {
+      const existing = await this.messageRepo.findOne({
+        where: {
+          conversationId,
+          senderId: userId,
+          clientMessageId: options.clientMessageId,
+        },
+        relations: ['sender', 'replyTo', 'replyTo.sender'],
+      });
+      if (existing) {
+        return this.toPayload(existing, userId, 'sent');
+      }
+    }
+
+    const media = validateMessageMediaFile(file);
+
+    let replyToMessageId: string | undefined;
+    if (options.replyToMessageId) {
+      replyToMessageId = await this.resolveReplyTarget(
+        conversationId,
+        userId,
+        options.replyToMessageId,
+      );
+    }
+
+    const caption = options.caption
+      ? this.sanitization.sanitizeMessage(options.caption)
+      : undefined;
+
+    const storedName = `${randomUUID()}${media.ext}`;
+    const attachmentDir = join(
+      process.cwd(),
+      'uploads',
+      'message-attachments',
+      conversationId,
+    );
+    if (!existsSync(attachmentDir)) {
+      mkdirSync(attachmentDir, { recursive: true });
+    }
+
+    renameSync(file.path, join(attachmentDir, storedName));
+    const content = `/uploads/message-attachments/${conversationId}/${storedName}`;
+
+    const message = this.messageRepo.create({
+      conversationId,
+      senderId: userId,
+      content,
+      contentType: media.mimeType,
+      fileName: media.originalName,
+      fileSize: String(file.size),
+      caption: caption || undefined,
+      clientMessageId: options.clientMessageId,
+      replyToMessageId,
+    });
+
+    const saved = await this.messageRepo.save(message);
+    const withSender = await this.messageRepo.findOne({
+      where: { id: saved.id },
+      relations: ['sender', 'replyTo', 'replyTo.sender'],
+    });
+
+    const payload = this.toPayload(withSender!, userId, 'sent');
+    await this.messagePublisher.publishNewMessage(payload, userId);
+    return payload;
   }
 
   async list(conversationId: string, userId: string, cursor?: string, limit = 50) {
@@ -114,6 +224,8 @@ export class MessagesService {
     const qb = this.messageRepo
       .createQueryBuilder('message')
       .leftJoinAndSelect('message.sender', 'sender')
+      .leftJoinAndSelect('message.replyTo', 'replyTo')
+      .leftJoinAndSelect('replyTo.sender', 'replyToSender')
       .leftJoin(
         MessageUserHidden,
         'hidden',
@@ -222,7 +334,7 @@ export class MessagesService {
   async edit(userId: string, messageId: string, content: string): Promise<MessagePayload> {
     const message = await this.messageRepo.findOne({
       where: { id: messageId },
-      relations: ['sender'],
+      relations: ['sender', 'replyTo', 'replyTo.sender'],
     });
     if (!message) throw new NotFoundException('Message not found');
 
@@ -232,6 +344,9 @@ export class MessagesService {
     }
     if (message.deletedAt) {
       throw new ConflictException('Cannot edit a deleted message');
+    }
+    if (!isTextContentType(message.contentType)) {
+      throw new ConflictException('Only text messages can be edited');
     }
 
     const sanitized = this.sanitization.sanitizeMessage(content);
@@ -342,7 +457,7 @@ export class MessagesService {
   ): Promise<{ message?: MessagePayload; messageId: string; scope: 'me' | 'everyone' }> {
     const message = await this.messageRepo.findOne({
       where: { id: messageId },
-      relations: ['sender'],
+      relations: ['sender', 'replyTo', 'replyTo.sender'],
     });
     if (!message) throw new NotFoundException('Message not found');
 
@@ -463,6 +578,49 @@ export class MessagesService {
     return 'sent';
   }
 
+  private async resolveReplyTarget(
+    conversationId: string,
+    userId: string,
+    replyToMessageId: string,
+  ): Promise<string> {
+    const target = await this.messageRepo.findOne({ where: { id: replyToMessageId } });
+    if (!target || target.conversationId !== conversationId) {
+      throw new BadRequestException('Reply target not found in this conversation');
+    }
+
+    await this.conversationsService.assertMember(conversationId, userId);
+
+    const hidden = await this.hiddenRepo.findOne({
+      where: { messageId: replyToMessageId, userId },
+    });
+    if (hidden) {
+      throw new BadRequestException('Cannot reply to a hidden message');
+    }
+
+    return replyToMessageId;
+  }
+
+  private toReplyPreview(message: Message): MessageReplyPreview {
+    const deletedForEveryone = !!message.deletedAt;
+
+    return {
+      id: message.id,
+      senderId: message.senderId,
+      content: deletedForEveryone ? '' : message.content,
+      contentType: message.contentType,
+      fileName: message.fileName,
+      caption: message.caption,
+      deletedForEveryone,
+      sender: message.sender
+        ? {
+            id: message.sender.id,
+            displayName: message.sender.displayName,
+            username: message.sender.username,
+          }
+        : undefined,
+    };
+  }
+
   toPayload(
     message: Message,
     viewerId?: string,
@@ -477,6 +635,9 @@ export class MessagesService {
       senderId: message.senderId,
       content: deletedForEveryone ? '' : message.content,
       contentType: message.contentType,
+      fileName: message.fileName,
+      fileSize: message.fileSize,
+      caption: message.caption,
       clientMessageId: message.clientMessageId,
       sequence: message.sequence,
       createdAt: message.createdAt,
@@ -484,6 +645,7 @@ export class MessagesService {
       deletedForEveryone,
       status: message.senderId === viewerId ? status : undefined,
       reactions,
+      replyTo: message.replyTo ? this.toReplyPreview(message.replyTo) : undefined,
       sender: message.sender
         ? {
             id: message.sender.id,

@@ -14,6 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import { MessagesService } from '../messages/messages.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ConversationRealtimePublisher } from '../conversations/conversation-realtime.publisher';
+import { MessageRealtimePublisher } from '../messages/message-realtime.publisher';
 import { PresenceService, PresenceStatus } from '../presence/presence.service';
 import { PresenceConnectionRegistry } from '../presence/presence-connection.registry';
 import { WsJwtGuard } from './guards/ws-jwt.guard';
@@ -41,11 +42,21 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly presenceService: PresenceService,
     private readonly presenceConnections: PresenceConnectionRegistry,
     private readonly conversationPublisher: ConversationRealtimePublisher,
+    private readonly messagePublisher: MessageRealtimePublisher,
   ) {}
 
   onModuleInit() {
     this.conversationPublisher.setEmitter((conversationId) =>
       this.broadcastConversationUpdated(conversationId),
+    );
+    this.conversationPublisher.setCreatedEmitter((conversationId) =>
+      this.broadcastConversationCreated(conversationId),
+    );
+    this.conversationPublisher.setMemberRemovedEmitter((conversationId, removedUserId) =>
+      this.broadcastMemberRemoved(conversationId, removedUserId),
+    );
+    this.messagePublisher.setNewMessageEmitter((message, senderId) =>
+      this.broadcastNewMessage(message, senderId),
     );
   }
 
@@ -122,12 +133,18 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   async handleMessageSend(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody()
-    data: { conversationId: string; content: string; clientMessageId?: string },
+    data: {
+      conversationId: string;
+      content: string;
+      clientMessageId?: string;
+      replyToMessageId?: string;
+    },
   ) {
     const message = await this.messagesService.send(client.data.userId, {
       conversationId: data.conversationId,
       content: data.content,
       clientMessageId: data.clientMessageId,
+      replyToMessageId: data.replyToMessageId,
     });
 
     const ackPayload = {
@@ -138,17 +155,42 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     // Direct ack to sender (callback + event for reliability)
     client.emit('message:ack', ackPayload);
 
-    this.server.to(`conversation:${data.conversationId}`).emit('message:receive', message);
+    await this.broadcastNewMessage(message, client.data.userId);
 
-    const memberIds = await this.conversationsService.getMemberUserIds(data.conversationId);
+    return { success: true, ...ackPayload };
+  }
+
+  private async broadcastNewMessage(
+    message: {
+      id: string;
+      conversationId: string;
+      senderId: string;
+      content: string;
+      contentType: string;
+      fileName?: string;
+      fileSize?: string;
+      caption?: string;
+      clientMessageId?: string;
+      sequence: string;
+      createdAt: Date;
+      editedAt?: Date;
+      deletedForEveryone?: boolean;
+      status?: string;
+      reactions?: unknown[];
+      replyTo?: unknown;
+      sender?: unknown;
+    },
+    senderId: string,
+  ) {
+    this.server.to(`conversation:${message.conversationId}`).emit('message:receive', message);
+
+    const memberIds = await this.conversationsService.getMemberUserIds(message.conversationId);
     for (const memberId of memberIds) {
-      await this.conversationsService.unhideConversation(data.conversationId, memberId);
-      if (memberId !== client.data.userId) {
+      await this.conversationsService.unhideConversation(message.conversationId, memberId);
+      if (memberId !== senderId) {
         this.server.to(`user:${memberId}`).emit('message:receive', message);
       }
     }
-
-    return { success: true, ...ackPayload };
   }
 
   @UseGuards(WsJwtGuard)
@@ -268,7 +310,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   private async broadcastConversationUpdated(conversationId: string) {
-    const data = await this.conversationsService.getChannelUpdatePayload(conversationId);
+    const data = await this.conversationsService.getConversationUpdatePayload(conversationId);
     if (!data) return;
 
     const { memberUserIds, ...payload } = data;
@@ -280,6 +322,22 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     for (const memberId of memberUserIds) {
       this.server.to(`user:${memberId}`).emit('conversation:updated', payload);
     }
+  }
+
+  private async broadcastConversationCreated(conversationId: string) {
+    const memberIds = await this.conversationsService.getMemberUserIds(conversationId);
+
+    for (const memberId of memberIds) {
+      const summary = await this.conversationsService.getById(conversationId, memberId);
+      this.server.to(`user:${memberId}`).emit('conversation:created', summary);
+    }
+  }
+
+  private async broadcastMemberRemoved(conversationId: string, removedUserId: string) {
+    this.server
+      .to(`user:${removedUserId}`)
+      .emit('conversation:hidden', { conversationId });
+    await this.broadcastConversationUpdated(conversationId);
   }
 
   private async broadcastMessageUpdate(message: {

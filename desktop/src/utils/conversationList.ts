@@ -1,4 +1,5 @@
 import { Conversation, Message } from '../services/api';
+import { getMessagePreviewText } from './messageMedia';
 
 export function formatConversationPreview(
   conversation: Conversation,
@@ -15,10 +16,22 @@ export function formatConversationPreview(
     return lastMessage.senderId === currentUserId ? 'You: Message deleted' : 'Message deleted';
   }
 
-  let text = lastMessage.content.replace(/\s+/g, ' ').trim();
+  const previewSource: Message = {
+    id: lastMessage.id,
+    conversationId: conversation.id,
+    senderId: lastMessage.senderId,
+    content: lastMessage.content,
+    contentType: lastMessage.contentType ?? 'text/plain',
+    fileName: lastMessage.fileName,
+    caption: lastMessage.caption,
+    sequence: '',
+    createdAt: lastMessage.createdAt,
+  };
+
+  let text = getMessagePreviewText(previewSource).replace(/\s+/g, ' ').trim();
   if (text.length > 72) text = `${text.slice(0, 69)}...`;
 
-  if (conversation.type === 'channel') {
+  if (conversation.type === 'channel' || conversation.type === 'group') {
     const prefix =
       lastMessage.senderId === currentUserId
         ? 'You: '
@@ -31,7 +44,10 @@ export function formatConversationPreview(
 
 export function bumpConversationFromMessage(
   conversation: Conversation,
-  message: Pick<Message, 'id' | 'content' | 'senderId' | 'createdAt'> & {
+  message: Pick<
+    Message,
+    'id' | 'content' | 'contentType' | 'fileName' | 'caption' | 'senderId' | 'createdAt'
+  > & {
     sender?: { displayName: string };
   },
 ): Conversation {
@@ -41,6 +57,9 @@ export function bumpConversationFromMessage(
     lastMessage: {
       id: message.id,
       content: message.content,
+      contentType: message.contentType,
+      fileName: message.fileName,
+      caption: message.caption,
       senderId: message.senderId,
       senderName: message.sender?.displayName,
       createdAt: message.createdAt,

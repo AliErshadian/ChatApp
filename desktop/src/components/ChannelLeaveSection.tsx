@@ -17,12 +17,17 @@ export function ChannelLeaveSection({
 }: Props) {
   const [modalOpen, setModalOpen] = useState(false);
 
+  const isGroup = conversation.type === 'group';
+  const leaveLabel = isGroup ? 'Leave Group' : 'Leave Channel';
+
   return (
     <>
       <section className="profile-section chat-delete-section">
-        <h4>Leave Channel</h4>
+        <h4>{leaveLabel}</h4>
         <p className="chat-delete-desc">
-          Leave this channel and remove it from your list. You can rejoin with an invite link.
+          {isGroup
+            ? 'Leave this group and remove it from your list. You can rejoin with an invite link if the group is public.'
+            : 'Leave this channel and remove it from your list. You can rejoin with an invite link.'}
         </p>
         <div className="chat-delete-actions">
           <button
@@ -31,7 +36,7 @@ export function ChannelLeaveSection({
             disabled={busy}
             onClick={() => setModalOpen(true)}
           >
-            Leave channel
+            {isGroup ? 'Leave group' : 'Leave channel'}
           </button>
         </div>
       </section>

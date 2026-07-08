@@ -34,8 +34,17 @@ export class Message {
   @Column({ type: 'text' })
   content!: string;
 
-  @Column({ name: 'content_type', default: 'text/plain' })
+  @Column({ name: 'content_type', length: 128, default: 'text/plain' })
   contentType!: string;
+
+  @Column({ name: 'file_name', nullable: true })
+  fileName?: string;
+
+  @Column({ name: 'file_size', type: 'bigint', nullable: true })
+  fileSize?: string;
+
+  @Column({ type: 'text', nullable: true })
+  caption?: string;
 
   @Column({ name: 'client_message_id', nullable: true })
   clientMessageId?: string;
@@ -52,6 +61,13 @@ export class Message {
 
   @Column({ name: 'deleted_at', nullable: true })
   deletedAt?: Date;
+
+  @Column({ name: 'reply_to_message_id', type: 'uuid', nullable: true })
+  replyToMessageId?: string;
+
+  @ManyToOne(() => Message, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'reply_to_message_id' })
+  replyTo?: Message;
 
   @OneToMany(() => MessageReadReceipt, (r) => r.message)
   readReceipts!: MessageReadReceipt[];

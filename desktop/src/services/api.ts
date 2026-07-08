@@ -23,10 +23,11 @@ export interface AuthTokens {
 
 export interface Conversation {
   id: string;
-  type: 'direct' | 'channel';
+  type: 'direct' | 'channel' | 'group';
   name: string;
   description?: string;
   avatarUrl?: string;
+  isPublic?: boolean;
   members: Array<{
     userId: string;
     role: string;
@@ -41,6 +42,9 @@ export interface Conversation {
   lastMessage?: {
     id: string;
     content: string;
+    contentType?: string;
+    fileName?: string;
+    caption?: string;
     senderId: string;
     senderName?: string;
     createdAt: string;
@@ -50,6 +54,8 @@ export interface Conversation {
 
 export interface ConversationUpdatedEvent {
   conversationId: string;
+  type?: Conversation['type'];
+  isPublic?: boolean;
   name?: string;
   description?: string;
   avatarUrl?: string;
@@ -66,12 +72,26 @@ export interface MessageReaction {
   reactedByMe: boolean;
 }
 
+export interface MessageReplyPreview {
+  id: string;
+  senderId: string;
+  content: string;
+  contentType?: string;
+  fileName?: string;
+  caption?: string;
+  deletedForEveryone?: boolean;
+  sender?: { id: string; displayName: string; username: string };
+}
+
 export interface Message {
   id: string;
   conversationId: string;
   senderId: string;
   content: string;
   contentType: string;
+  fileName?: string;
+  fileSize?: string;
+  caption?: string;
   clientMessageId?: string;
   sequence: string;
   createdAt: string;
@@ -79,6 +99,7 @@ export interface Message {
   deletedForEveryone?: boolean;
   status?: MessageStatus;
   reactions?: MessageReaction[];
+  replyTo?: MessageReplyPreview;
   sender?: { id: string; displayName: string; username: string };
 }
 
@@ -194,18 +215,51 @@ class ApiClient {
     });
   }
 
+  createGroup(input: {
+    name: string;
+    description?: string;
+    memberIds?: string[];
+    isPublic?: boolean;
+  }) {
+    return this.request<Conversation>('/conversations/groups', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  addConversationMembers(conversationId: string, userIds: string[]) {
+    return this.request<{ added: string[] }>(`/conversations/${conversationId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ userIds }),
+    });
+  }
+
+  removeConversationMember(conversationId: string, userId: string) {
+    return this.request<{ conversationId: string; removedUserId: string }>(
+      `/conversations/${conversationId}/members/${userId}`,
+      { method: 'DELETE' },
+    );
+  }
+
   getChannelInvite(conversationId: string) {
     return this.request<{ token: string }>(`/conversations/${conversationId}/invite`);
   }
 
   getInvitePreview(token: string) {
-    return this.request<{ channelName: string; conversationId: string }>(
-      `/invites/${encodeURIComponent(token)}`,
-    );
+    return this.request<{
+      channelName: string;
+      conversationId: string;
+      conversationType?: 'channel' | 'group';
+    }>(`/invites/${encodeURIComponent(token)}`);
   }
 
   getInviteStatus(token: string) {
-    return this.request<{ channelName: string; conversationId: string; isMember: boolean }>(
+    return this.request<{
+      channelName: string;
+      conversationId: string;
+      isMember: boolean;
+      conversationType?: 'channel' | 'group';
+    }>(
       `/invites/${encodeURIComponent(token)}/status`,
     );
   }
@@ -249,6 +303,50 @@ class ApiClient {
     return this.request<{ messages: Message[]; nextCursor: string | null }>(
       `/conversations/${conversationId}/messages${qs}`,
     );
+  }
+
+  async sendMessageAttachment(
+    conversationId: string,
+    file: File,
+    options?: {
+      caption?: string;
+      clientMessageId?: string;
+      replyToMessageId?: string;
+    },
+  ) {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (options?.caption) formData.append('caption', options.caption);
+    if (options?.clientMessageId) formData.append('clientMessageId', options.clientMessageId);
+    if (options?.replyToMessageId) formData.append('replyToMessageId', options.replyToMessageId);
+
+    const headers: Record<string, string> = {};
+    if (this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`;
+
+    let res = await fetch(`${this.apiBase()}/conversations/${conversationId}/messages/attachment`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (res.status === 401 && this.refreshToken) {
+      const refreshed = await this.refresh();
+      if (refreshed) {
+        headers.Authorization = `Bearer ${this.accessToken}`;
+        res = await fetch(`${this.apiBase()}/conversations/${conversationId}/messages/attachment`, {
+          method: 'POST',
+          headers,
+          body: formData,
+        });
+      }
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message ?? `HTTP ${res.status}`);
+    }
+
+    return res.json() as Promise<Message>;
   }
 
   editMessage(conversationId: string, messageId: string, content: string) {

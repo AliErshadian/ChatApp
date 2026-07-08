@@ -20,7 +20,7 @@ import { randomBytes } from 'crypto';
 import { join, extname } from 'path';
 import { existsSync, mkdirSync, renameSync, unlinkSync } from 'fs';
 import { MessageUserHidden } from '../messages/entities/message-user-hidden.entity';
-import { CreateChannelDto, CreateDirectDto } from './dto/conversation.dto';
+import { CreateChannelDto, CreateGroupDto, CreateDirectDto } from './dto/conversation.dto';
 import { ConversationRealtimePublisher } from './conversation-realtime.publisher';
 
 @Injectable()
@@ -130,17 +130,53 @@ export class ConversationsService {
         relations: ['members', 'members.user'],
       });
 
-      await this.ensureInviteForChannel(manager, conversation.id, userId);
+      await this.ensureInvite(manager, conversation.id, userId);
 
       return this.toConversationSummary(full!, userId);
     });
+  }
+
+  async createGroup(userId: string, dto: CreateGroupDto) {
+    const conversation = await this.dataSource.transaction(async (manager) => {
+      const created = await manager.save(
+        manager.create(Conversation, {
+          type: ConversationType.GROUP,
+          name: dto.name.trim(),
+          description: dto.description,
+          isPublic: dto.isPublic ?? false,
+          createdBy: userId,
+        }),
+      );
+
+      const memberIds = new Set([userId, ...(dto.memberIds ?? [])]);
+      const members = [...memberIds].map((uid) =>
+        manager.create(ConversationMember, {
+          conversationId: created.id,
+          userId: uid,
+          role: uid === userId ? MemberRole.OWNER : MemberRole.MEMBER,
+        }),
+      );
+      await manager.save(members);
+
+      if (created.isPublic) {
+        await this.ensureInvite(manager, created.id, userId);
+      }
+
+      return manager.findOne(Conversation, {
+        where: { id: created.id },
+        relations: ['members', 'members.user'],
+      });
+    });
+
+    await this.publishConversationCreated(conversation!.id);
+    return this.toConversationSummary(conversation!, userId);
   }
 
   private createInviteToken() {
     return randomBytes(24).toString('base64url');
   }
 
-  private async ensureInviteForChannel(
+  private async ensureInvite(
     manager: DataSource['manager'],
     conversationId: string,
     createdBy: string,
@@ -173,17 +209,19 @@ export class ConversationsService {
     const conversation = await this.conversationRepo.findOne({
       where: { id: conversationId },
     });
-    if (!conversation || conversation.type !== ConversationType.CHANNEL) {
-      throw new ForbiddenException('Invite links are only available for channels');
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
+    if (conversation.type === ConversationType.DIRECT) {
+      throw new ForbiddenException('Invite links are not available for direct messages');
+    }
+    if (conversation.type === ConversationType.GROUP && !conversation.isPublic) {
+      throw new ForbiddenException('Invite links are only available for public groups');
     }
 
     let invite = await this.inviteRepo.findOne({ where: { conversationId } });
     if (!invite) {
-      invite = await this.ensureInviteForChannel(
-        this.dataSource.manager,
-        conversationId,
-        userId,
-      );
+      invite = await this.ensureInvite(this.dataSource.manager, conversationId, userId);
     }
 
     return { token: invite.token };
@@ -194,13 +232,23 @@ export class ConversationsService {
       where: { token },
       relations: ['conversation'],
     });
-    if (!invite?.conversation || invite.conversation.type !== ConversationType.CHANNEL) {
+    if (
+      !invite?.conversation ||
+      (invite.conversation.type !== ConversationType.CHANNEL &&
+        invite.conversation.type !== ConversationType.GROUP)
+    ) {
       throw new NotFoundException('Invite not found');
     }
 
+    const name =
+      invite.conversation.type === ConversationType.GROUP
+        ? invite.conversation.name ?? 'Group'
+        : invite.conversation.name ?? 'Channel';
+
     return {
-      channelName: invite.conversation.name ?? 'Channel',
+      channelName: name,
       conversationId: invite.conversationId,
+      conversationType: invite.conversation.type,
     };
   }
 
@@ -221,7 +269,18 @@ export class ConversationsService {
       where: { token },
       relations: ['conversation'],
     });
-    if (!invite?.conversation || invite.conversation.type !== ConversationType.CHANNEL) {
+    if (
+      !invite?.conversation ||
+      (invite.conversation.type !== ConversationType.CHANNEL &&
+        invite.conversation.type !== ConversationType.GROUP)
+    ) {
+      throw new NotFoundException('Invite not found');
+    }
+
+    if (
+      invite.conversation.type === ConversationType.GROUP &&
+      !invite.conversation.isPublic
+    ) {
       throw new NotFoundException('Invite not found');
     }
 
@@ -233,7 +292,7 @@ export class ConversationsService {
     if (existing) {
       await this.unhideConversation(conversationId, userId);
       await this.tryRestoreOrphanedOwner(conversationId, userId);
-      await this.publishChannelUpdate(conversationId);
+      await this.publishConversationUpdate(conversationId);
       return this.getById(conversationId, userId);
     }
 
@@ -246,14 +305,17 @@ export class ConversationsService {
     );
     await this.unhideConversation(conversationId, userId);
     await this.tryRestoreOrphanedOwner(conversationId, userId);
-    await this.publishChannelUpdate(conversationId);
+    await this.publishConversationCreated(conversationId);
 
     return this.getById(conversationId, userId);
   }
 
-  async getChannelUpdatePayload(conversationId: string) {
+  async getConversationUpdatePayload(conversationId: string) {
     const conversation = await this.conversationRepo.findOne({
-      where: { id: conversationId, type: ConversationType.CHANNEL },
+      where: {
+        id: conversationId,
+        type: In([ConversationType.CHANNEL, ConversationType.GROUP]),
+      },
       relations: ['members', 'members.user'],
     });
     if (!conversation) return null;
@@ -270,6 +332,8 @@ export class ConversationsService {
 
     return {
       conversationId,
+      type: conversation.type,
+      isPublic: conversation.isPublic,
       name: conversation.name,
       description: conversation.description,
       avatarUrl: conversation.avatarUrl,
@@ -280,8 +344,17 @@ export class ConversationsService {
     };
   }
 
-  private async publishChannelUpdate(conversationId: string) {
+  /** @deprecated use getConversationUpdatePayload */
+  async getChannelUpdatePayload(conversationId: string) {
+    return this.getConversationUpdatePayload(conversationId);
+  }
+
+  private async publishConversationUpdate(conversationId: string) {
     await this.conversationPublisher.publishUpdated(conversationId);
+  }
+
+  private async publishConversationCreated(conversationId: string) {
+    await this.conversationPublisher.publishCreated(conversationId);
   }
 
   async updateChannelAvatar(
@@ -293,11 +366,15 @@ export class ConversationsService {
     const conversation = await this.conversationRepo.findOne({
       where: { id: conversationId },
     });
-    if (!conversation || conversation.type !== ConversationType.CHANNEL) {
-      throw new ForbiddenException('Channel avatars are only available for channels');
+    if (
+      !conversation ||
+      (conversation.type !== ConversationType.CHANNEL &&
+        conversation.type !== ConversationType.GROUP)
+    ) {
+      throw new ForbiddenException('Avatars are only available for channels and groups');
     }
     if (member.role !== MemberRole.OWNER) {
-      throw new ForbiddenException('Only the channel owner can change the channel photo');
+      throw new ForbiddenException('Only the owner can change the conversation photo');
     }
 
     const ext = extname(file.originalname).toLowerCase();
@@ -327,7 +404,7 @@ export class ConversationsService {
     renameSync(file.path, join(channelAvatarDir, filename));
     conversation.avatarUrl = `/uploads/channel-avatars/${filename}?v=${Date.now()}`;
     await this.conversationRepo.save(conversation);
-    await this.publishChannelUpdate(conversationId);
+    await this.publishConversationUpdate(conversationId);
 
     return {
       id: conversation.id,
@@ -388,8 +465,12 @@ export class ConversationsService {
     const conversation = await this.conversationRepo.findOne({
       where: { id: conversationId },
     });
-    if (!conversation || conversation.type !== ConversationType.CHANNEL) {
-      throw new ForbiddenException('Can only leave channels');
+    if (
+      !conversation ||
+      (conversation.type !== ConversationType.CHANNEL &&
+        conversation.type !== ConversationType.GROUP)
+    ) {
+      throw new ForbiddenException('Can only leave channels and groups');
     }
 
     const member = await this.assertMember(conversationId, userId);
@@ -406,7 +487,7 @@ export class ConversationsService {
 
         const successor = members.find((m) => m.userId === newOwnerId);
         if (!successor) {
-          throw new BadRequestException('New owner must be a channel member');
+          throw new BadRequestException('New owner must be a member');
         }
 
         successor.role = MemberRole.OWNER;
@@ -419,7 +500,7 @@ export class ConversationsService {
 
     await this.memberRepo.delete({ conversationId, userId });
     await this.hideConversation(conversationId, userId);
-    await this.publishChannelUpdate(conversationId);
+    await this.publishConversationUpdate(conversationId);
 
     return { conversationId, newOwnerId: newOwnerId ?? null };
   }
@@ -496,8 +577,12 @@ export class ConversationsService {
     const conversation = await this.conversationRepo.findOne({
       where: { id: conversationId },
     });
-    if (!conversation || conversation.type !== ConversationType.CHANNEL) {
-      throw new ForbiddenException('Can only add members to channels');
+    if (
+      !conversation ||
+      (conversation.type !== ConversationType.CHANNEL &&
+        conversation.type !== ConversationType.GROUP)
+    ) {
+      throw new ForbiddenException('Can only add members to channels and groups');
     }
 
     const existing = await this.memberRepo.find({
@@ -517,10 +602,47 @@ export class ConversationsService {
     );
     await this.memberRepo.save(members);
     for (const uid of toAdd) {
+      await this.unhideConversation(conversationId, uid);
       await this.tryRestoreOrphanedOwner(conversationId, uid);
     }
-    await this.publishChannelUpdate(conversationId);
+    await this.publishConversationUpdate(conversationId);
+    if (toAdd.length > 0) {
+      await this.publishConversationCreated(conversationId);
+    }
     return { added: toAdd };
+  }
+
+  async removeMember(conversationId: string, actorId: string, targetUserId: string) {
+    const conversation = await this.conversationRepo.findOne({
+      where: { id: conversationId },
+    });
+    if (!conversation || conversation.type !== ConversationType.GROUP) {
+      throw new ForbiddenException('Can only remove members from groups');
+    }
+
+    const actor = await this.assertMember(conversationId, actorId);
+    if (actor.role !== MemberRole.OWNER) {
+      throw new ForbiddenException('Only the group owner can remove members');
+    }
+
+    if (targetUserId === actorId) {
+      throw new BadRequestException('Use leave to exit the group yourself');
+    }
+
+    const target = await this.memberRepo.findOne({
+      where: { conversationId, userId: targetUserId },
+    });
+    if (!target) throw new NotFoundException('Member not found');
+    if (target.role === MemberRole.OWNER) {
+      throw new BadRequestException('Cannot remove the group owner');
+    }
+
+    await this.memberRepo.delete({ conversationId, userId: targetUserId });
+    await this.hideConversation(conversationId, targetUserId);
+    await this.publishConversationUpdate(conversationId);
+    await this.conversationPublisher.publishMemberRemoved(conversationId, targetUserId);
+
+    return { conversationId, removedUserId: targetUserId };
   }
 
   private async tryRestoreOrphanedOwner(conversationId: string, userId: string) {
@@ -637,6 +759,9 @@ export class ConversationsService {
       id: string;
       sender_id: string;
       content: string;
+      content_type: string;
+      file_name: string | null;
+      caption: string | null;
       created_at: Date;
       deleted_at: Date | null;
       sender_display_name: string;
@@ -646,6 +771,9 @@ export class ConversationsService {
         m.id,
         m.sender_id,
         m.content,
+        m.content_type,
+        m.file_name,
+        m.caption,
         m.created_at,
         m.deleted_at,
         u.display_name AS sender_display_name
@@ -663,6 +791,9 @@ export class ConversationsService {
       {
         id: string;
         content: string;
+        contentType?: string;
+        fileName?: string;
+        caption?: string;
         senderId: string;
         senderName: string;
         createdAt: Date;
@@ -675,6 +806,9 @@ export class ConversationsService {
       map.set(row.conversation_id, {
         id: row.id,
         content: deletedForEveryone ? '' : row.content,
+        contentType: row.content_type,
+        fileName: row.file_name ?? undefined,
+        caption: row.caption ?? undefined,
         senderId: row.sender_id,
         senderName: row.sender_display_name,
         createdAt: row.created_at,
@@ -716,6 +850,7 @@ export class ConversationsService {
       name: displayName,
       description: conversation.description,
       avatarUrl: conversation.avatarUrl,
+      isPublic: conversation.isPublic ?? false,
       members,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,

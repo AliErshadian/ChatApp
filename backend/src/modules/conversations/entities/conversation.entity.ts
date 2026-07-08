@@ -15,6 +15,7 @@ import { Message } from '../../messages/entities/message.entity';
 export enum ConversationType {
   DIRECT = 'direct',
   CHANNEL = 'channel',
+  GROUP = 'group',
 }
 
 @Entity('conversations')
@@ -39,6 +40,9 @@ export class Conversation {
 
   @Column({ name: 'pending_owner_id', type: 'uuid', nullable: true })
   pendingOwnerId?: string | null;
+
+  @Column({ name: 'is_public', default: false })
+  isPublic!: boolean;
 
   @ManyToOne(() => User)
   @JoinColumn({ name: 'created_by' })

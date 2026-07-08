@@ -1,0 +1,7 @@
+ALTER TABLE messages
+    ADD COLUMN IF NOT EXISTS file_name VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS file_size BIGINT,
+    ADD COLUMN IF NOT EXISTS caption TEXT;
+
+ALTER TABLE messages
+    ALTER COLUMN content_type TYPE VARCHAR(128);
