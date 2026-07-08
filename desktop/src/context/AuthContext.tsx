@@ -23,16 +23,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const hasTokens = await api.loadTokens();
-        if (!hasTokens || cancelled) {
+        if (!hasTokens) {
           if (!cancelled) setLoading(false);
           return;
         }
+        if (cancelled) return;
+
+        // Ensure we have a usable access token after reload (access TTL is short).
+        await api.refresh();
+        if (cancelled) return;
+
         const me = await api.me();
         if (cancelled) return;
         setUser(me);
         realtime.connect();
-      } catch {
-        await api.clearTokens();
+      } catch (err) {
+        // Never wipe session from a Strict Mode remount / aborted bootstrap,
+        // and don't logout on transient network failures.
+        if (!cancelled) {
+          const status = (err as { status?: number } | null)?.status;
+          if (status === 401) {
+            await api.clearTokens();
+          }
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }

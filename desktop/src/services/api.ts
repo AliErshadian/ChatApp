@@ -124,20 +124,23 @@ class ApiClient {
     this.accessToken = tokens.accessToken;
     const auth = this.authApi();
     if (auth) {
-      await auth.setSession({
+      const ok = await auth.setSession({
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         expiresIn: tokens.expiresIn,
         apiBase: this.apiBase(),
       });
-      // Strip any leftover renderer-persisted secrets from older builds.
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
+      if (!ok) {
+        throw new Error('Failed to persist auth session in Electron secure store');
+      }
       return;
     }
 
-    // Browser / Vite-only fallback (no Electron bridge): memory only.
-    console.warn('Secure Electron auth store unavailable; tokens kept in memory only');
+    // Dev browser (Vite without Electron): keep tokens for page refresh only.
+    sessionStorage.setItem('accessToken', tokens.accessToken);
+    sessionStorage.setItem('refreshToken', tokens.refreshToken);
   }
 
   async loadTokens(): Promise<boolean> {
@@ -151,21 +154,28 @@ class ApiClient {
         });
       }
       this.accessToken = await auth.getAccessToken();
-      return !!this.accessToken || (await auth.hasSession());
+      if (this.accessToken) return true;
+      return auth.hasSession();
     }
 
     const legacy = this.migrateLegacyLocalStorageTokens();
     if (legacy) {
       this.accessToken = legacy.accessToken;
+      sessionStorage.setItem('accessToken', legacy.accessToken);
+      sessionStorage.setItem('refreshToken', legacy.refreshToken);
       return true;
     }
-    return !!this.accessToken;
+
+    this.accessToken = sessionStorage.getItem('accessToken');
+    return !!this.accessToken && !!sessionStorage.getItem('refreshToken');
   }
 
   async clearTokens() {
     this.accessToken = null;
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
+    sessionStorage.removeItem('accessToken');
+    sessionStorage.removeItem('refreshToken');
     await this.authApi()?.clearSession();
   }
 
@@ -207,7 +217,10 @@ class ApiClient {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.message ?? `HTTP ${res.status}`);
+      const message = err.message ?? `HTTP ${res.status}`;
+      const error = new Error(message) as Error & { status?: number };
+      error.status = res.status;
+      throw error;
     }
     return res.json();
   }
@@ -224,9 +237,28 @@ class ApiClient {
       return true;
     }
 
-    // Without Electron, refresh tokens are not persisted (secure-store unavailable).
-    this.accessToken = null;
-    return false;
+    const refreshToken = sessionStorage.getItem('refreshToken');
+    if (!refreshToken) {
+      this.accessToken = null;
+      return false;
+    }
+
+    try {
+      const res = await fetch(`${this.apiBase()}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!res.ok) {
+        await this.clearTokens();
+        return false;
+      }
+      const data = (await res.json()) as AuthTokens;
+      await this.setTokens(data);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   register(email: string, username: string, displayName: string, password: string) {

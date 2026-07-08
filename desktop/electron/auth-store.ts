@@ -11,21 +11,41 @@ export interface StoredAuthSession {
 }
 
 const STORE_FILE = 'auth-session.bin';
+/** Marks that the following bytes were produced by safeStorage.encryptString */
+const ENC_MAGIC = Buffer.from('CA1E');
 
 function storePath() {
   return path.join(app.getPath('userData'), STORE_FILE);
 }
 
 function canEncrypt() {
-  return safeStorage.isEncryptionAvailable();
+  try {
+    return safeStorage.isEncryptionAvailable();
+  } catch {
+    return false;
+  }
 }
 
 export function saveAuthSession(session: StoredAuthSession): void {
-  const payload = Buffer.from(JSON.stringify(session), 'utf8');
-  const encoded = canEncrypt()
-    ? safeStorage.encryptString(payload.toString('utf8'))
-    : payload;
-  fs.writeFileSync(storePath(), encoded);
+  const json = JSON.stringify(session);
+  if (canEncrypt()) {
+    const encrypted = safeStorage.encryptString(json);
+    fs.writeFileSync(storePath(), Buffer.concat([ENC_MAGIC, encrypted]));
+    return;
+  }
+  fs.writeFileSync(storePath(), Buffer.from(json, 'utf8'));
+}
+
+function parseSession(json: string): StoredAuthSession | null {
+  try {
+    const parsed = JSON.parse(json) as StoredAuthSession;
+    if (!parsed?.accessToken || !parsed?.refreshToken || !parsed?.apiBase) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 export function loadAuthSession(): StoredAuthSession | null {
@@ -34,14 +54,28 @@ export function loadAuthSession(): StoredAuthSession | null {
 
   try {
     const raw = fs.readFileSync(file);
-    const json = canEncrypt()
-      ? safeStorage.decryptString(raw)
-      : raw.toString('utf8');
-    const parsed = JSON.parse(json) as StoredAuthSession;
-    if (!parsed?.accessToken || !parsed?.refreshToken || !parsed?.apiBase) {
-      return null;
+
+    // Preferred format: magic header + encrypted payload
+    if (raw.length > ENC_MAGIC.length && raw.subarray(0, ENC_MAGIC.length).equals(ENC_MAGIC)) {
+      const body = raw.subarray(ENC_MAGIC.length);
+      if (!canEncrypt()) return null;
+      return parseSession(safeStorage.decryptString(body));
     }
-    return parsed;
+
+    // Legacy / plaintext fallback (also covers older encrypted blobs without magic)
+    const asUtf8 = raw.toString('utf8');
+    const plain = parseSession(asUtf8);
+    if (plain) return plain;
+
+    if (canEncrypt()) {
+      try {
+        return parseSession(safeStorage.decryptString(raw));
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
   } catch {
     return null;
   }

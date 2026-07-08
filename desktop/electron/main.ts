@@ -118,7 +118,10 @@ ipcMain.handle('auth:refresh', async (event) => {
           body: JSON.stringify({ refreshToken: session.refreshToken }),
         });
         if (!res.ok) {
-          clearAuthSession();
+          // Only clear if the stored token was rejected (not on transient server errors).
+          if (res.status === 401 || res.status === 403) {
+            clearAuthSession();
+          }
           return null;
         }
 
@@ -127,6 +130,10 @@ ipcMain.handle('auth:refresh', async (event) => {
           refreshToken: string;
           expiresIn?: number;
         };
+
+        if (!data?.accessToken || !data?.refreshToken) {
+          return null;
+        }
 
         const next: StoredAuthSession = {
           accessToken: data.accessToken,
@@ -137,7 +144,7 @@ ipcMain.handle('auth:refresh', async (event) => {
         saveAuthSession(next);
         return { accessToken: next.accessToken };
       } catch {
-        clearAuthSession();
+        // Network / parse errors: keep session so the user is not logged out on reload.
         return null;
       }
     })().finally(() => {
