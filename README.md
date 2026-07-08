@@ -15,21 +15,37 @@ docker compose up --build -d
 curl http://localhost:3000/api/v1/health
 ```
 
-### Create Database
+### Production-like run (nginx + persistent uploads)
+
 ```bash
-CREATE USER myuser WITH PASSWORD 'mypass';
-CREATE DATABASE mydatabase OWNER myuser;
-GRANT ALL PRIVILEGES ON DATABASE mydatabase TO myuser;
+# Ensure you set strong secrets first
+cp .env.example .env
+# edit .env and set JWT_* secrets (32+ chars)
+
+docker compose -f docker-compose.prod.yml up --build -d
+curl http://localhost/api/v1/health
 ```
 
-### Desktop Client (Development)
+### Notes
+
+- **Database schema**: initialized automatically from `infra/postgres/init.sql` when the `postgres` container is created.
+- **Uploads**: in Docker, files are served from `/app/uploads`; `docker-compose.prod.yml` mounts a named volume there.
+
+### Local Development (from repo root)
 
 ```bash
-# Terminal 1: ensure backend is running (docker compose or local)
-cd backend && cp .env.example .env && npm install && npm run start:dev
+# One-time: copy .env files + install backend/desktop deps
+npm run setup
 
-# Terminal 2: desktop app
-cd desktop && cp .env.example .env && npm install && npm run electron:dev
+# Optional: start Postgres + Redis only (if not using full docker compose)
+npm run dev:infra
+
+# Run backend + desktop together
+npm run dev
+
+# Or run them separately (still from root)
+npm run dev:backend
+npm run dev:desktop
 ```
 
 ## Technology Choices
@@ -50,6 +66,8 @@ cd desktop && cp .env.example .env && npm install && npm run electron:dev
 
 ```
 ChatApp/
+├── package.json                # Root scripts (setup / dev / build)
+├── scripts/setup-env.js        # Copies .env.example → .env
 ├── backend/                    # NestJS API + WebSocket gateway
 │   └── src/
 │       ├── modules/
@@ -133,6 +151,12 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for payload examples, scaling s
 6. Set `CORS_ORIGIN` to desktop app origin only
 7. Enable structured logging (pino) and APM (Datadog/New Relic)
 8. File uploads: add S3-compatible object storage + pre-signed URLs (designed, not in MVP)
+
+## CI/CD
+
+- **CI**: runs backend lint/build, desktop build, and a backend Docker image build on PRs and on `main`.
+- **CD**: builds and publishes the backend Docker image to GHCR on pushes to `main` and semantic version tags (`vX.Y.Z`).
+  - Image name: `ghcr.io/<owner>/<repo>/backend`
 
 ## License
 

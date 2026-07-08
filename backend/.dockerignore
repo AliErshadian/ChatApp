@@ -1,0 +1,15 @@
+node_modules
+npm-debug.log
+yarn.lock
+pnpm-lock.yaml
+.env
+.env.*
+dist
+coverage
+.nyc_output
+.git
+.github
+.vscode
+Dockerfile
+docker-compose*.yml
+README.md
