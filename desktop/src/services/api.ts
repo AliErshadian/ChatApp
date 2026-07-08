@@ -104,27 +104,69 @@ export interface Message {
 }
 
 class ApiClient {
+  /** Short-lived access token kept in renderer memory only (never localStorage). */
   private accessToken: string | null = null;
-  private refreshToken: string | null = null;
 
-  setTokens(tokens: AuthTokens) {
-    this.accessToken = tokens.accessToken;
-    this.refreshToken = tokens.refreshToken;
-    localStorage.setItem('accessToken', tokens.accessToken);
-    localStorage.setItem('refreshToken', tokens.refreshToken);
+  private authApi() {
+    return window.electronAPI?.auth;
   }
 
-  loadTokens() {
-    this.accessToken = localStorage.getItem('accessToken');
-    this.refreshToken = localStorage.getItem('refreshToken');
+  private migrateLegacyLocalStorageTokens() {
+    const accessToken = localStorage.getItem('accessToken');
+    const refreshToken = localStorage.getItem('refreshToken');
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    if (!accessToken || !refreshToken) return null;
+    return { accessToken, refreshToken };
+  }
+
+  async setTokens(tokens: AuthTokens) {
+    this.accessToken = tokens.accessToken;
+    const auth = this.authApi();
+    if (auth) {
+      await auth.setSession({
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresIn: tokens.expiresIn,
+        apiBase: this.apiBase(),
+      });
+      // Strip any leftover renderer-persisted secrets from older builds.
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      return;
+    }
+
+    // Browser / Vite-only fallback (no Electron bridge): memory only.
+    console.warn('Secure Electron auth store unavailable; tokens kept in memory only');
+  }
+
+  async loadTokens(): Promise<boolean> {
+    const auth = this.authApi();
+    if (auth) {
+      const legacy = this.migrateLegacyLocalStorageTokens();
+      if (legacy) {
+        await auth.setSession({
+          ...legacy,
+          apiBase: this.apiBase(),
+        });
+      }
+      this.accessToken = await auth.getAccessToken();
+      return !!this.accessToken || (await auth.hasSession());
+    }
+
+    const legacy = this.migrateLegacyLocalStorageTokens();
+    if (legacy) {
+      this.accessToken = legacy.accessToken;
+      return true;
+    }
     return !!this.accessToken;
   }
 
-  clearTokens() {
+  async clearTokens() {
     this.accessToken = null;
-    this.refreshToken = null;
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
+    await this.authApi()?.clearSession();
   }
 
   getAccessToken() {
@@ -155,7 +197,7 @@ class ApiClient {
       );
     }
 
-    if (res.status === 401 && this.refreshToken) {
+    if (res.status === 401) {
       const refreshed = await this.refresh();
       if (refreshed) {
         headers.Authorization = `Bearer ${this.accessToken}`;
@@ -171,19 +213,20 @@ class ApiClient {
   }
 
   async refresh(): Promise<boolean> {
-    if (!this.refreshToken) return false;
-    try {
-      const data = await fetch(`${this.apiBase()}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: this.refreshToken }),
-      }).then((r) => r.json());
-      this.setTokens(data);
+    const auth = this.authApi();
+    if (auth) {
+      const next = await auth.refresh();
+      if (!next?.accessToken) {
+        this.accessToken = null;
+        return false;
+      }
+      this.accessToken = next.accessToken;
       return true;
-    } catch {
-      this.clearTokens();
-      return false;
     }
+
+    // Without Electron, refresh tokens are not persisted (secure-store unavailable).
+    this.accessToken = null;
+    return false;
   }
 
   register(email: string, username: string, displayName: string, password: string) {
@@ -329,7 +372,7 @@ class ApiClient {
       body: formData,
     });
 
-    if (res.status === 401 && this.refreshToken) {
+    if (res.status === 401) {
       const refreshed = await this.refresh();
       if (refreshed) {
         headers.Authorization = `Bearer ${this.accessToken}`;
@@ -415,7 +458,7 @@ class ApiClient {
       body: formData,
     });
 
-    if (res.status === 401 && this.refreshToken) {
+    if (res.status === 401) {
       const refreshed = await this.refresh();
       if (refreshed) {
         headers.Authorization = `Bearer ${this.accessToken}`;
@@ -447,7 +490,7 @@ class ApiClient {
       body: formData,
     });
 
-    if (res.status === 401 && this.refreshToken) {
+    if (res.status === 401) {
       const refreshed = await this.refresh();
       if (refreshed) {
         headers.Authorization = `Bearer ${this.accessToken}`;

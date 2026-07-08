@@ -24,9 +24,10 @@ interface AuthenticatedSocket extends Socket {
 }
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
   namespace: '/realtime',
-  transports: ['websocket', 'polling'],
+  // Internal/controlled environments: websocket-only avoids HTTP long-polling
+  // load and removes sticky-session requirements at the load balancer.
+  transports: ['websocket'],
 })
 export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit {
   @WebSocketServer()

@@ -131,6 +131,8 @@ Connect with `auth: { token: <accessToken> }`.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for payload examples, scaling strategy, and security details.
 
+See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for Project Details details.
+
 ## Security
 
 - JWT access tokens (15m) + rotating refresh tokens (7d, SHA-256 hashed at rest)

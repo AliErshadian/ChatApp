@@ -18,38 +18,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (api.loadTokens()) {
-      api.me()
-        .then((u) => {
-          setUser(u);
-          realtime.connect();
-        })
-        .catch(() => api.clearTokens())
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
-    return () => realtime.disconnect();
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const hasTokens = await api.loadTokens();
+        if (!hasTokens || cancelled) {
+          if (!cancelled) setLoading(false);
+          return;
+        }
+        const me = await api.me();
+        if (cancelled) return;
+        setUser(me);
+        realtime.connect();
+      } catch {
+        await api.clearTokens();
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      realtime.disconnect();
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
     const res = await api.login(email, password);
-    api.setTokens(res);
+    await api.setTokens(res);
     setUser(res.user);
     realtime.connect();
   };
 
   const register = async (email: string, username: string, displayName: string, password: string) => {
     const res = await api.register(email, username, displayName, password);
-    api.setTokens(res);
+    await api.setTokens(res);
     setUser(res.user);
     realtime.connect();
   };
 
   const logout = () => {
-    realtime.disconnect();
-    api.clearTokens();
-    setUser(null);
+    void (async () => {
+      realtime.disconnect();
+      await api.clearTokens();
+      setUser(null);
+    })();
   };
 
   const updateUser = (next: User) => {

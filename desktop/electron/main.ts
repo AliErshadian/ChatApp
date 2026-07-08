@@ -1,12 +1,25 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import {
+  clearAuthSession,
+  getAccessToken,
+  loadAuthSession,
+  saveAuthSession,
+  StoredAuthSession,
+} from './auth-store';
 
 const isDev = !app.isPackaged;
 const APP_PROTOCOL = 'chatapp';
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let pendingInviteUrl: string | null = null;
+let refreshInFlight: Promise<{ accessToken: string } | null> | null = null;
+
+function isTrustedSender(event: Electron.IpcMainInvokeEvent): boolean {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  return !!win && !win.isDestroyed() && win.webContents === event.sender;
+}
 
 function resolveAppIconPath(): string | null {
   const candidates = [
@@ -40,6 +53,99 @@ ipcMain.handle('open-external', (_event, url: string) => {
     return shell.openExternal(url);
   }
   return false;
+});
+
+ipcMain.handle(
+  'auth:set-session',
+  (
+    event,
+    session: {
+      accessToken: string;
+      refreshToken: string;
+      expiresIn?: number;
+      apiBase: string;
+    },
+  ) => {
+    if (!isTrustedSender(event)) return false;
+    if (
+      !session?.accessToken ||
+      !session?.refreshToken ||
+      !session?.apiBase ||
+      typeof session.accessToken !== 'string' ||
+      typeof session.refreshToken !== 'string' ||
+      typeof session.apiBase !== 'string'
+    ) {
+      return false;
+    }
+    saveAuthSession({
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresIn: session.expiresIn,
+      apiBase: session.apiBase,
+    });
+    return true;
+  },
+);
+
+ipcMain.handle('auth:get-access-token', (event) => {
+  if (!isTrustedSender(event)) return null;
+  return getAccessToken();
+});
+
+ipcMain.handle('auth:has-session', (event) => {
+  if (!isTrustedSender(event)) return false;
+  return !!loadAuthSession();
+});
+
+ipcMain.handle('auth:clear-session', (event) => {
+  if (!isTrustedSender(event)) return false;
+  clearAuthSession();
+  return true;
+});
+
+ipcMain.handle('auth:refresh', async (event) => {
+  if (!isTrustedSender(event)) return null;
+
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      const session = loadAuthSession();
+      if (!session) return null;
+
+      try {
+        const res = await fetch(`${session.apiBase}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: session.refreshToken }),
+        });
+        if (!res.ok) {
+          clearAuthSession();
+          return null;
+        }
+
+        const data = (await res.json()) as {
+          accessToken: string;
+          refreshToken: string;
+          expiresIn?: number;
+        };
+
+        const next: StoredAuthSession = {
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken,
+          expiresIn: data.expiresIn,
+          apiBase: session.apiBase,
+        };
+        saveAuthSession(next);
+        return { accessToken: next.accessToken };
+      } catch {
+        clearAuthSession();
+        return null;
+      }
+    })().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+
+  return refreshInFlight;
 });
 
 function extractInviteUrl(argv: string[]): string | null {
