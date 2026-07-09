@@ -209,6 +209,14 @@ body {
 
 .error { color: var(--error); font-size: 0.85rem; margin-bottom: 0.5rem; }
 
+.auth-error {
+  padding: 0.55rem 0.7rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--error) 35%, transparent);
+  line-height: 1.4;
+}
+
 /* Chat Layout */
 .chat-layout { display: flex; height: 100vh; height: 100dvh; }
 

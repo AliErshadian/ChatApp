@@ -1,5 +1,6 @@
 import { getServiceUrls } from '../config/endpoints';
 import { getClientSessionInfo } from '../utils/clientSession';
+import { extractApiErrorMessage } from '../utils/authError';
 import { getSessionIdFromToken, isAccessTokenUsable } from '../utils/jwt';
 
 export { getAssetBase, resolveAvatarUrl } from '../utils/avatar';
@@ -426,7 +427,13 @@ class ApiClient {
     }
   }
 
-  private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  private async request<T>(
+    path: string,
+    options: RequestInit = {},
+    requestOptions?: { refreshOnUnauthorized?: boolean; timeoutMs?: number },
+  ): Promise<T> {
+    const refreshOnUnauthorized = requestOptions?.refreshOnUnauthorized ?? true;
+    const timeoutMs = requestOptions?.timeoutMs ?? 8_000;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(options.headers as Record<string, string>),
@@ -435,24 +442,38 @@ class ApiClient {
 
     let res: Response;
     try {
-      res = await fetch(`${this.apiBase()}${path}`, { ...options, headers });
-    } catch {
+      res = await this.fetchWithTimeout(
+        `${this.apiBase()}${path}`,
+        { ...options, headers },
+        timeoutMs,
+      );
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error('Request timed out. Check that the API is running and try again.', {
+          cause: err,
+        });
+      }
       throw new Error(
         `Cannot reach server (${this.apiBase()}). Check that the API is running and port 3000 is open on the firewall.`,
+        { cause: err },
       );
     }
 
-    if (res.status === 401) {
+    if (res.status === 401 && refreshOnUnauthorized) {
       const refreshed = await this.refresh();
       if (refreshed) {
         headers.Authorization = `Bearer ${this.accessToken}`;
-        res = await fetch(`${this.apiBase()}${path}`, { ...options, headers });
+        res = await this.fetchWithTimeout(
+          `${this.apiBase()}${path}`,
+          { ...options, headers },
+          timeoutMs,
+        );
       }
     }
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      const message = err.message ?? `HTTP ${res.status}`;
+      const message = extractApiErrorMessage(err, res.status);
       const error = new Error(message) as Error & { status?: number };
       error.status = res.status;
       throw error;
@@ -523,27 +544,35 @@ class ApiClient {
   }
 
   register(email: string, username: string, displayName: string, password: string) {
-    return this.request<{ user: User } & AuthTokens>('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({
-        email,
-        username,
-        displayName,
-        password,
-        clientInfo: getClientSessionInfo(),
-      }),
-    });
+    return this.request<{ user: User } & AuthTokens>(
+      '/auth/register',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          email,
+          username,
+          displayName,
+          password,
+          clientInfo: getClientSessionInfo(),
+        }),
+      },
+      { refreshOnUnauthorized: false, timeoutMs: 10_000 },
+    );
   }
 
   login(email: string, password: string) {
-    return this.request<{ user: User } & AuthTokens>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({
-        email,
-        password,
-        clientInfo: getClientSessionInfo(),
-      }),
-    });
+    return this.request<{ user: User } & AuthTokens>(
+      '/auth/login',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          email,
+          password,
+          clientInfo: getClientSessionInfo(),
+        }),
+      },
+      { refreshOnUnauthorized: false, timeoutMs: 10_000 },
+    );
   }
 
   listSessions() {

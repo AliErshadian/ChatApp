@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import { formatAuthError } from '../utils/authError';
 
 export function LoginPage() {
   const { login, register } = useAuth();
@@ -28,6 +29,7 @@ export function LoginPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
+    const mode = isRegister ? 'register' : 'login';
     try {
       if (isRegister) {
         await register(email, username, displayName, password);
@@ -35,10 +37,15 @@ export function LoginPage() {
         await login(email, password);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Authentication failed');
+      setError(formatAuthError(err, mode));
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleMode = () => {
+    setIsRegister((prev) => !prev);
+    setError('');
   };
 
   return (
@@ -66,8 +73,12 @@ export function LoginPage() {
             type="email"
             placeholder="Email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (error) setError('');
+            }}
             required
+            autoComplete="email"
           />
           {isRegister && (
             <>
@@ -75,15 +86,23 @@ export function LoginPage() {
                 type="text"
                 placeholder="Username"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={(e) => {
+                  setUsername(e.target.value);
+                  if (error) setError('');
+                }}
                 required
+                autoComplete="username"
               />
               <input
                 type="text"
                 placeholder="Display Name"
                 value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
+                onChange={(e) => {
+                  setDisplayName(e.target.value);
+                  if (error) setError('');
+                }}
                 required
+                autoComplete="name"
               />
             </>
           )}
@@ -91,16 +110,24 @@ export function LoginPage() {
             type="password"
             placeholder="Password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              if (error) setError('');
+            }}
             required
             minLength={8}
+            autoComplete={isRegister ? 'new-password' : 'current-password'}
           />
-          {error && <p className="error">{error}</p>}
+          {error && (
+            <p className="error auth-error" role="alert">
+              {error}
+            </p>
+          )}
           <button type="submit" disabled={loading}>
             {loading ? 'Please wait...' : isRegister ? 'Create Account' : 'Sign In'}
           </button>
         </form>
-        <button className="link-btn" onClick={() => setIsRegister(!isRegister)}>
+        <button className="link-btn" onClick={toggleMode}>
           {isRegister ? 'Already have an account? Sign in' : 'Need an account? Register'}
         </button>
       </div>

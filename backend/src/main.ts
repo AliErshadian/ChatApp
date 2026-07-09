@@ -1,4 +1,4 @@
-import { NestFactory } from '@nestjs/core';
+import { NestFactory, HttpAdapterHost } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
@@ -19,7 +19,8 @@ async function bootstrap() {
 
   app.use(new RequestIdMiddleware().use);
   app.use(createHttpLogger());
-  app.useGlobalFilters(new SentryExceptionFilter());
+  const httpAdapterHost = app.get(HttpAdapterHost);
+  app.useGlobalFilters(new SentryExceptionFilter(httpAdapterHost));
 
   await setupRedisAdapter(app);
 

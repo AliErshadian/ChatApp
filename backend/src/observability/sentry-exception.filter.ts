@@ -1,8 +1,13 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException } from '@nestjs/common';
+import { ArgumentsHost, Catch, HttpException } from '@nestjs/common';
+import { BaseExceptionFilter, HttpAdapterHost } from '@nestjs/core';
 import { captureException } from './sentry';
 
 @Catch()
-export class SentryExceptionFilter implements ExceptionFilter {
+export class SentryExceptionFilter extends BaseExceptionFilter {
+  constructor(adapterHost: HttpAdapterHost) {
+    super(adapterHost.httpAdapter);
+  }
+
   catch(exception: unknown, host: ArgumentsHost) {
     const type = host.getType<'http' | 'ws' | 'rpc'>();
 
@@ -19,10 +24,10 @@ export class SentryExceptionFilter implements ExceptionFilter {
         url: req?.url,
         requestId: req?.requestId,
       });
-      return;
+    } else {
+      captureException(exception, { type });
     }
 
-    captureException(exception, { type });
+    super.catch(exception, host);
   }
 }
-
