@@ -1081,12 +1081,16 @@ body {
   gap: 0.35rem;
 }
 
+.new-messages-fab-wrap {
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0.35rem 1rem 0.5rem;
+  border-top: 1px solid color-mix(in srgb, var(--glass-border) 55%, transparent);
+  background: color-mix(in srgb, var(--glass-1) 40%, transparent);
+}
+
 .new-messages-fab {
-  position: absolute;
-  left: 50%;
-  bottom: 0.85rem;
-  transform: translateX(-50%);
-  z-index: 4;
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -1095,7 +1099,7 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: color-mix(in srgb, var(--c-bg2) 92%, transparent);
   color: var(--accent);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.32);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
   cursor: pointer;
   font-size: 0.8rem;
   font-weight: 700;

@@ -1637,19 +1637,21 @@ export function ChatPage() {
             </div>
 
             {pendingBelowCount > 0 && (
-              <button
-                type="button"
-                className="new-messages-fab"
-                onClick={scrollToPendingBelow}
-                aria-label={`${pendingBelowCount} new messages below`}
-              >
-                <span className="new-messages-fab-arrow" aria-hidden>
-                  ↓
-                </span>
-                <span className="new-messages-fab-count">
-                  {pendingBelowCount > 99 ? '99+' : pendingBelowCount}
-                </span>
-              </button>
+              <div className="new-messages-fab-wrap">
+                <button
+                  type="button"
+                  className="new-messages-fab"
+                  onClick={scrollToPendingBelow}
+                  aria-label={`${pendingBelowCount} new messages below`}
+                >
+                  <span className="new-messages-fab-arrow" aria-hidden>
+                    ↓
+                  </span>
+                  <span className="new-messages-fab-count">
+                    {pendingBelowCount > 99 ? '99+' : pendingBelowCount}
+                  </span>
+                </button>
+              </div>
             )}
 
             <footer className="composer">
