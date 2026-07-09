@@ -1002,6 +1002,7 @@ export function ChatPage() {
       sender: { id: user!.id, displayName: user!.displayName, username: user!.username },
     };
     setMessages((prev) => [...prev, optimistic]);
+    shouldScrollToBottomRef.current = true;
     setFirstUnreadMessageId(null);
     setConversations((prev) =>
       reorderConversations(
@@ -1076,6 +1077,7 @@ export function ChatPage() {
     };
 
     setMessages((prev) => [...prev, optimistic]);
+    shouldScrollToBottomRef.current = true;
     setFirstUnreadMessageId(null);
     setConversations((prev) =>
       reorderConversations(
