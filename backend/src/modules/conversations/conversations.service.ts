@@ -568,6 +568,11 @@ export class ConversationsService {
     await this.hiddenRepo.delete({ conversationId, userId });
   }
 
+  async unhideConversationForUsers(conversationId: string, userIds: string[]) {
+    if (userIds.length === 0) return;
+    await this.hiddenRepo.delete({ conversationId, userId: In(userIds) });
+  }
+
   async addMembers(conversationId: string, actorId: string, userIds: string[]) {
     const actor = await this.assertMember(conversationId, actorId);
     if (actor.role === MemberRole.MEMBER) {
@@ -601,8 +606,8 @@ export class ConversationsService {
       }),
     );
     await this.memberRepo.save(members);
+    await this.unhideConversationForUsers(conversationId, toAdd);
     for (const uid of toAdd) {
-      await this.unhideConversation(conversationId, uid);
       await this.tryRestoreOrphanedOwner(conversationId, uid);
     }
     await this.publishConversationUpdate(conversationId);

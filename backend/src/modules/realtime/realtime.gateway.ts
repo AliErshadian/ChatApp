@@ -202,12 +202,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     wsMessageBroadcastCounter.inc(1);
 
     const memberIds = await this.conversationsService.getMemberUserIds(message.conversationId);
-    for (const memberId of memberIds) {
-      await this.conversationsService.unhideConversation(message.conversationId, memberId);
-      if (memberId !== senderId) {
-        this.server.to(`user:${memberId}`).emit('message:receive', message);
-        wsMessageBroadcastCounter.inc(1);
-      }
+    await this.conversationsService.unhideConversationForUsers(message.conversationId, memberIds);
+
+    const recipientRooms = memberIds
+      .filter((id) => id !== senderId)
+      .map((id) => `user:${id}`);
+    if (recipientRooms.length > 0) {
+      this.server.to(recipientRooms).emit('message:receive', message);
+      wsMessageBroadcastCounter.inc(recipientRooms.length);
     }
   }
 
@@ -328,9 +330,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       .to(`conversation:${result.conversationId}`)
       .emit('message:reaction', result);
 
-    for (const memberId of memberIds) {
-      this.server.to(`user:${memberId}`).emit('message:reaction', result);
-    }
+    const rooms = memberIds.map((id) => `user:${id}`);
+    if (rooms.length > 0) this.server.to(rooms).emit('message:reaction', result);
   }
 
   private async broadcastConversationUpdated(conversationId: string) {
@@ -343,9 +344,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       .to(`conversation:${conversationId}`)
       .emit('conversation:updated', payload);
 
-    for (const memberId of memberUserIds) {
-      this.server.to(`user:${memberId}`).emit('conversation:updated', payload);
-    }
+    const rooms = memberUserIds.map((id) => `user:${id}`);
+    if (rooms.length > 0) this.server.to(rooms).emit('conversation:updated', payload);
   }
 
   private async broadcastConversationCreated(conversationId: string) {
@@ -377,9 +377,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       .to(`conversation:${message.conversationId}`)
       .emit('message:updated', message);
 
-    for (const memberId of memberIds) {
-      this.server.to(`user:${memberId}`).emit('message:updated', message);
-    }
+    const rooms = memberIds.map((id) => `user:${id}`);
+    if (rooms.length > 0) this.server.to(rooms).emit('message:updated', message);
   }
 
   @UseGuards(WsJwtGuard)
@@ -409,11 +408,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         .to(`conversation:${result.conversationId}`)
         .emit('conversation:messages_deleted', payload);
 
-      for (const memberId of memberIds) {
-        if (memberId !== client.data.userId) {
-          this.server.to(`user:${memberId}`).emit('conversation:messages_deleted', payload);
-        }
-      }
+      const rooms = memberIds
+        .filter((id) => id !== client.data.userId)
+        .map((id) => `user:${id}`);
+      if (rooms.length > 0) this.server.to(rooms).emit('conversation:messages_deleted', payload);
     }
 
     return { success: true, ...result };
