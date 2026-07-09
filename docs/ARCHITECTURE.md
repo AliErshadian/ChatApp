@@ -5,62 +5,59 @@
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           CLIENT TIER                                       │
-│  ┌──────────────────────┐    ┌──────────────────────┐                       │
-│  │  Electron (Windows)  │    │  Electron (Linux)    │                       │
-│  │  ┌────────────────┐  │    │  ┌────────────────┐  │                       │
-│  │  │ React Renderer │  │    │  │ React Renderer │  │                       │
-│  │  │ REST + WS      │  │    │  │ REST + WS      │  │                       │
-│  │  └───────┬────────┘  │    │  └───────┬────────┘  │                       │
-│  │  Main: Tray, Notify│    │  Main: Tray, Notify│                          │
-│  └──────────┼──────────┘    └──────────┼──────────┘                          │
+│  ┌──────────────────────┐    ┌──────────────────────┐    ┌────────────────┐ │
+│  │  Electron Desktop    │    │  Browser (Vite dev)  │    │  Electron      │ │
+│  │  Windows / Linux     │    │  LAN or localhost    │    │  (future mac)  │ │
+│  │  ┌────────────────┐  │    │  ┌────────────────┐  │    │                │ │
+│  │  │ React Renderer │  │    │  │ React (same)   │  │    │                │ │
+│  │  │ REST + WS      │  │    │  │ localStorage   │  │    │                │ │
+│  │  └───────┬────────┘  │    │  └───────┬────────┘  │    │                │ │
+│  │  Main: tray, secure  │    │                      │    │                │ │
+│  │  auth store, notify  │    │                      │    │                │ │
+│  └──────────┼──────────┘    └──────────┼───────────┘    └────────────────┘ │
 └─────────────┼──────────────────────────┼────────────────────────────────────┘
-              │ HTTPS/WSS (TLS)          │
-              ▼                          ▼
+              │ HTTPS / WSS (TLS at edge)  │
+              ▼                            ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                        EDGE / LOAD BALANCER                                 │
 │                   (nginx / ALB — TLS termination)                           │
-│              Sticky sessions optional (Socket.IO polling fallback)            │
-└──────────────────────────────┬──────────────────────────────────────────────┘
+└──────────────────────────────┬────────────────────────────────────────────┘
                                │
               ┌────────────────┼────────────────┐
               ▼                ▼                ▼
 ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
 │   API Instance 1 │ │   API Instance 2 │ │   API Instance N │
-│  ┌────────────┐  │ │  ┌────────────┐  │ │  ┌────────────┐  │
-│  │ Auth Module│  │ │  │ Auth Module│  │ │  │ Auth Module│  │
-│  │ Messages   │  │ │  │ Messages   │  │ │  │ Messages   │  │
-│  │ Presence   │  │ │  │ Presence   │  │ │  │ Presence   │  │
-│  │ Realtime GW│  │ │  │ Realtime GW│  │ │  │ Realtime GW│  │
-│  └─────┬──────┘  │ │  └─────┬──────┘  │ │  └─────┬──────┘  │
-└────────┼─────────┘ └────────┼─────────┘ └────────┼─────────┘
-         │                    │                    │
+│  Auth, Users,    │ │  Contacts, Conv, │ │  Messages,       │
+│  Messages,       │ │  Presence,       │ │  Realtime GW     │
+│  Realtime GW     │ │  Realtime GW     │ │                  │
+└────────┬─────────┘ └────────┬─────────┘ └────────┬─────────┘
          └────────────────────┼────────────────────┘
                               │
          ┌────────────────────┼────────────────────┐
          ▼                    ▼                    ▼
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│   PostgreSQL    │  │     Redis       │  │  Object Storage │
-│  users          │  │  presence TTL   │  │  (S3 — future)  │
-│  conversations  │  │  typing keys    │  │  file uploads   │
-│  messages       │  │  Socket.IO      │  │                 │
-│  memberships    │  │  pub/sub adapter│  │                 │
+│   PostgreSQL    │  │     Redis       │  │  Local uploads  │
+│  users, msgs,   │  │  presence,      │  │  (/uploads —    │
+│  sessions, etc. │  │  Socket.IO      │  │  S3 future)     │
+│                 │  │  pub/sub        │  │                 │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
 ```
 
 ## 2. Service Boundaries (Modular Monolith → Microservices Path)
 
-The MVP ships as a **modular monolith** with clean boundaries that map 1:1 to future microservices:
+The MVP ships as a **modular monolith** with clean boundaries:
 
 | Module | Responsibility | Future Service |
 |--------|---------------|----------------|
-| `auth` | Registration, login, JWT issuance, refresh rotation | Auth Service |
-| `users` | Profile lookup, search | User Service |
-| `conversations` | Channel/DM lifecycle, membership ACL | Conversation Service |
-| `messages` | Persistence, ordering, sanitization, read receipts | Messaging Service |
-| `presence` | Online/offline, typing indicators | Presence Service |
-| `realtime` | WebSocket gateway, event routing | Realtime Gateway |
+| `auth` | Registration, login, JWT + refresh rotation, **device sessions** | Auth Service |
+| `users` | Profiles, search, avatars | User Service |
+| `contacts` | Contact list | Contacts Service |
+| `conversations` | DMs, channels, groups, invites, membership ACL | Conversation Service |
+| `messages` | Persistence, ordering, sanitization, mentions, attachments, reactions | Messaging Service |
+| `presence` | Online/offline, typing (Redis + in-memory connection registry) | Presence Service |
+| `realtime` | WebSocket gateway, event routing, session push events | Realtime Gateway |
 
-Extraction path: each module already owns its entities and service layer. Split by deploying separate NestJS apps sharing protobuf/REST contracts.
+Extraction path: each module owns its entities and services; split by deploying separate NestJS apps with shared contracts.
 
 ## 3. Message Delivery Event Flow
 
@@ -71,26 +68,56 @@ Client A                    API Gateway              PostgreSQL        Redis    
    │   {conversationId,         │                       │               │                │
    │    content, clientMsgId}   │                       │               │                │
    │                            │── assertMember() ────►│               │                │
-   │                            │◄──────────────────────│               │                │
    │                            │── INSERT message ────►│               │                │
    │                            │◄── id, sequence ──────│               │                │
    │                            │                       │               │                │
-   │                            │── emit to room ───────────────────────────────────────►│
-   │                            │   conversation:{id}   │               │  message:receive│
-   │                            │── emit to user room ────────────────────────────────►│
-   │                            │   user:{memberId}     │               │  (sidebar sync) │
+   │                            │── emit conversation room ──────────────────────────────►│
+   │                            │   conversation:{id}   │               │ message:receive│
+   │                            │── user rooms (activity) ─────────────────────────────►│
    │◄── message:ack ────────────│                       │               │                │
-   │   {clientMessageId, msg}   │                       │               │                │
 ```
 
 ### Ordering Guarantees
 
-- Each message receives a monotonic `sequence` (PostgreSQL `GENERATED ALWAYS AS IDENTITY`)
-- Per-conversation ordering is guaranteed by `sequence`
-- Client-side deduplication via `clientMessageId` (idempotent sends on reconnect)
-- Cross-conversation ordering is not guaranteed (not required for chat UX)
+- Monotonic `sequence` per conversation (PostgreSQL `GENERATED ALWAYS AS IDENTITY`)
+- Client deduplication via `clientMessageId` (idempotent sends on reconnect)
+- Cross-conversation ordering is not guaranteed
 
-## 4. WebSocket Scaling (Multi-Instance)
+## 4. Session & Auth Architecture
+
+Telegram-style **device sessions** tie refresh tokens and access tokens to a logical device.
+
+```
+┌─────────────┐     login/register      ┌──────────────────┐
+│   Client    │ ───────────────────────►│  user_sessions   │
+│  clientInfo │     sessionId (UUID)    │  device_label    │
+│ Chrome, Win │                         │  ip, last_active │
+└─────────────┘                         └────────┬─────────┘
+       │                                         │
+       │ access JWT { sub, email, sid }          │ 1:N
+       ▼                                         ▼
+┌─────────────┐                         ┌──────────────────┐
+│  REST / WS  │◄── validate sid ────────│ refresh_tokens   │
+│  requests   │                         │ session_family_id│
+└─────────────┘                         └──────────────────┘
+```
+
+**Behaviors:**
+
+1. **Login/register** sends `clientInfo` (`deviceLabel`, `platform`, `clientType`, `appName`). Same device reuses an existing session row when possible.
+2. **Refresh** rotates the opaque refresh token but keeps the same `sessionId`.
+3. **Access token** carries `sid`; every authenticated request checks the session is not revoked.
+4. **Terminate session** revokes DB row + all refresh tokens for that family, emits `session:terminated` to `session:{id}` room, and disconnects sockets.
+5. **New login** on another device emits `session:created` to other sessions (excluding the new one).
+
+**Client storage:**
+
+| Runtime | Access token | Refresh token | Session id |
+|---------|--------------|---------------|------------|
+| Electron | Renderer memory | Main process encrypted file | Stored with session |
+| Browser | Memory + short-lived in memory | `localStorage` | `localStorage` + JWT `sid` |
+
+## 5. WebSocket Scaling (Multi-Instance)
 
 ```
                     ┌─────────────┐
@@ -103,207 +130,180 @@ Client A                    API Gateway              PostgreSQL        Redis    
     │ Instance 1 │  │ Instance 2 │  │ Instance 3 │
     │ Socket.IO  │  │ Socket.IO  │  │ Socket.IO  │
     │ + Adapter  │  │ + Adapter  │  │ + Adapter  │
-    └─────┬──────┘  └─────┬──────┘  └─────┬──────┘
-          │               │               │
-       Client A        Client B        Client C
+    └────────────┘  └────────────┘  └────────────┘
 ```
 
-**How it works:**
-1. `@socket.io/redis-adapter` publishes room events to Redis
-2. All instances subscribe and emit to their local connected clients
-3. Room membership (`conversation:{id}`, `user:{id}`) is instance-local but events propagate globally
-4. Presence stored in Redis (not in-memory) so any instance can query it
+- `@socket.io/redis-adapter` propagates room events across instances
+- Rooms: `conversation:{id}`, `user:{userId}`, `session:{sessionId}`
+- `transports: ['websocket']` only — no sticky sessions required
+- Presence: Redis keys + in-memory per-instance connection counts
 
-**Sticky sessions:** Required only for HTTP long-polling fallback. With `transports: ['websocket']` only, sticky sessions are unnecessary.
-
-## 5. Horizontal Scaling Strategy
+## 6. Horizontal Scaling Strategy
 
 | Component | Scale Method | Notes |
 |-----------|-------------|-------|
-| API + WebSocket | Horizontal (stateless + Redis adapter) | Add instances behind LB |
-| PostgreSQL | Vertical + read replicas | Writes are single-primary; reads can fan out |
-| Redis | Redis Cluster / Sentinel | Presence + pub/sub |
-| Connection count | ~10K connections/instance | Tune ulimit, use dedicated realtime nodes |
+| API + WebSocket | Horizontal | Stateless; Redis adapter required |
+| PostgreSQL | Vertical + read replicas | Single primary for writes |
+| Redis | Cluster / Sentinel | Presence + Socket.IO pub/sub |
+| File uploads | Not horizontally safe yet | Local disk; move to S3/MinIO |
 
-**Future optimizations:**
-- Separate realtime nodes from REST nodes (different k8s deployments)
-- Message write-behind queue (Kafka/NATS) for burst traffic
-- CQRS: message feed served from read-optimized projection
-
-## 6. Trade-offs
+## 7. Trade-offs
 
 | Decision | Pros | Cons |
 |----------|------|------|
-| Modular monolith vs microservices | Faster MVP, simpler ops, shared transactions | Must enforce module boundaries via code review |
-| Socket.IO vs raw WebSocket | Rooms, fallback transport, Redis adapter | Heavier protocol than raw WS |
-| PostgreSQL sequences vs Snowflake IDs | Simple, DB-enforced ordering | Write throughput ceiling on single primary |
-| Electron vs Tauri | Mature desktop APIs, faster delivery | Larger binary, higher memory |
-| JWT access tokens | Stateless verification, fast WS auth | Cannot revoke mid-flight (mitigated by short TTL) |
-| Redis presence vs DB | Sub-ms reads, auto-expiry | Eventually consistent across reconnects |
+| Modular monolith | Fast iteration, shared transactions | Requires discipline at module edges |
+| Socket.IO | Rooms, Redis adapter | Heavier than raw WebSocket |
+| Session in JWT (`sid`) | Fast revocation check | DB lookup per request (acceptable for MVP) |
+| Electron + browser client | One React codebase | Two auth storage paths to maintain |
+| SQL migration files | Simple, reviewable | Not auto-applied by ORM yet |
 
-## 7. REST API Payload Examples
+## 8. REST API Payload Examples
 
-### Register
+### Register / Login
 
 ```http
-POST /api/v1/auth/register
+POST /api/v1/auth/login
 Content-Type: application/json
 
 {
   "email": "alice@company.com",
-  "username": "alice",
-  "displayName": "Alice Smith",
-  "password": "securepass123"
+  "password": "securepass123",
+  "clientInfo": {
+    "clientType": "browser",
+    "platform": "Windows",
+    "appName": "Chrome",
+    "deviceLabel": "Chrome, Windows",
+    "userAgent": "Mozilla/5.0 ..."
+  }
 }
 ```
 
 ```json
 {
-  "user": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "email": "alice@company.com",
-    "username": "alice",
-    "displayName": "Alice Smith"
-  },
+  "user": { "id": "...", "email": "...", "username": "alice", "displayName": "Alice Smith" },
   "accessToken": "eyJhbG...",
   "refreshToken": "a1b2c3...",
-  "expiresIn": 900
+  "expiresIn": 900,
+  "sessionId": "550e8400-e29b-41d4-a716-446655440099"
 }
 ```
 
-### Create Channel
+### List active sessions
 
 ```http
-POST /api/v1/conversations/channels
+GET /api/v1/auth/sessions
 Authorization: Bearer eyJhbG...
-Content-Type: application/json
+```
 
-{
-  "name": "engineering",
-  "description": "Engineering team channel",
-  "memberIds": ["550e8400-e29b-41d4-a716-446655440001"]
-}
+```json
+[
+  {
+    "sessionId": "550e8400-...",
+    "appName": "Chrome",
+    "deviceLabel": "Chrome, Windows",
+    "platform": "Windows",
+    "ipAddress": "192.168.1.10",
+    "createdAt": "2026-07-09T12:00:00.000Z",
+    "lastActiveAt": "2026-07-10T10:30:00.000Z"
+  }
+]
 ```
 
 ### List Messages (cursor pagination)
 
 ```http
-GET /api/v1/conversations/{id}/messages?cursor=1042&limit=50
+GET /api/v1/conversations/{id}/messages?cursor=1042
 Authorization: Bearer eyJhbG...
 ```
 
-```json
-{
-  "messages": [
-    {
-      "id": "msg-uuid",
-      "conversationId": "conv-uuid",
-      "senderId": "user-uuid",
-      "content": "Hello team!",
-      "contentType": "text/plain",
-      "sequence": "1043",
-      "createdAt": "2026-07-03T10:30:00.000Z",
-      "sender": {
-        "id": "user-uuid",
-        "displayName": "Alice Smith",
-        "username": "alice"
-      }
-    }
-  ],
-  "nextCursor": "993"
-}
-```
-
-## 8. WebSocket Event Payloads
+## 9. WebSocket Event Payloads
 
 ### `message:send` (Client → Server)
 
 ```json
 {
   "conversationId": "550e8400-e29b-41d4-a716-446655440010",
-  "content": "Hey, are you available for a quick sync?",
-  "clientMessageId": "client-generated-uuid-for-dedup"
+  "content": "Hey @bob, can you review this?",
+  "clientMessageId": "client-uuid",
+  "replyToMessageId": "optional-msg-uuid"
 }
 ```
 
 ### `message:receive` (Server → Client)
 
-```json
-{
-  "id": "msg-uuid",
-  "conversationId": "550e8400-e29b-41d4-a716-446655440010",
-  "senderId": "user-uuid",
-  "content": "Hey, are you available for a quick sync?",
-  "contentType": "text/plain",
-  "clientMessageId": "client-generated-uuid-for-dedup",
-  "sequence": "1044",
-  "createdAt": "2026-07-03T10:30:05.000Z",
-  "sender": {
-    "id": "user-uuid",
-    "displayName": "Bob Jones",
-    "username": "bob"
-  }
-}
-```
+Includes `mentions`, `reactions`, `replyTo`, attachment fields when applicable.
 
-### `user:typing` (Bidirectional)
+### `session:created` (Server → Client)
+
+Sent to other devices when a new session is created:
 
 ```json
 {
-  "conversationId": "550e8400-e29b-41d4-a716-446655440010",
-  "userId": "user-uuid",
-  "isTyping": true
+  "sessionId": "...",
+  "deviceLabel": "Chrome, Windows",
+  "appName": "Chrome",
+  "platform": "Windows",
+  "ipAddress": "192.168.1.10"
 }
 ```
 
-### `user:presence` (Server → Client)
+### `session:terminated` (Server → Client)
 
 ```json
-{
-  "userId": "user-uuid",
-  "status": "online",
-  "lastSeen": "2026-07-03T10:29:00.000Z"
-}
+{ "sessionId": "..." }
 ```
 
-## 9. Database Schema Summary
+Client clears local auth and returns to login.
+
+## 10. Database Schema Summary
 
 ```
 users ─────────────┬──── conversation_members ──── conversations
                    │                                    │
                    ├──── messages ──────────────────────┘
-                   │         │
-                   │    message_read_receipts
+                   │    ├── message_mentions
+                   │    ├── message_reactions
+                   │    ├── message_deliveries
+                   │    └── message_read_receipts
                    │
-                   └──── refresh_tokens
+                   ├──── user_contacts
+                   ├──── refresh_tokens (session_family_id)
+                   └──── user_sessions
 
 direct_conversation_pairs ── conversations (DM uniqueness)
+channel_invites ── conversations
 ```
 
+**Schema delivery:**
+
+- `infra/postgres/init.sql` — full schema for new databases
+- `infra/postgres/migrations/*.sql` — incremental changes (apply to existing DBs)
+
 Key indexes:
+
 - `messages(conversation_id, sequence DESC)` — feed pagination
 - `messages(conversation_id, sender_id, client_message_id)` — idempotent sends
-- `conversation_members(conversation_id, user_id)` UNIQUE — membership ACL
+- `user_sessions(user_id)` partial where not revoked
+- `refresh_tokens(user_id, session_family_id)` — session token lookup
 
-## 10. Security Architecture
+## 11. Security Architecture
 
 ### JWT Auth Flow
 
 ```
-1. Login → Server issues accessToken (15m) + refreshToken (7d, opaque)
-2. refreshToken stored as SHA-256 hash in DB
-3. Client sends accessToken in Authorization header (REST) and auth.token (WS)
-4. On 401 → client calls /auth/refresh with refreshToken
-5. Server rotates refresh token (old one revoked)
-6. Logout → refresh token revoked in DB
+1. Login → accessToken (15m, includes sid) + refreshToken (opaque, 7d)
+2. refreshToken stored as SHA-256 hash; session metadata in user_sessions
+3. REST: Authorization: Bearer; WS: auth.token on handshake
+4. On 401 → POST /auth/refresh (rotates refresh token, same sessionId)
+5. Logout / terminate → revoke session + refresh tokens; push session:terminated
+6. validateAccessToken checks user active + session not revoked
 ```
 
 ### Secure WebSocket Handshake
 
-- Token verified in `handleConnection` before any event subscription
-- Unauthenticated connections disconnected immediately
-- `WsJwtGuard` on all message handlers
-- Conversation membership checked before join/send
+- JWT verified in `handleConnection`; `AuthService.validateAccessToken` enforces session
+- Join `user:{id}` and `session:{sid}` rooms
+- `WsJwtGuard` on subscribed handlers; membership checked before join/send
 
 ### Rate Limiting
 
@@ -312,53 +312,45 @@ Key indexes:
 | Global | 100 req/min per IP |
 | `/auth/register` | 5 req/min |
 | `/auth/login` | 10 req/min |
-| WS `message:send` | Future: per-user token bucket in Redis |
+| WS events | Per-user rate limit guard (partial) |
 
 ### Message Sanitization
 
-All message content passes through `sanitize-html` with zero allowed tags (escape mode) to prevent stored XSS.
+Message content passes through `sanitize-html` (escape mode) to prevent stored XSS. Mentions parsed server-side and stored in `message_mentions`.
 
-## 11. File Upload Architecture (Design Only)
-
-```
-Client                    API                     S3/MinIO
-  │                        │                        │
-  │── POST /uploads/sign ─►│                        │
-  │                        │── Generate pre-signed ►│
-  │◄── { uploadUrl, key } ─│                        │
-  │                        │                        │
-  │── PUT file ────────────────────────────────────►│
-  │                        │                        │
-  │── message:send ───────►│                        │
-  │   { contentType:       │                        │
-  │     "image/png",       │                        │
-  │     attachmentKey }    │                        │
-```
-
-- Max file size enforced at pre-sign time
-- Virus scanning via ClamAV sidecar (async)
-- CDN in front of object storage for delivery
-- Not implemented in MVP
-
-## 12. SSE Fallback (Optional)
-
-For environments blocking WebSocket:
+## 12. Client Architecture (Desktop / Browser)
 
 ```
-GET /api/v1/conversations/{id}/events
-Authorization: Bearer ...
-Accept: text/event-stream
-
-event: message
-data: {"id":"...","content":"..."}
-
-event: typing
-data: {"userId":"...","isTyping":true}
+┌─────────────────────────────────────────────────────────┐
+│ AuthProvider → restore session (refresh if needed)      │
+│ PresenceProvider → realtime.connect(), session events   │
+│ ChatPage → conversations, messages, in-app toasts     │
+├─────────────────────────────────────────────────────────┤
+│ api.ts          REST client, token refresh, sessions    │
+│ realtime.ts     Socket.IO event handlers                │
+│ InAppNotifications  mentions, new chat, new device    │
+│ SessionsPanel   device list (Profile)                   │
+└─────────────────────────────────────────────────────────┘
 ```
 
-Implementation: Redis pub/sub listener per connection, same event schema as WebSocket. Not included in MVP but trivially addable as a parallel gateway module.
+**Service URL resolution** (`endpoints.ts`): on LAN hosts, API/WS target the same hostname on port 3000 instead of hardcoded `localhost`.
 
-## 13. Environment Variables
+## 13. File Upload Architecture (Current)
+
+- Multipart upload to API → stored under `uploads/` on disk
+- Served at `/uploads/...` with cross-origin resource policy for avatars/attachments
+- **Production gap**: not safe across multiple API instances without shared/object storage
+
+## 14. Observability
+
+| Component | Implementation |
+|-----------|----------------|
+| HTTP logging | `pino-http` with request IDs |
+| Errors | Sentry (`SENTRY_DSN`); global filter reports + returns JSON errors |
+| Metrics | Prometheus gauges/counters (e.g. WS connections, message sends) |
+| Health | `GET /api/v1/health` |
+
+## 15. Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -368,7 +360,15 @@ Implementation: Redis pub/sub listener per connection, same event schema as WebS
 | `JWT_REFRESH_SECRET` | Refresh token signing key | required |
 | `JWT_ACCESS_EXPIRES_IN` | Access token TTL | `15m` |
 | `JWT_REFRESH_EXPIRES_IN` | Refresh token TTL | `7d` |
-| `CORS_ORIGIN` | Allowed origin | `*` |
-| `RATE_LIMIT_TTL` | Rate limit window (seconds) | `60` |
-| `RATE_LIMIT_MAX` | Max requests per window | `100` |
+| `CORS_ORIGIN` | Allowed origins (comma-separated) | `*` |
+| `LOG_LEVEL` | Pino log level | `info` |
+| `SENTRY_DSN` | Sentry project DSN | optional |
+| `SENTRY_RELEASE` | Release tag for Sentry | optional |
+| `RATE_LIMIT_TTL` / `RATE_LIMIT_MAX` | Global rate limit | `60` / `100` |
 | `PORT` | API listen port | `3000` |
+
+**Desktop (Vite):** `VITE_API_URL`, `VITE_WS_URL` override defaults when not using LAN auto-detection.
+
+## 16. SSE Fallback (Optional, not implemented)
+
+For WebSocket-blocked environments, an SSE endpoint could mirror Redis pub/sub events. Not included in MVP.

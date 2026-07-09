@@ -1,12 +1,12 @@
-# ChatApp — Project Review (2026-07-09)
+# ChatApp — Project Review (2026-07-10)
 
 This document summarizes the current codebase, highlights strengths and weaknesses, and proposes a prioritized improvement roadmap.
 
 ## Overview
 
-- **Product**: internal Slack-like chat (desktop client + API)
-- **Backend**: NestJS (REST + Socket.IO realtime), PostgreSQL persistence, Redis for presence + Socket.IO adapter
-- **Client**: Electron + React (Vite), REST + Socket.IO client
+- **Product**: internal Slack-like chat (desktop + browser client + API)
+- **Backend**: NestJS (REST + Socket.IO realtime), PostgreSQL, Redis (presence + Socket.IO adapter)
+- **Client**: Electron + React (Vite); same React app runs in the browser for development
 - **Infra**: Docker Compose (Postgres/Redis/API), production-like compose with Nginx reverse proxy
 
 ## Repository structure (high level)
@@ -14,151 +14,151 @@ This document summarizes the current codebase, highlights strengths and weakness
 ```
 ChatApp/
 ├── backend/                 # NestJS API + realtime gateway
-├── desktop/                 # Electron + React desktop client
-├── infra/                   # Postgres init + nginx config
+├── desktop/                 # Electron + React client
+├── infra/                   # Postgres init + migrations + nginx
 ├── docs/                    # Architecture + this review
 ├── docker-compose.yml       # Local dev stack
 ├── docker-compose.prod.yml  # Prod-like stack (nginx + persistent uploads)
-└── .github/workflows/       # CI/CD (build, lint, docker publish)
+└── .github/workflows/       # CI/CD (lint, build, docker publish)
 ```
+
 ## What’s implemented today
 
 ### Backend (NestJS)
 
-- **Modules**: `auth`, `users`, `conversations`, `messages`, `presence`, `realtime`, `contacts`
-- **Auth**:
-  - JWT access tokens + rotating refresh tokens
-  - Refresh tokens are stored **hashed (SHA-256)** in DB
-  - Password hashing via **bcrypt**
+- **Modules**: `auth`, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`
+- **Auth & sessions**:
+  - JWT access tokens (15m) with `sid` session claim
+  - Rotating refresh tokens (SHA-256 hashed, grouped by `session_family_id`)
+  - `user_sessions` table — device label, platform, IP, last active
+  - `GET /auth/sessions`, terminate one / terminate all others
+  - Realtime: `session:created`, `session:terminated` (remote logout)
+  - Login reuses session for same device fingerprint; refresh preserves session
 - **Messaging**:
-  - Stored message ordering via PostgreSQL `sequence` identity
-  - Client-side dedup via `clientMessageId` (idempotent sends)
-  - Edit/delete/read/delivered/reactions are supported (REST + realtime events)
-  - Sanitization via `sanitize-html`
+  - Monotonic per-conversation `sequence`; `clientMessageId` dedup
+  - Edit, delete (me / everyone), replies, forwards, reactions
+  - Attachments (multipart upload to local disk)
+  - `@mentions` parsed server-side; stored in `message_mentions`
+  - Read/delivered receipts via realtime + `message_deliveries`
+  - `sanitize-html` on text content
+- **Conversations**:
+  - DMs (pair uniqueness), channels, groups
+  - Invites, avatars, pins, hide/leave, member roles
 - **Realtime**:
-  - Socket.IO namespace `/realtime`
-  - Redis adapter is used when Redis is available (fallback to in-memory adapter for local dev)
-- **Health**:
-  - `GET /api/v1/health` returns status + timestamp
+  - Socket.IO `/realtime`, websocket-only transport
+  - Redis adapter when Redis is available
+  - Room-based fanout (`conversation:`, `user:`, `session:`)
+- **Observability**:
+  - `pino-http` structured logging + request IDs
+  - Sentry integration + global exception filter (returns JSON to client)
+  - Prometheus metrics (WS connections, message counters)
+  - `GET /api/v1/health`
 - **DB**:
-  - Schema initialization via `infra/postgres/init.sql` (Compose)
+  - `infra/postgres/init.sql` for new databases
+  - Incremental SQL migrations in `infra/postgres/migrations/` (001–017+)
+  - **Gap**: migrations are manual SQL files, not applied automatically by the app
 
+### Desktop / Browser client
 
-
-### Desktop (Electron + React)
-
-- Uses REST for CRUD and Socket.IO for realtime
-- Token storage:
-  - Refresh tokens live in Electron main process (`safeStorage` + encrypted file under `userData`)
-  - Renderer keeps a short-lived access token in memory
-  - Token refresh runs over a trusted IPC boundary (`auth:refresh`)
-- Presence/typing/receipts/reactions are wired via realtime events
+- **Electron**: secure refresh-token store (`safeStorage`), tray, notifications, `chatapp://` invite links
+- **Browser (Vite dev)**: `localStorage` auth persistence; LAN host auto-routes API to same IP:3000
+- REST + Socket.IO; optimistic sends with `clientMessageId`
+- **UI features**:
+  - Chat list with pins, unread badges, last-message preview
+  - Mentions autocomplete + highlighted mention text
+  - In-app toast notifications (mentions, new DM, added to group/channel, new device login)
+  - Profile, contacts, conversation info, forward modal, attachment viewers
+  - **Devices panel**: list sessions, terminate, terminate all others
+  - User-friendly auth error messages on login/register
+- **Lint**: ESLint configured for backend and desktop; runs in CI
 
 ## Pros (what’s good)
 
-- **Clear modular boundaries** in the backend (good for scaling team and future service extraction).
-- **Good realtime scaling foundation** (Socket.IO + Redis adapter pattern).
-- **Security baseline is solid for an MVP**:
-  - bcrypt password hashing
-  - refresh tokens stored hashed + rotated
-  - DTO validation via Nest pipes
-  - message sanitization to reduce stored XSS risk
-- **DB schema design is thoughtful**:
-  - monotonic per-conversation ordering (`sequence`)
-  - dedup index for `clientMessageId`
-  - membership uniqueness constraints
-- **Ops/dev ergonomics improving**:
-  - docker compose stack exists
-  - CI/CD workflows exist and build/publish images
-  - root scripts exist to run from repo root
+- **Clear modular boundaries** — good foundation for team scaling and service extraction
+- **Realtime scaling pattern** — Socket.IO + Redis adapter, websocket-only
+- **Security baseline beyond typical MVP**:
+  - bcrypt passwords, hashed refresh tokens, session revocation
+  - WS auth on connect; session checked on each API use
+  - DTO validation, throttling on auth, message sanitization
+- **Thoughtful schema** — message ordering, dedup indexes, membership constraints, session tables
+- **Dev ergonomics** — root `npm run dev`, compose stack, CI/CD, dual client targets (Electron + browser)
+- **Session management** — practical Telegram-style device list with push logout
 
 ## Cons / risks (what can bite you in production)
 
-
-
 ### Security & configuration
 
-#### Recently addressed
+- **Secrets**: production must use strong JWT secrets; no centralized env schema validation yet
+- **CORS**: configurable allowlist; dev allows private LAN origins — tighten for production
+- **JWT access tokens** cannot be revoked mid-TTL except via session invalidation (mitigated by short TTL + `sid` check)
+- **Dependency audit**: routine `npm audit` / Dependabot recommended
 
-- **Realtime CORS** is now environment-driven via `CORS_ORIGIN` (Socket.IO adapter) instead of hardcoded `*`.
-- **Socket.IO transports** are now websocket-only on backend + desktop (no HTTP long-polling).
-- **Secrets & config hardening**:
-  - Ensure strong secrets in deployment; add `.env` validation so prod fails fast on misconfig.
-- **Observability**:
-  - Structured logging, request IDs, error logging (Sentry), basic metrics (prometheus) for websocket connections and message rate.
-- **Rate limiting for websocket actions**:
-  - Token bucket (Redis) for events like `message:send`, `typing`, etc.
-- **Improve realtime fanout**:
-  - Prefer room broadcasts; avoid per-member loops when possible; batch side-effects.
-- **Linting was missing initially**
-- **Harden deployment configuration**:
-  - Strict env validation; explicit CORS allowlist for REST + websocket; rotate secrets; disable debug logs in prod.
-- **N+1 patterns in gateway broadcasting**:
-  - `RealtimeGateway.broadcastNewMessage` fetches member IDs and loops per member emitting.
-  - For large channels this can become expensive; consider room-based emits plus minimal per-user side effects.
+### Correctness & performance
 
-#### Backend observability env vars
+- **No automated tests** — auth, ACL, messaging, and session flows are untested in CI
+- **Uploads on local disk** — breaks horizontal scaling; architecture assumes S3/MinIO later
+- **Some gateway paths** still use per-member emits where room broadcast would suffice — watch fanout cost in large channels
+- **Session DB check per request** — fine for MVP; consider Redis session cache at scale
 
-These variables live in `backend/.env` (or injected by your deployment system).
+### Operations
 
-- **LOG_LEVEL**: Controls backend log verbosity.
-  - Suggested: `debug` for local/dev, `info` for production.
-- **SENTRY_DSN**: Sentry project DSN. If empty, Sentry is disabled.
-  - Set to the DSN value from Sentry project settings.
-- **SENTRY_RELEASE**: Release identifier to group errors by version.
-  - Suggested format: `chatapp-backend@<version>+<git_sha>`
-- **SENTRY_TRACES_SAMPLE_RATE**: Performance tracing sample rate (0..1).
-  - Suggested: `0` (errors only) for dev, `0.01`–`0.05` for production.
+- **Migrations**: SQL files exist but require manual application on existing DBs; easy to drift from `init.sql`
+- **Sentry filter** must delegate to Nest’s base handler (fixed) so API errors return JSON instead of hanging clients
 
+## Recently addressed (2026-07)
 
-### Backend correctness & performance
-
-- **No automated tests detected** (no Jest config/specs visible in the current repo snapshot).
-- **Uploads are served from local disk** (`/app/uploads`):
-  - Works for a single instance but is tricky with horizontal scaling.
-  - The architecture doc mentions S3/MinIO “future”; it’s a good next step for production.
-
-### DevEx / quality
-
-- **Dependency vulnerabilities**: `npm audit` reports high/moderate issues (common in JS ecosystems).
-  - You’ll want a routine to track/patch (Dependabot + scheduled audit job).
+- Device session management (`user_sessions`, JWT `sid`, terminate + remote logout)
+- In-app notifications (mentions, new chats, group adds, new device login)
+- Browser auth persistence (`localStorage`) and LAN API URL resolution
+- Session reuse on same device (no duplicate sessions on restart)
+- Login error handling (friendly messages, no stuck loading on 401)
+- ESLint for backend and desktop
+- CORS / websocket transport hardening
+- Sentry + pino + basic Prometheus metrics
 
 ## What should be improved (prioritized roadmap)
 
-### P0 (must do before real production)
+### P0 (before real production)
 
-- **Add automated tests**:
-  - At minimum: auth flows, membership ACL, message send/edit/delete, refresh rotation.
-- **Define a DB migration strategy**:
-  - Move from “init.sql only” to a migration tool (TypeORM migrations, Flyway, Prisma Migrate, etc.).
-
-
-
-
+- **Automated tests**: auth + refresh rotation, membership ACL, message send/edit/delete, session revoke
+- **Migration runner**: apply `infra/postgres/migrations` automatically (Flyway, TypeORM migrations, or startup script)
+- **Env validation**: fail fast on missing/weak secrets in production
 
 ### P1 (high value next)
 
-- **Move uploads to object storage** (S3/MinIO) for horizontal scaling.
-- **Add API docs**:
-  - OpenAPI/Swagger for REST + a formal event schema doc for realtime.
-
-
+- **Object storage** for uploads/avatars (S3/MinIO + pre-signed URLs)
+- **OpenAPI** for REST + formal realtime event catalog
+- **Desktop release pipeline** (signed builds for Windows/Linux)
 
 ### P2 (polish and scale)
 
-- **Release automation for desktop**:
-  - GitHub Actions matrix build (win/linux/mac) with signed artifacts (where applicable).
-- **Realtime performance work**:
-  - Prefer room-based emits; measure message fanout cost; consider payload slimming and event batching.
-
-
+- Redis token-bucket rate limits for hot WS events
+- Room-only fanout audit in gateway (remove remaining per-member loops)
+- Session presence cache to reduce DB reads
+- SSE fallback for WebSocket-restricted networks
 
 ## Suggested “definition of done” for production readiness
 
-- CI runs lint + build + tests (backend + desktop)
-- CD publishes backend image and (optionally) desktop releases
-- Websocket gateway configured for prod (CORS allowlist; transports are already websocket-only)
-- Secrets validation + secure token storage
-- Basic observability (logs + error reporting)
-- Database migrations and object storage strategy in place
+- [ ] CI runs lint + build + **tests** (backend + desktop)
+- [x] CI runs lint + build today
+- [x] CD publishes backend Docker image
+- [x] WebSocket: CORS allowlist, websocket-only transport
+- [x] Secure token storage (Electron) + session revocation
+- [x] Basic observability (structured logs, Sentry, health check)
+- [ ] Database migrations applied automatically in deploy
+- [ ] Object storage for uploads
+- [ ] Explicit production CORS origins (no `*`)
 
+## Backend observability env vars
+
+| Variable | Purpose |
+|----------|---------|
+| `LOG_LEVEL` | Pino verbosity (`debug` dev, `info` prod) |
+| `SENTRY_DSN` | Sentry project DSN (empty = disabled) |
+| `SENTRY_RELEASE` | e.g. `chatapp-backend@1.0.0+abc123` |
+| `SENTRY_TRACES_SAMPLE_RATE` | `0` dev; `0.01`–`0.05` prod |
+
+## Related docs
+
+- [README.md](../README.md) — quick start and API summary
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — system design, sessions, events, schema
