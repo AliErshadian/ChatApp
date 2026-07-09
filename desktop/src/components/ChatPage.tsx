@@ -15,8 +15,10 @@ import { ConversationListItem } from './ConversationListItem';
 import { NewGroupModal } from './NewGroupModal';
 import { AppNav } from './AppNav';
 import { ForwardDestinationModal } from './ForwardDestinationModal';
+import { MentionAutocomplete } from './MentionAutocomplete';
 import { bumpConversationFromMessage, reorderConversations } from '../utils/conversationList';
-import { canSendInConversation, getDirectPeer, partitionChannels } from '../utils/conversation';
+import { canSendInConversation, getDirectPeer, isMultiMemberConversation, partitionChannels } from '../utils/conversation';
+import { detectActiveMentionQuery, insertMention } from '../utils/mentions';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import {
@@ -28,6 +30,7 @@ import { formatLastSeen } from '../utils/time';
 import { createClientMessageId } from '../utils/uuid';
 import { takePendingInviteToken } from '../utils/channelInvite';
 import { ATTACHMENT_ACCEPT, getMessagePreviewText } from '../utils/messageMedia';
+import { isMessagesNearBottom } from '../utils/messageScroll';
 
 export function ChatPage() {
   const { user, logout } = useAuth();
@@ -41,6 +44,10 @@ export function ChatPage() {
   const [editBusy, setEditBusy] = useState(false);
   const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
+  const [mentionQuery, setMentionQuery] = useState<{ start: number; query: string } | null>(null);
+  const [mentionGlowIds, setMentionGlowIds] = useState<Set<string>>(new Set());
+  const [composerCaret, setComposerCaret] = useState(0);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [sidebarList, setSidebarList] = useState<'chats' | 'channels'>('chats');
   const [showProfile, setShowProfile] = useState(false);
@@ -196,6 +203,21 @@ export function ChatPage() {
     }
   }, [applyMessageUpdate]);
 
+  const dismissMentionGlow = useCallback((messageId: string) => {
+    setMentionGlowIds((prev) => {
+      if (!prev.has(messageId)) return prev;
+      const next = new Set(prev);
+      next.delete(messageId);
+      return next;
+    });
+  }, []);
+
+  const requestScrollToBottomIfNear = useCallback(() => {
+    if (isMessagesNearBottom(messagesScrollRef.current)) {
+      shouldScrollToBottomRef.current = true;
+    }
+  }, []);
+
   const cancelEditMessage = useCallback(() => {
     setEditingMessageId(null);
     setInput('');
@@ -261,7 +283,6 @@ export function ChatPage() {
       const active = activeIdRef.current;
       const forActive = forwarded.filter((msg) => msg.conversationId === active);
       if (forActive.length > 0 && isPanelOpenRef.current) {
-        shouldScrollToBottomRef.current = true;
         setMessages((prev) => {
           const existing = new Set(prev.map((m) => m.id));
           const toAdd = forActive.filter((m) => !existing.has(m.id));
@@ -502,6 +523,8 @@ export function ChatPage() {
     });
     setActiveId(id);
     setIsPanelOpen(true);
+    setMentionQuery(null);
+    setMentionGlowIds(new Set());
   }, []);
 
   const handleInviteToken = useCallback(
@@ -782,12 +805,17 @@ export function ChatPage() {
       if (msg.senderId === userIdRef.current && msg.clientMessageId) {
         confirmOutgoing(msg, msg.clientMessageId);
       } else if (isActive) {
-        shouldScrollToBottomRef.current = true;
+        requestScrollToBottomIfNear();
         setFirstUnreadMessageId(null);
         setMessages((prev) => {
           if (prev.some((m) => m.id === msg.id)) return prev;
           return [...prev, msg];
         });
+
+        const mentionedMe = msg.mentions?.some((mention) => mention.userId === userIdRef.current);
+        if (mentionedMe && msg.senderId !== userIdRef.current) {
+          setMentionGlowIds((prev) => new Set(prev).add(msg.id));
+        }
       }
 
       acknowledgeIncoming(msg, isActive);
@@ -813,10 +841,21 @@ export function ChatPage() {
         );
       });
       if (msg.senderId !== userIdRef.current && document.hidden) {
-        window.electronAPI?.notify(
-          msg.sender?.displayName ?? 'New message',
-          getMessagePreviewText(msg).slice(0, 100),
-        );
+        const mentionedMe = msg.mentions?.some((mention) => mention.userId === userIdRef.current);
+        const isActive =
+          msg.conversationId === activeIdRef.current && isPanelOpenRef.current;
+
+        if (mentionedMe && !isActive) {
+          window.electronAPI?.notify(
+            `${msg.sender?.displayName ?? 'Someone'} mentioned you`,
+            getMessagePreviewText(msg).slice(0, 100),
+          );
+        } else if (!mentionedMe) {
+          window.electronAPI?.notify(
+            msg.sender?.displayName ?? 'New message',
+            getMessagePreviewText(msg).slice(0, 100),
+          );
+        }
       }
     });
 
@@ -902,6 +941,7 @@ export function ChatPage() {
     applyReactionUpdate,
     applyStatusUpdate,
     confirmOutgoing,
+    requestScrollToBottomIfNear,
   ]);
 
   useEffect(() => {
@@ -962,7 +1002,6 @@ export function ChatPage() {
       sender: { id: user!.id, displayName: user!.displayName, username: user!.username },
     };
     setMessages((prev) => [...prev, optimistic]);
-    shouldScrollToBottomRef.current = true;
     setFirstUnreadMessageId(null);
     setConversations((prev) =>
       reorderConversations(
@@ -1037,7 +1076,6 @@ export function ChatPage() {
     };
 
     setMessages((prev) => [...prev, optimistic]);
-    shouldScrollToBottomRef.current = true;
     setFirstUnreadMessageId(null);
     setConversations((prev) =>
       reorderConversations(
@@ -1074,9 +1112,15 @@ export function ChatPage() {
     void handleSend();
   };
 
-  const handleInputChange = (value: string) => {
+  const handleInputChange = (value: string, caret = composerCaret) => {
     if (!canSendInActiveChat) return;
     setInput(value);
+    setComposerCaret(caret);
+    if (activeConversation && user && isMultiMemberConversation(activeConversation)) {
+      setMentionQuery(detectActiveMentionQuery(value, caret));
+    } else {
+      setMentionQuery(null);
+    }
     if (sendError) setSendError('');
     if (editingMessageId || !activeId) return;
     realtime.setTyping(activeId, true);
@@ -1085,6 +1129,27 @@ export function ChatPage() {
       realtime.setTyping(activeId, false);
     }, 2000);
   };
+
+  const handleMentionSelect = useCallback(
+    (member: { username?: string; displayName?: string }) => {
+      if (!member.username || !mentionQuery) return;
+
+      const { value, caret } = insertMention(input, composerCaret, mentionQuery.start, {
+        username: member.username,
+        displayName: member.displayName,
+      });
+      setInput(value);
+      setComposerCaret(caret);
+      setMentionQuery(null);
+      window.requestAnimationFrame(() => {
+        const el = composerInputRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(caret, caret);
+      });
+    },
+    [composerCaret, input, mentionQuery],
+  );
 
   const handleGroupCreated = useCallback(
     (group: Conversation) => {
@@ -1489,7 +1554,7 @@ export function ChatPage() {
             </header>
 
             <div className="chat-body">
-              <div className="messages">
+              <div className="messages" ref={messagesScrollRef}>
               {messages.map((m) => (
                 <MessageBubble
                   key={m.clientMessageId ?? m.id}
@@ -1497,6 +1562,9 @@ export function ChatPage() {
                   isOwn={m.senderId === user?.id}
                   isFirstUnread={firstUnreadMessageId === m.id}
                   isBeingEdited={editingMessageId === m.id}
+                  showMentionGlow={mentionGlowIds.has(m.id)}
+                  scrollRootRef={messagesScrollRef}
+                  onMentionGlowConsumed={() => dismissMentionGlow(m.id)}
                   allowMessageMenu={Boolean(activeConversation)}
                   canSendActions={canSendInActiveChat}
                   onStartEdit={startEditMessage}
@@ -1576,20 +1644,46 @@ export function ChatPage() {
                       accept={ATTACHMENT_ACCEPT}
                       onChange={(e) => void handleAttachmentSelect(e)}
                     />
-                    <input
-                      ref={composerInputRef}
-                      value={input}
-                      onChange={(e) => handleInputChange(e.target.value)}
-                      placeholder={
-                        editingMessageId
-                          ? 'Edit your message'
-                          : attachmentBusy
-                            ? 'Sending attachment...'
-                            : `Message ${activeConversation.name}`
-                      }
-                      disabled={attachmentBusy}
-                      enterKeyHint={editingMessageId ? 'done' : 'send'}
-                    />
+                    <div className="composer-input-wrap">
+                      <MentionAutocomplete
+                        open={Boolean(mentionQuery && activeConversation && user)}
+                        members={activeConversation?.members ?? []}
+                        currentUserId={user!.id}
+                        query={mentionQuery?.query ?? ''}
+                        onSelect={handleMentionSelect}
+                        onClose={() => setMentionQuery(null)}
+                      />
+                      <input
+                        ref={composerInputRef}
+                        value={input}
+                        onChange={(e) =>
+                          handleInputChange(e.target.value, e.target.selectionStart ?? e.target.value.length)
+                        }
+                        onClick={(e) =>
+                          handleInputChange(
+                            e.currentTarget.value,
+                            e.currentTarget.selectionStart ?? e.currentTarget.value.length,
+                          )
+                        }
+                        onKeyUp={(e) =>
+                          handleInputChange(
+                            e.currentTarget.value,
+                            e.currentTarget.selectionStart ?? e.currentTarget.value.length,
+                          )
+                        }
+                        placeholder={
+                          editingMessageId
+                            ? 'Edit your message'
+                            : attachmentBusy
+                              ? 'Sending attachment...'
+                              : isMultiMemberConversation(activeConversation)
+                                ? `Message ${activeConversation.name} (@ to mention)`
+                                : `Message ${activeConversation.name}`
+                        }
+                        disabled={attachmentBusy}
+                        enterKeyHint={editingMessageId ? 'done' : 'send'}
+                      />
+                    </div>
                     <button type="submit" disabled={!input.trim() || editBusy || attachmentBusy}>
                       {editBusy ? 'Saving...' : editingMessageId ? 'Save' : 'Send'}
                     </button>

@@ -110,7 +110,7 @@ export function MessageAttachmentContent({ message }: Props) {
 
       {caption && (
         <div className="message-attachment-caption">
-          <LinkifiedMessageText text={caption} />
+          <LinkifiedMessageText text={caption} mentions={message.mentions} />
         </div>
       )}
     </div>

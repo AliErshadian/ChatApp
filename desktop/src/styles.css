@@ -1319,6 +1319,70 @@ body {
   font-weight: 600;
 }
 
+.message-mention {
+  color: var(--accent);
+  font-weight: 600;
+  cursor: default;
+}
+
+.composer-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.composer-input-wrap > input {
+  width: 100%;
+}
+
+.mention-autocomplete {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 0.35rem);
+  max-height: 14rem;
+  overflow-y: auto;
+  background: var(--c-bg2);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 5;
+}
+
+.mention-autocomplete-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mention-autocomplete-item:hover,
+.mention-autocomplete-item.active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.mention-autocomplete-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mention-autocomplete-text strong {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.mention-autocomplete-username {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
 .message-content.deleted {
   font-style: italic;
   opacity: 0.75;
@@ -1873,6 +1937,26 @@ body {
 
 .message.being-edited {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+@keyframes mention-glow-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent),
+      0 0 10px 1px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent),
+      0 0 18px 5px color-mix(in srgb, var(--accent) 42%, transparent);
+  }
+}
+
+.message.mention-glow {
+  animation: mention-glow-pulse 1.6s ease-in-out infinite;
+  z-index: 1;
 }
 
 .composer-reply-banner {

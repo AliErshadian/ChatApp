@@ -12,11 +12,13 @@ import { MessageReadReceipt } from './entities/message-read-receipt.entity';
 import { MessageDelivery } from './entities/message-delivery.entity';
 import { MessageUserHidden } from './entities/message-user-hidden.entity';
 import { MessageReaction } from './entities/message-reaction.entity';
+import { MessageMention } from './entities/message-mention.entity';
 import { ConversationMember } from '../conversations/entities/conversation-member.entity';
 import { ConversationsService } from '../conversations/conversations.service';
 import { SanitizationService } from '../../common/services/sanitization.service';
 import { SendMessageDto } from './dto/message.dto';
 import { validateMessageMediaFile, isTextContentType } from './message-media.util';
+import { resolveMentionUserIds } from './mention.util';
 import { MessageRealtimePublisher } from './message-realtime.publisher';
 import { randomUUID } from 'crypto';
 import { join, extname } from 'path';
@@ -28,6 +30,12 @@ export interface ReactionSummary {
   emoji: string;
   count: number;
   reactedByMe: boolean;
+}
+
+export interface MentionSummary {
+  userId: string;
+  username: string;
+  displayName: string;
 }
 
 export interface MessageReplyPreview {
@@ -63,6 +71,7 @@ export interface MessagePayload {
   deletedForEveryone?: boolean;
   status?: MessageStatus;
   reactions?: ReactionSummary[];
+  mentions?: MentionSummary[];
   replyTo?: MessageReplyPreview;
   forwardedFrom?: MessageForwardedFrom;
   sender?: { id: string; displayName: string; username: string };
@@ -88,6 +97,8 @@ export class MessagesService {
     'replyTo',
     'replyTo.sender',
     'originalSender',
+    'mentions',
+    'mentions.user',
   ] as const;
 
   constructor(
@@ -101,6 +112,8 @@ export class MessagesService {
     private readonly hiddenRepo: Repository<MessageUserHidden>,
     @InjectRepository(MessageReaction)
     private readonly reactionRepo: Repository<MessageReaction>,
+    @InjectRepository(MessageMention)
+    private readonly mentionRepo: Repository<MessageMention>,
     @InjectRepository(ConversationMember)
     private readonly memberRepo: Repository<ConversationMember>,
     private readonly conversationsService: ConversationsService,
@@ -146,6 +159,7 @@ export class MessagesService {
     });
 
     const saved = await this.messageRepo.save(message);
+    await this.resolveAndSaveMentions(saved.id, dto.conversationId, content);
     const withSender = await this.messageRepo.findOne({
       where: { id: saved.id },
       relations: [...this.messageRelations],
@@ -222,6 +236,10 @@ export class MessagesService {
     });
 
     const saved = await this.messageRepo.save(message);
+    const mentionSource = [caption].filter(Boolean).join(' ');
+    if (mentionSource) {
+      await this.resolveAndSaveMentions(saved.id, conversationId, mentionSource);
+    }
     const withSender = await this.messageRepo.findOne({
       where: { id: saved.id },
       relations: [...this.messageRelations],
@@ -290,6 +308,16 @@ export class MessagesService {
         }),
       );
 
+      const mentionSource = [
+        isTextContentType(copied.contentType) ? copied.content : '',
+        copied.caption ?? '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      if (mentionSource) {
+        await this.resolveAndSaveMentions(saved.id, targetConversationId, mentionSource);
+      }
+
       const withRelations = await this.messageRepo.findOne({
         where: { id: saved.id },
         relations: [...this.messageRelations],
@@ -334,6 +362,7 @@ export class MessagesService {
       reversed.map((m) => m.id),
       userId,
     );
+    const mentions = await this.computeMentionsForMessages(reversed.map((m) => m.id));
 
     return {
       messages: reversed.map((m) =>
@@ -342,6 +371,7 @@ export class MessagesService {
           userId,
           m.senderId === userId ? statuses.get(m.id) : undefined,
           reactions.get(m.id) ?? [],
+          mentions.get(m.id) ?? [],
         ),
       ),
       nextCursor: messages.length === limit ? messages[0]?.sequence : null,
@@ -445,6 +475,12 @@ export class MessagesService {
     message.content = sanitized;
     message.editedAt = new Date();
     const saved = await this.messageRepo.save(message);
+    await this.resolveAndSaveMentions(saved.id, message.conversationId, sanitized);
+
+    const withRelations = await this.messageRepo.findOne({
+      where: { id: saved.id },
+      relations: [...this.messageRelations],
+    });
 
     const status =
       saved.senderId === userId
@@ -452,7 +488,7 @@ export class MessagesService {
         : undefined;
     const reactions = await this.getReactionsForMessage(saved.id, userId);
 
-    return this.toPayload(saved, userId, status, reactions);
+    return this.toPayload(withRelations!, userId, status, reactions);
   }
 
   async toggleReaction(
@@ -668,6 +704,75 @@ export class MessagesService {
     return 'sent';
   }
 
+  private async resolveAndSaveMentions(
+    messageId: string,
+    conversationId: string,
+    content: string,
+  ): Promise<void> {
+    const members = await this.getMentionMembers(conversationId);
+    const userIds = resolveMentionUserIds(content, members);
+    await this.mentionRepo.delete({ messageId });
+
+    if (userIds.length === 0) return;
+
+    await this.mentionRepo.save(
+      userIds.map((mentionedUserId) => ({
+        messageId,
+        userId: mentionedUserId,
+      })),
+    );
+  }
+
+  private async getMentionMembers(conversationId: string) {
+    const members = await this.memberRepo.find({
+      where: { conversationId },
+      relations: ['user'],
+    });
+
+    return members
+      .filter((member) => member.user)
+      .map((member) => ({
+        userId: member.userId,
+        username: member.user!.username,
+        displayName: member.user!.displayName,
+      }));
+  }
+
+  private async computeMentionsForMessages(
+    messageIds: string[],
+  ): Promise<Map<string, MentionSummary[]>> {
+    const map = new Map<string, MentionSummary[]>();
+    if (messageIds.length === 0) return map;
+
+    const rows = await this.mentionRepo.find({
+      where: { messageId: In(messageIds) },
+      relations: ['user'],
+      order: { createdAt: 'ASC' },
+    });
+
+    for (const row of rows) {
+      const list = map.get(row.messageId) ?? [];
+      list.push({
+        userId: row.userId,
+        username: row.user?.username ?? '',
+        displayName: row.user?.displayName ?? row.user?.username ?? 'Unknown',
+      });
+      map.set(row.messageId, list);
+    }
+
+    return map;
+  }
+
+  private toMentionSummaries(message: Message): MentionSummary[] {
+    return (message.mentions ?? [])
+      .filter((mention) => mention.user)
+      .map((mention) => ({
+        userId: mention.userId,
+        username: mention.user!.username,
+        displayName: mention.user!.displayName,
+      }));
+  }
+
   private async resolveReplyTarget(
     conversationId: string,
     userId: string,
@@ -780,8 +885,11 @@ export class MessagesService {
     viewerId?: string,
     status?: MessageStatus,
     reactions: ReactionSummary[] = [],
+    mentions: MentionSummary[] = [],
   ): MessagePayload {
     const deletedForEveryone = !!message.deletedAt;
+    const resolvedMentions =
+      mentions.length > 0 ? mentions : this.toMentionSummaries(message);
 
     return {
       id: message.id,
@@ -799,6 +907,7 @@ export class MessagesService {
       deletedForEveryone,
       status: message.senderId === viewerId ? status : undefined,
       reactions,
+      mentions: resolvedMentions.length > 0 ? resolvedMentions : undefined,
       replyTo: message.replyTo ? this.toReplyPreview(message.replyTo) : undefined,
       forwardedFrom: this.toForwardedFrom(message),
       sender: message.sender

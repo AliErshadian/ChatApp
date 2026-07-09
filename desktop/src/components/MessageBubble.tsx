@@ -4,6 +4,7 @@ import { Message, MessageStatus } from '../services/api';
 import { QUICK_REACTION_EMOJIS } from '../constants/messageReactions';
 import { clearTextSelection, usePreventTouchSelection } from '../hooks/usePreventTouchSelection';
 import { useGhostClickGuard } from '../hooks/useGhostClickGuard';
+import { useMentionGlowInView } from '../hooks/useMentionGlowInView';
 import { MessageStatusTicks } from './MessageStatusTicks';
 import { LinkifiedMessageText } from './LinkifiedMessageText';
 import { MessageReplyQuote } from './MessageReplyQuote';
@@ -16,6 +17,9 @@ interface Props {
   isOwn: boolean;
   isFirstUnread?: boolean;
   isBeingEdited?: boolean;
+  showMentionGlow?: boolean;
+  scrollRootRef?: React.RefObject<HTMLElement | null>;
+  onMentionGlowConsumed?: () => void;
   allowMessageMenu?: boolean;
   canSendActions?: boolean;
   onStartEdit?: (messageId: string, content: string) => void;
@@ -31,6 +35,9 @@ export function MessageBubble({
   isOwn,
   isFirstUnread,
   isBeingEdited = false,
+  showMentionGlow = false,
+  scrollRootRef,
+  onMentionGlowConsumed,
   allowMessageMenu = true,
   canSendActions = true,
   onStartEdit,
@@ -66,6 +73,12 @@ export function MessageBubble({
   const canForward = !message.deletedForEveryone && Boolean(onForward);
   const showMenu = allowMessageMenu;
   const isFocused = menuOpen && layout !== null;
+  const mentionGlowActive = useMentionGlowInView(
+    bubbleRef,
+    scrollRootRef,
+    showMentionGlow,
+    onMentionGlowConsumed,
+  );
 
   const measureLayout = () => {
     if (!bubbleRef.current) return null;
@@ -257,7 +270,7 @@ export function MessageBubble({
     <div
       ref={bubbleRef}
       id={isFocused ? undefined : `msg-${message.id}`}
-      className={`message ${isOwn ? 'own' : 'incoming'} ${message.deletedForEveryone ? 'deleted' : ''} ${menuOpen ? 'menu-open' : ''} ${isBeingEdited ? 'being-edited' : ''}`}
+      className={`message ${isOwn ? 'own' : 'incoming'} ${message.deletedForEveryone ? 'deleted' : ''} ${menuOpen ? 'menu-open' : ''} ${isBeingEdited ? 'being-edited' : ''} ${mentionGlowActive ? 'mention-glow' : ''}`}
       onContextMenu={isFocused ? undefined : handleContextMenu}
       onTouchStart={isFocused ? undefined : handleTouchStart}
       onTouchEnd={isFocused ? undefined : handleTouchEnd}
@@ -287,7 +300,7 @@ export function MessageBubble({
             <MessageAttachmentContent message={message} />
           ) : (
             <div className="message-content">
-              <LinkifiedMessageText text={message.content} />
+              <LinkifiedMessageText text={message.content} mentions={message.mentions} />
             </div>
           )}
         </>

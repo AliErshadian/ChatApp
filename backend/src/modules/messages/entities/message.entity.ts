@@ -11,6 +11,7 @@ import {
 import { Conversation } from '../../conversations/entities/conversation.entity';
 import { User } from '../../users/entities/user.entity';
 import { MessageReadReceipt } from './message-read-receipt.entity';
+import { MessageMention } from './message-mention.entity';
 
 @Entity('messages')
 export class Message {
@@ -85,4 +86,7 @@ export class Message {
 
   @OneToMany(() => MessageReadReceipt, (r) => r.message)
   readReceipts!: MessageReadReceipt[];
+
+  @OneToMany(() => MessageMention, (mention) => mention.message)
+  mentions!: MessageMention[];
 }

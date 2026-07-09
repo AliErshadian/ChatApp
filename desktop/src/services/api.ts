@@ -85,6 +85,12 @@ export interface MessageReplyPreview {
   sender?: { id: string; displayName: string; username: string };
 }
 
+export interface MessageMention {
+  userId: string;
+  username: string;
+  displayName: string;
+}
+
 export interface MessageForwardedFrom {
   messageId: string;
   senderId: string;
@@ -107,6 +113,7 @@ export interface Message {
   deletedForEveryone?: boolean;
   status?: MessageStatus;
   reactions?: MessageReaction[];
+  mentions?: MessageMention[];
   replyTo?: MessageReplyPreview;
   forwardedFrom?: MessageForwardedFrom;
   sender?: { id: string; displayName: string; username: string };
