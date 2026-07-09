@@ -22,7 +22,11 @@ ChatApp/
 └── .github/workflows/       # CI/CD (build, lint, docker publish)
 ```
 
+
+
 ## What’s implemented today
+
+
 
 ### Backend (NestJS)
 
@@ -44,11 +48,15 @@ ChatApp/
 - **DB**:
   - Schema initialization via `infra/postgres/init.sql` (Compose)
 
+
+
 ### Desktop (Electron + React)
 
 - Uses REST for CRUD and Socket.IO for realtime
 - Local token storage (access/refresh) in `localStorage`
 - Presence/typing/receipts/reactions are wired via realtime events
+
+
 
 ## Pros (what’s good)
 
@@ -68,17 +76,42 @@ ChatApp/
   - CI/CD workflows exist and build/publish images
   - root scripts exist to run from repo root
 
+
+
 ## Cons / risks (what can bite you in production)
+
+
 
 ### Security & configuration
 
+
+
 ### Recently addressed
+
 - **Realtime CORS** is now environment-driven via `CORS_ORIGIN` (Socket.IO adapter) instead of hardcoded `*`.
 - **Socket.IO transports** are now websocket-only on backend + desktop (no HTTP long-polling).
 - **Desktop token storage** moved out of `localStorage`:
   - Refresh tokens live in Electron main process (`safeStorage` + encrypted file under `userData`)
   - Renderer only keeps a short-lived access token in memory
   - Token refresh runs over a trusted IPC boundary (`auth:refresh`)
+- **Secrets & config hardening**:
+  - Ensure strong secrets in deployment, add `.env` validation (e.g., zod/env-schema) so prod crashes fast on misconfig.
+- **Observability**:
+  - Structured logging, request IDs, error logging (Sentry), basic metrics (prometheus) for websocket connections and message rate.
+
+#### Backend observability env vars
+
+These variables live in `backend/.env` (or injected by your deployment system).
+
+- **LOG_LEVEL**: Controls backend log verbosity.
+  - Suggested: `debug` for local/dev, `info` for production.
+- **SENTRY_DSN**: Sentry project DSN. If empty, Sentry is disabled.
+  - Set to the DSN value from Sentry project settings.
+- **SENTRY_RELEASE**: Release identifier to group errors by version.
+  - Suggested format: `chatapp-backend@<version>+<git_sha>`
+- **SENTRY_TRACES_SAMPLE_RATE**: Performance tracing sample rate (0..1).
+  - Suggested: `0` (errors only) for dev, `0.01`–`0.05` for production.
+
 
 ### Backend correctness & performance
 
@@ -90,22 +123,27 @@ ChatApp/
   - Works for a single instance but is tricky with horizontal scaling.
   - The architecture doc mentions S3/MinIO “future”; it’s a good next step for production.
 
+
+
 ### DevEx / quality
 
 - **Linting was missing initially** (now addressed), but formatting and code quality standards could be expanded (prettier, consistent rules, CI gate).
 - **Dependency vulnerabilities**: `npm audit` reports high/moderate issues (common in JS ecosystems).
   - You’ll want a routine to track/patch (Dependabot + scheduled audit job).
 
+
+
 ## What should be improved (prioritized roadmap)
+
+
 
 ### P0 (must do before real production)
 
 - **Add automated tests**:
   - At minimum: auth flows, membership ACL, message send/edit/delete, refresh rotation.
-- **Secrets & config hardening**:
-  - Ensure strong secrets in deployment, add `.env` validation (e.g., zod/env-schema) so prod crashes fast on misconfig.
-- **Observability**:
-  - Structured logging, request IDs, error logging (Sentry), basic metrics (prometheus) for websocket connections and message rate.
+
+
+
 
 ### P1 (high value next)
 
@@ -117,6 +155,8 @@ ChatApp/
 - **Desktop token handling**:
   - Keep tokens out of renderer storage; use Electron secure storage / main-process vault + IPC.
 
+
+
 ### P2 (polish and scale)
 
 - **Release automation for desktop**:
@@ -125,6 +165,8 @@ ChatApp/
   - Move from “init.sql only” to a migration tool (TypeORM migrations, Flyway, Prisma Migrate, etc.).
 - **API docs**:
   - OpenAPI/Swagger for REST + a formal event schema doc for realtime.
+
+
 
 ## Suggested “definition of done” for production readiness
 

@@ -18,6 +18,11 @@ import { MessageRealtimePublisher } from '../messages/message-realtime.publisher
 import { PresenceService, PresenceStatus } from '../presence/presence.service';
 import { PresenceConnectionRegistry } from '../presence/presence-connection.registry';
 import { WsJwtGuard } from './guards/ws-jwt.guard';
+import {
+  wsConnectionsGauge,
+  wsMessageBroadcastCounter,
+  wsMessageSendCounter,
+} from '../../observability/metrics';
 
 interface AuthenticatedSocket extends Socket {
   data: { userId: string; email: string };
@@ -90,6 +95,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
       await this.sendPresenceSnapshot(client, payload.sub);
 
+      wsConnectionsGauge.inc(1);
       this.logger.log(`Client connected: ${client.id} (user: ${payload.sub})`);
     } catch {
       client.disconnect(true);
@@ -100,6 +106,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const userId = client.data?.userId;
     if (!userId) return;
 
+    wsConnectionsGauge.dec(1);
     const remainingConnections = this.presenceConnections.unregister(userId);
     if (remainingConnections === 0) {
       await this.presenceService.setOffline(userId);
@@ -141,6 +148,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       replyToMessageId?: string;
     },
   ) {
+    wsMessageSendCounter.inc(1);
     const message = await this.messagesService.send(client.data.userId, {
       conversationId: data.conversationId,
       content: data.content,
@@ -184,12 +192,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     senderId: string,
   ) {
     this.server.to(`conversation:${message.conversationId}`).emit('message:receive', message);
+    wsMessageBroadcastCounter.inc(1);
 
     const memberIds = await this.conversationsService.getMemberUserIds(message.conversationId);
     for (const memberId of memberIds) {
       await this.conversationsService.unhideConversation(message.conversationId, memberId);
       if (memberId !== senderId) {
         this.server.to(`user:${memberId}`).emit('message:receive', message);
+        wsMessageBroadcastCounter.inc(1);
       }
     }
   }

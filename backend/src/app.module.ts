@@ -12,10 +12,17 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
 import { HealthController } from './health.controller';
+import { validateEnv } from './config/env';
+import { MetricsController } from './observability/metrics.controller';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      cache: true,
+      expandVariables: true,
+      validate: validateEnv,
+    }),
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => [
@@ -44,7 +51,7 @@ import { HealthController } from './health.controller';
     RealtimeModule,
     ContactsModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, MetricsController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

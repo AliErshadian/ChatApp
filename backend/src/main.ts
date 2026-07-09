@@ -6,10 +6,19 @@ import { join } from 'path';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { setupRedisAdapter } from './infrastructure/websocket/redis-io.adapter';
+import { RequestIdMiddleware } from './observability/request-id.middleware';
+import { createHttpLogger } from './observability/logging';
+import { initSentry } from './observability/sentry';
+import { SentryExceptionFilter } from './observability/sentry-exception.filter';
 
 async function bootstrap() {
+  initSentry();
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const config = app.get(ConfigService);
+
+  app.use(new RequestIdMiddleware().use);
+  app.use(createHttpLogger());
+  app.useGlobalFilters(new SentryExceptionFilter());
 
   await setupRedisAdapter(app);
 
@@ -34,6 +43,8 @@ async function bootstrap() {
 
   const port = config.get<number>('PORT', 3000);
   await app.listen(port, '0.0.0.0');
+  // Keep a plain startup line; request-level logs are structured.
+  // eslint-disable-next-line no-console
   console.log(`Chat API listening on http://0.0.0.0:${port}`);
 }
 
