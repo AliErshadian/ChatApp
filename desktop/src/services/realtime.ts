@@ -44,6 +44,13 @@ type ConversationMessagesDeletedHandler = (data: {
 type ConversationUpdatedHandler = (data: ConversationUpdatedEvent) => void;
 type ConversationCreatedHandler = (conversation: Conversation) => void;
 type SessionTerminatedHandler = (data: { sessionId: string }) => void;
+type SessionCreatedHandler = (data: {
+  sessionId: string;
+  deviceLabel: string;
+  appName: string;
+  platform: string | null;
+  ipAddress: string | null;
+}) => void;
 
 interface PendingSend {
   resolve: (message: Message) => void;
@@ -84,6 +91,7 @@ class RealtimeClient {
   private conversationUpdatedHandlers = new Set<ConversationUpdatedHandler>();
   private conversationCreatedHandlers = new Set<ConversationCreatedHandler>();
   private sessionTerminatedHandlers = new Set<SessionTerminatedHandler>();
+  private sessionCreatedHandlers = new Set<SessionCreatedHandler>();
   private connectHandlers = new Set<ConnectHandler>();
   private presenceChangeHandlers = new Set<PresenceChangeHandler>();
   private pendingSends = new Map<string, PendingSend>();
@@ -173,6 +181,20 @@ class RealtimeClient {
       if (!data?.sessionId) return;
       this.sessionTerminatedHandlers.forEach((h) => h(data));
     });
+
+    this.socket.on(
+      'session:created',
+      (data: {
+        sessionId: string;
+        deviceLabel: string;
+        appName: string;
+        platform: string | null;
+        ipAddress: string | null;
+      }) => {
+        if (!data?.sessionId) return;
+        this.sessionCreatedHandlers.forEach((h) => h(data));
+      },
+    );
 
     this.socket.on('user:typing', (data) => {
       this.typingHandlers.forEach((h) => h(data));
@@ -582,6 +604,11 @@ class RealtimeClient {
   onSessionTerminated(handler: SessionTerminatedHandler) {
     this.sessionTerminatedHandlers.add(handler);
     return () => this.sessionTerminatedHandlers.delete(handler);
+  }
+
+  onSessionCreated(handler: SessionCreatedHandler) {
+    this.sessionCreatedHandlers.add(handler);
+    return () => this.sessionCreatedHandlers.delete(handler);
   }
 }
 

@@ -73,6 +73,27 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.sessionPublisher.setTerminatedEmitter((sessionId) =>
       this.broadcastSessionTerminated(sessionId),
     );
+    this.sessionPublisher.setCreatedEmitter((userId, payload, exceptSessionId) =>
+      this.broadcastSessionCreated(userId, payload, exceptSessionId),
+    );
+  }
+
+  private broadcastSessionCreated(
+    userId: string,
+    payload: {
+      sessionId: string;
+      deviceLabel: string;
+      appName: string;
+      platform: string | null;
+      ipAddress: string | null;
+    },
+    exceptSessionId: string,
+  ): Promise<void> {
+    this.server
+      .to(`user:${userId}`)
+      .except(`session:${exceptSessionId}`)
+      .emit('session:created', payload);
+    return Promise.resolve();
   }
 
   private async broadcastSessionTerminated(sessionId: string) {

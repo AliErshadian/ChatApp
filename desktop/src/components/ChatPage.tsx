@@ -35,6 +35,7 @@ import { isMessagesNearBottom } from '../utils/messageScroll';
 import { getConversationMentionLabel, buildMentionNotificationText, buildNewChatNotificationText, buildAddedToConversationText } from '../utils/conversationLabel';
 import { isMessageInView } from '../utils/isMessageInView';
 import type { InAppNotification } from '../utils/inAppNotification';
+import { buildNewSessionNotificationText } from '../utils/sessionDisplay';
 
 export function ChatPage() {
   const { user, logout } = useAuth();
@@ -328,6 +329,25 @@ export function ChatPage() {
         conversationId: conversation.id,
         conversationList: conversation.type === 'channel' ? 'channels' : 'chats',
         text: buildAddedToConversationText(conversation),
+      });
+    },
+    [addInAppNotification],
+  );
+
+  const maybeShowNewSessionInAppNotification = useCallback(
+    (data: {
+      sessionId: string;
+      deviceLabel: string;
+      ipAddress: string | null;
+    }) => {
+      if (document.hidden) return;
+      if (data.sessionId === api.getSessionId()) return;
+
+      addInAppNotification({
+        id: `session:${data.sessionId}`,
+        kind: 'new_session',
+        sessionId: data.sessionId,
+        text: buildNewSessionNotificationText(data.deviceLabel, data.ipAddress),
       });
     },
     [addInAppNotification],
@@ -678,9 +698,19 @@ export function ChatPage() {
     (item: InAppNotification) => {
       dismissInAppNotification(item.id);
 
+      if (item.kind === 'new_session') {
+        setShowProfile(true);
+        setShowContacts(false);
+        setShowNewChatPicker(false);
+        setShowConversationInfo(false);
+        setPendingChannelInvite(null);
+        setIsPanelOpen(true);
+        return;
+      }
+
       const isActive =
         item.conversationId === activeIdRef.current && isPanelOpenRef.current;
-      if (item.kind === 'mention' && item.messageId) {
+      if (item.kind === 'mention' && item.messageId && item.conversationId) {
         if (isActive) {
           setMentionGlowIds((prev) => new Set(prev).add(item.messageId!));
           scrollToMessage(item.messageId);
@@ -693,7 +723,7 @@ export function ChatPage() {
         return;
       }
 
-      if (isActive) return;
+      if (isActive || !item.conversationId) return;
       openConversation(item.conversationId, item.conversationList);
     },
     [dismissInAppNotification, openConversation, scrollToMessage],
@@ -1151,6 +1181,10 @@ export function ChatPage() {
     maybeShowNewChatInAppNotification,
     maybeShowConversationInAppNotification,
   ]);
+
+  useEffect(() => {
+    return realtime.onSessionCreated(maybeShowNewSessionInAppNotification);
+  }, [maybeShowNewSessionInAppNotification]);
 
   useEffect(() => {
     return () => {

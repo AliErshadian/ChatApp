@@ -11,3 +11,11 @@ export function sessionStatusLabel(session: ActiveSession, isCurrent: boolean): 
   if (isCurrent) return 'Online';
   return `Last active ${formatRelativeTime(session.lastActiveAt)}`;
 }
+
+export function buildNewSessionNotificationText(
+  deviceLabel: string,
+  ipAddress?: string | null,
+): string {
+  const ip = ipAddress ? ` · ${ipAddress}` : '';
+  return `New login from ${deviceLabel}${ip}`;
+}

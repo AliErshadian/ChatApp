@@ -161,10 +161,14 @@ class ApiClient {
   private migrateLegacyLocalStorageTokens() {
     const accessToken = localStorage.getItem('accessToken');
     const refreshToken = localStorage.getItem('refreshToken');
+    const sessionId =
+      localStorage.getItem('sessionId') ??
+      localStorage.getItem('sessionFamilyId') ??
+      getSessionIdFromToken(accessToken);
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
     if (!accessToken || !refreshToken) return null;
-    return { accessToken, refreshToken };
+    return { accessToken, refreshToken, sessionId: sessionId ?? undefined };
   }
 
   /** Persist auth in the browser across restarts (Vite dev / web without Electron). */
@@ -358,14 +362,21 @@ class ApiClient {
     }
 
     const refreshed = await this.refresh();
-    if (!refreshed || !this.accessToken) {
-      await this.clearTokens();
-      const error = new Error('Session expired') as Error & { status?: number };
-      error.status = 401;
-      throw error;
+    if (refreshed && this.accessToken) {
+      return this.me();
     }
 
-    return this.me();
+    const hasStoredRefresh =
+      (await this.getRefreshToken()) ?? this.browserGetRefreshToken();
+    if (!hasStoredRefresh) {
+      await this.clearTokens();
+    }
+
+    const error = new Error(
+      hasStoredRefresh ? 'Cannot restore session right now' : 'Session expired',
+    ) as Error & { status?: number };
+    error.status = hasStoredRefresh ? undefined : 401;
+    throw error;
   }
 
   async logout() {
@@ -498,7 +509,9 @@ class ApiClient {
         }),
       });
       if (!res.ok) {
-        await this.clearTokens();
+        if (res.status === 401 || res.status === 403) {
+          await this.clearTokens();
+        }
         return false;
       }
       const data = this.normalizeAuthTokens((await res.json()) as AuthTokens);

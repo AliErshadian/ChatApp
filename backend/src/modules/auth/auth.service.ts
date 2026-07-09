@@ -41,6 +41,7 @@ interface IssueTokenOptions {
   deviceLabel?: string;
   userAgent?: string;
   ipAddress?: string;
+  notifyNewSession?: boolean;
 }
 
 @Injectable()
@@ -71,7 +72,7 @@ export class AuthService {
       passwordHash,
     });
 
-    const tokens = await this.issueTokens(user.id, user.email, {
+    const tokens = await this.issueTokensForAuth(user.id, user.email, {
       ...this.clientInfoToOptions(dto.clientInfo),
       ipAddress,
     });
@@ -87,7 +88,7 @@ export class AuthService {
     const valid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
 
-    const tokens = await this.issueTokens(user.id, user.email, {
+    const tokens = await this.issueTokensForAuth(user.id, user.email, {
       ...this.clientInfoToOptions(dto.clientInfo),
       ipAddress,
     });
@@ -118,6 +119,7 @@ export class AuthService {
       deviceLabel: clientInfo?.deviceLabel ?? stored.deviceLabel,
       userAgent: clientInfo?.userAgent ?? stored.userAgent,
       ipAddress: ipAddress ?? stored.ipAddress,
+      notifyNewSession: false,
     });
   }
 
@@ -151,7 +153,19 @@ export class AuthService {
       }
     }
 
-    return active;
+    return this.dedupeSessionsByDevice(active);
+  }
+
+  private dedupeSessionsByDevice(sessions: SessionSummary[]): SessionSummary[] {
+    const byDevice = new Map<string, SessionSummary>();
+    for (const session of sessions) {
+      const key = session.deviceLabel.toLowerCase();
+      const current = byDevice.get(key);
+      if (!current || session.lastActiveAt > current.lastActiveAt) {
+        byDevice.set(key, session);
+      }
+    }
+    return [...byDevice.values()].sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt));
   }
 
   async revokeSession(userId: string, sessionId: string) {
@@ -230,9 +244,11 @@ export class AuthService {
       options.deviceLabel?.trim() || this.fallbackDeviceLabel(options.appName, options.platform);
     const appName = options.appName ?? this.inferAppName(options.clientType, deviceLabel);
 
-    let session = await this.sessionRepo.findOne({
+    const session = await this.sessionRepo.findOne({
       where: { id: sessionId, userId, revokedAt: IsNull() },
     });
+
+    const isNewSession = !session;
 
     if (session) {
       session.deviceLabel = deviceLabel;
@@ -244,7 +260,7 @@ export class AuthService {
       session.lastActiveAt = now;
       await this.sessionRepo.save(session);
     } else {
-      session = await this.sessionRepo.save(
+      await this.sessionRepo.save(
         this.sessionRepo.create({
           id: sessionId,
           userId,
@@ -283,12 +299,91 @@ export class AuthService {
       lastUsedAt: now,
     });
 
+    if (isNewSession && options.notifyNewSession) {
+      await this.sessionRealtime.publishCreated(
+        userId,
+        {
+          sessionId,
+          deviceLabel,
+          appName,
+          platform: options.platform ?? null,
+          ipAddress: options.ipAddress ?? null,
+        },
+        sessionId,
+      );
+    }
+
     return {
       accessToken,
       refreshToken,
       expiresIn: this.parseExpirySeconds(accessExpiresIn),
       sessionId,
     };
+  }
+
+  private async issueTokensForAuth(
+    userId: string,
+    email: string,
+    options: IssueTokenOptions = {},
+  ): Promise<TokenPair> {
+    const { sessionId, isNewDevice } = await this.resolveSessionForDevice(userId, options);
+
+    if (!isNewDevice) {
+      await this.revokeRefreshTokensForSession(userId, sessionId);
+    }
+
+    return this.issueTokens(userId, email, {
+      ...options,
+      sessionId,
+      notifyNewSession: isNewDevice,
+    });
+  }
+
+  private async resolveSessionForDevice(
+    userId: string,
+    options: IssueTokenOptions,
+  ): Promise<{ sessionId: string; isNewDevice: boolean }> {
+    const deviceLabel =
+      options.deviceLabel?.trim() || this.fallbackDeviceLabel(options.appName, options.platform);
+
+    const where: {
+      userId: string;
+      revokedAt: ReturnType<typeof IsNull>;
+      deviceLabel: string;
+      clientType?: string;
+    } = {
+      userId,
+      revokedAt: IsNull(),
+      deviceLabel,
+    };
+
+    if (options.clientType) {
+      where.clientType = options.clientType;
+    }
+
+    const matches = await this.sessionRepo.find({
+      where,
+      order: { lastActiveAt: 'DESC' },
+    });
+
+    if (matches.length === 0) {
+      return { sessionId: randomUUID(), isNewDevice: true };
+    }
+
+    const [primary, ...duplicates] = matches;
+    for (const duplicate of duplicates) {
+      await this.revokeSessionById(userId, duplicate.id);
+    }
+
+    return { sessionId: primary.id, isNewDevice: false };
+  }
+
+  private async revokeRefreshTokensForSession(userId: string, sessionId: string) {
+    const now = new Date();
+    await this.refreshTokenRepo.update(
+      { userId, sessionFamilyId: sessionId, revokedAt: IsNull() },
+      { revokedAt: now, lastUsedAt: now },
+    );
   }
 
   private clientInfoToOptions(clientInfo?: SessionClientInfoDto): IssueTokenOptions {
