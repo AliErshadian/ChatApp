@@ -42,6 +42,7 @@ CREATE TABLE conversation_members (
     role member_role NOT NULL DEFAULT 'member',
     joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_read_at TIMESTAMPTZ,
+    pinned_at TIMESTAMPTZ,
     UNIQUE (conversation_id, user_id)
 );
 

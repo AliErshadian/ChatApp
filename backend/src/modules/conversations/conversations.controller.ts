@@ -95,6 +95,16 @@ export class ConversationsController {
     return this.conversationsService.leaveChannel(id, user.id, dto.newOwnerId);
   }
 
+  @Post(':id/pin')
+  pin(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: User) {
+    return this.conversationsService.setPinned(id, user.id, true);
+  }
+
+  @Delete(':id/pin')
+  unpin(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: User) {
+    return this.conversationsService.setPinned(id, user.id, false);
+  }
+
   @Post(':id/avatar')
   @UseInterceptors(
     FileInterceptor('avatar', {

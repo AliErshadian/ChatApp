@@ -1107,11 +1107,14 @@ export function ChatPage() {
   };
 
   const chatConversations = useMemo(
-    () => conversations.filter((c) => c.type === 'direct' || c.type === 'group'),
+    () =>
+      reorderConversations(
+        conversations.filter((c) => c.type === 'direct' || c.type === 'group'),
+      ),
     [conversations],
   );
   const channelConversations = useMemo(
-    () => conversations.filter((c) => c.type === 'channel'),
+    () => reorderConversations(conversations.filter((c) => c.type === 'channel')),
     [conversations],
   );
   const { owned: ownedChannels, joined: joinedChannels } = useMemo(
@@ -1187,6 +1190,27 @@ export function ChatPage() {
     [applyConversationHidden],
   );
 
+  const handleTogglePin = useCallback(async (conversationId: string, currentlyPinned: boolean) => {
+    const updated = currentlyPinned
+      ? await api.unpinConversation(conversationId)
+      : await api.pinConversation(conversationId);
+
+    setConversations((prev) =>
+      reorderConversations(
+        prev.map((c) =>
+          c.id === conversationId
+            ? {
+                ...c,
+                ...updated,
+                isPinned: !!updated.isPinned,
+                pinnedAt: updated.isPinned ? updated.pinnedAt : undefined,
+              }
+            : c,
+        ),
+      ),
+    );
+  }, []);
+
   const renderSidebarItem = (c: Conversation) => {
     const unread = c.unreadCount ?? 0;
     const showUnread = unread > 0 && !(isPanelOpen && c.id === activeId);
@@ -1202,6 +1226,7 @@ export function ChatPage() {
         unreadCount={unread}
         deleteBusy={deleteChatBusy}
         onClick={() => openConversation(c.id)}
+        onTogglePin={() => handleTogglePin(c.id, !!c.isPinned)}
         onDeleteChat={(scope) => handleDeleteChat(c.id, scope)}
         onLeaveChannel={
           c.type === 'channel' || c.type === 'group'

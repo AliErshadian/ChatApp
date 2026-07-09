@@ -66,6 +66,8 @@ export class ConversationsService {
         return {
           ...this.toConversationSummary(m.conversation, userId),
           unreadCount,
+          isPinned: !!m.pinnedAt,
+          pinnedAt: m.pinnedAt,
         };
       }),
     );
@@ -80,7 +82,7 @@ export class ConversationsService {
         ...s,
         lastMessage: lastMessages.get(s.id),
       }))
-      .sort((a, b) => this.compareByRecentActivity(a, b));
+      .sort((a, b) => this.compareConversations(a, b));
   }
 
   async getById(conversationId: string, userId: string) {
@@ -101,6 +103,8 @@ export class ConversationsService {
       ...this.toConversationSummary(conversation, userId),
       unreadCount,
       lastMessage: lastMessages.get(conversationId),
+      isPinned: !!member?.pinnedAt,
+      pinnedAt: member?.pinnedAt,
     };
   }
 
@@ -830,6 +834,41 @@ export class ConversationsService {
     }
 
     return map;
+  }
+
+  async setPinned(conversationId: string, userId: string, pinned: boolean) {
+    await this.assertMember(conversationId, userId);
+    await this.memberRepo.update(
+      { conversationId, userId },
+      { pinnedAt: pinned ? new Date() : null },
+    );
+    return this.getById(conversationId, userId);
+  }
+
+  private compareConversations(
+    a: {
+      isPinned?: boolean;
+      pinnedAt?: Date | null;
+      lastMessage?: { createdAt: Date };
+      updatedAt: Date;
+    },
+    b: {
+      isPinned?: boolean;
+      pinnedAt?: Date | null;
+      lastMessage?: { createdAt: Date };
+      updatedAt: Date;
+    },
+  ) {
+    const aPinned = a.isPinned ? 1 : 0;
+    const bPinned = b.isPinned ? 1 : 0;
+    if (aPinned !== bPinned) return bPinned - aPinned;
+
+    if (aPinned && bPinned && a.pinnedAt && b.pinnedAt) {
+      const pinDiff = new Date(b.pinnedAt).getTime() - new Date(a.pinnedAt).getTime();
+      if (pinDiff !== 0) return pinDiff;
+    }
+
+    return this.compareByRecentActivity(a, b);
   }
 
   private compareByRecentActivity(

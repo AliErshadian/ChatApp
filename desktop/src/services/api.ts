@@ -38,6 +38,8 @@ export interface Conversation {
   }>;
   createdAt: string;
   updatedAt: string;
+  isPinned?: boolean;
+  pinnedAt?: string;
   unreadCount?: number;
   lastMessage?: {
     id: string;
@@ -371,6 +373,18 @@ class ApiClient {
         body: JSON.stringify(newOwnerId ? { newOwnerId } : {}),
       },
     );
+  }
+
+  pinConversation(conversationId: string) {
+    return this.request<Conversation>(`/conversations/${conversationId}/pin`, {
+      method: 'POST',
+    });
+  }
+
+  unpinConversation(conversationId: string) {
+    return this.request<Conversation>(`/conversations/${conversationId}/pin`, {
+      method: 'DELETE',
+    });
   }
 
   getMessages(conversationId: string, cursor?: string) {

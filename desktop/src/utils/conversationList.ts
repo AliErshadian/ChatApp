@@ -68,9 +68,20 @@ export function bumpConversationFromMessage(
 }
 
 export function reorderConversations(conversations: Conversation[]): Conversation[] {
-  return [...conversations].sort((a, b) => {
-    const aTime = new Date(a.lastMessage?.createdAt ?? a.updatedAt).getTime();
-    const bTime = new Date(b.lastMessage?.createdAt ?? b.updatedAt).getTime();
-    return bTime - aTime;
-  });
+  return [...conversations].sort(compareConversations);
+}
+
+export function compareConversations(a: Conversation, b: Conversation): number {
+  const aPinned = a.isPinned ? 1 : 0;
+  const bPinned = b.isPinned ? 1 : 0;
+  if (aPinned !== bPinned) return bPinned - aPinned;
+
+  if (aPinned && bPinned && a.pinnedAt && b.pinnedAt) {
+    const pinDiff = new Date(b.pinnedAt).getTime() - new Date(a.pinnedAt).getTime();
+    if (pinDiff !== 0) return pinDiff;
+  }
+
+  const aTime = new Date(a.lastMessage?.createdAt ?? a.updatedAt).getTime();
+  const bTime = new Date(b.lastMessage?.createdAt ?? b.updatedAt).getTime();
+  return bTime - aTime;
 }

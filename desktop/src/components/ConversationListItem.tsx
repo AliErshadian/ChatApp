@@ -21,6 +21,7 @@ interface Props {
   unreadCount: number;
   deleteBusy?: boolean;
   onClick: () => void;
+  onTogglePin?: () => void | Promise<void>;
   onDeleteChat: (scope: 'me' | 'everyone') => void | Promise<void>;
   onLeaveChannel?: (newOwnerId?: string) => void | Promise<void>;
 }
@@ -34,6 +35,7 @@ export function ConversationListItem({
   unreadCount,
   deleteBusy = false,
   onClick,
+  onTogglePin,
   onDeleteChat,
   onLeaveChannel,
 }: Props) {
@@ -70,7 +72,8 @@ export function ConversationListItem({
   const measureMenu = () => {
     if (!itemRef.current) return null;
     const rect = itemRef.current.getBoundingClientRect();
-    const menuHeight = 92;
+    const menuItemCount = isMultiMember ? 2 : 3;
+    const menuHeight = menuItemCount * 38 + 8;
     const spaceBelow = window.innerHeight - rect.bottom;
     const openAbove = spaceBelow < menuHeight && rect.top > menuHeight;
     const top = openAbove ? rect.top - menuHeight - 4 : rect.bottom + 4;
@@ -193,6 +196,29 @@ export function ConversationListItem({
     }
   };
 
+  const pinLabel = conversation.isPinned
+    ? isChannel
+      ? 'Unpin channel'
+      : isGroup
+        ? 'Unpin group'
+        : 'Unpin chat'
+    : isChannel
+      ? 'Pin channel'
+      : isGroup
+        ? 'Pin group'
+        : 'Pin chat';
+
+  const handleTogglePin = async () => {
+    if (!onTogglePin) return;
+    closeMenu();
+    setConfirming(true);
+    try {
+      await onTogglePin();
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   const deleteConfirm = pendingDelete ? getDeleteChatConfirm(pendingDelete) : null;
 
   return (
@@ -232,7 +258,19 @@ export function ConversationListItem({
 
         <div className="conv-body">
           <div className="conv-top-row">
-            <span className="conv-name">{conversation.name}</span>
+            <span className="conv-name">
+              {conversation.isPinned && (
+                <span className="conv-pin-icon" aria-label="Pinned" title="Pinned">
+                  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M9.5 1.5 8.8 3H6.2L5.5 1.5 4 2l.9 2.1L3 6v1.5l2.5.7V14h5V8.2L13 7.5V6l-2.9-.9L11 3l-1.5-.5z"
+                    />
+                  </svg>
+                </span>
+              )}
+              {conversation.name}
+            </span>
             {time && <span className="conv-time">{time}</span>}
           </div>
           <div className="conv-bottom-row">
@@ -260,6 +298,16 @@ export function ConversationListItem({
             />
             {menuStyle && (
               <div className="conversation-menu conversation-menu--fixed" style={menuStyle} role="menu">
+                {onTogglePin && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={deleteBusy || confirming}
+                    onClick={handleTogglePin}
+                  >
+                    {pinLabel}
+                  </button>
+                )}
                 {isMultiMember ? (
                   <button
                     type="button"

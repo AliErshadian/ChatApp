@@ -1,4 +1,5 @@
 import { Conversation } from '../services/api';
+import { compareConversations } from './conversationList';
 
 export function getDirectPeer(conversation: Conversation, currentUserId: string) {
   if (conversation.type !== 'direct') return undefined;
@@ -21,7 +22,10 @@ export function partitionChannels(conversations: Conversation[], userId: string)
     }
   }
 
-  return { owned, joined };
+  return {
+    owned: owned.sort(compareConversations),
+    joined: joined.sort(compareConversations),
+  };
 }
 
 export function isGroupConversation(conversation: Conversation) {

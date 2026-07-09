@@ -647,6 +647,18 @@ body {
   font-size: 0.92rem;
   font-weight: 600;
   color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.conv-pin-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
+  opacity: 0.9;
 }
 
 .conv-time {

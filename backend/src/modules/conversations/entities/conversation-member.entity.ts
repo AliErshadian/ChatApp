@@ -42,4 +42,7 @@ export class ConversationMember {
 
   @Column({ name: 'last_read_at', nullable: true })
   lastReadAt?: Date;
+
+  @Column({ name: 'pinned_at', type: 'timestamptz', nullable: true })
+  pinnedAt?: Date | null;
 }
