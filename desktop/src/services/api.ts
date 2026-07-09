@@ -136,6 +136,37 @@ class ApiClient {
     return { accessToken, refreshToken };
   }
 
+  /** Persist auth in the browser across restarts (Vite dev / web without Electron). */
+  private browserStoreTokens(accessToken: string, refreshToken: string) {
+    localStorage.setItem('accessToken', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
+    sessionStorage.removeItem('accessToken');
+    sessionStorage.removeItem('refreshToken');
+  }
+
+  private browserLoadTokens(): { accessToken: string; refreshToken: string } | null {
+    let accessToken = localStorage.getItem('accessToken');
+    let refreshToken = localStorage.getItem('refreshToken');
+    if (!accessToken || !refreshToken) {
+      accessToken = accessToken ?? sessionStorage.getItem('accessToken');
+      refreshToken = refreshToken ?? sessionStorage.getItem('refreshToken');
+    }
+    if (!accessToken || !refreshToken) return null;
+    this.browserStoreTokens(accessToken, refreshToken);
+    return { accessToken, refreshToken };
+  }
+
+  private browserGetRefreshToken(): string | null {
+    return localStorage.getItem('refreshToken') ?? sessionStorage.getItem('refreshToken');
+  }
+
+  private browserClearTokens() {
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    sessionStorage.removeItem('accessToken');
+    sessionStorage.removeItem('refreshToken');
+  }
+
   async setTokens(tokens: AuthTokens) {
     this.accessToken = tokens.accessToken;
     const auth = this.authApi();
@@ -154,9 +185,8 @@ class ApiClient {
       return;
     }
 
-    // Dev browser (Vite without Electron): keep tokens for page refresh only.
-    sessionStorage.setItem('accessToken', tokens.accessToken);
-    sessionStorage.setItem('refreshToken', tokens.refreshToken);
+    // Dev browser (Vite without Electron): persist across browser restarts.
+    this.browserStoreTokens(tokens.accessToken, tokens.refreshToken);
   }
 
   async loadTokens(): Promise<boolean> {
@@ -174,24 +204,15 @@ class ApiClient {
       return auth.hasSession();
     }
 
-    const legacy = this.migrateLegacyLocalStorageTokens();
-    if (legacy) {
-      this.accessToken = legacy.accessToken;
-      sessionStorage.setItem('accessToken', legacy.accessToken);
-      sessionStorage.setItem('refreshToken', legacy.refreshToken);
-      return true;
-    }
-
-    this.accessToken = sessionStorage.getItem('accessToken');
-    return !!this.accessToken && !!sessionStorage.getItem('refreshToken');
+    const stored = this.browserLoadTokens();
+    if (!stored) return false;
+    this.accessToken = stored.accessToken;
+    return true;
   }
 
   async clearTokens() {
     this.accessToken = null;
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    sessionStorage.removeItem('accessToken');
-    sessionStorage.removeItem('refreshToken');
+    this.browserClearTokens();
     await this.authApi()?.clearSession();
   }
 
@@ -253,7 +274,7 @@ class ApiClient {
       return true;
     }
 
-    const refreshToken = sessionStorage.getItem('refreshToken');
+    const refreshToken = this.browserGetRefreshToken();
     if (!refreshToken) {
       this.accessToken = null;
       return false;
