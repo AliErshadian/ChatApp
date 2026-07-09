@@ -2,7 +2,18 @@ export interface AuthSessionPayload {
   accessToken: string;
   refreshToken: string;
   expiresIn?: number;
+  sessionId?: string;
+  /** @deprecated use sessionId */
+  sessionFamilyId?: string;
   apiBase: string;
+}
+
+export interface SessionClientInfo {
+  clientType: string;
+  platform: string;
+  appName: string;
+  deviceLabel: string;
+  userAgent?: string;
 }
 
 export interface ElectronAPI {
@@ -14,9 +25,16 @@ export interface ElectronAPI {
   auth?: {
     setSession: (session: AuthSessionPayload) => Promise<boolean>;
     getAccessToken: () => Promise<string | null>;
+    getSessionId: () => Promise<string | null>;
+    getSessionFamilyId: () => Promise<string | null>;
+    getRefreshToken: () => Promise<string | null>;
+    syncApiBase: (apiBase: string) => Promise<boolean>;
     hasSession: () => Promise<boolean>;
     clearSession: () => Promise<boolean>;
-    refresh: () => Promise<{ accessToken: string } | null>;
+    refresh: (clientInfo?: SessionClientInfo) => Promise<{
+      accessToken: string;
+      sessionId?: string;
+    } | null>;
   };
 }
 

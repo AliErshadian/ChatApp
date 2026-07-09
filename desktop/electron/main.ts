@@ -4,6 +4,8 @@ import * as fs from 'fs';
 import {
   clearAuthSession,
   getAccessToken,
+  getRefreshToken,
+  getSessionId,
   loadAuthSession,
   saveAuthSession,
   StoredAuthSession,
@@ -14,7 +16,34 @@ const APP_PROTOCOL = 'chatapp';
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let pendingInviteUrl: string | null = null;
-let refreshInFlight: Promise<{ accessToken: string } | null> | null = null;
+
+interface RefreshClientInfo {
+  clientType?: string;
+  platform?: string;
+  appName?: string;
+  deviceLabel?: string;
+  userAgent?: string;
+}
+
+function formatElectronPlatform(platform: string): string {
+  if (platform === 'win32') return 'Windows';
+  if (platform === 'darwin') return 'macOS';
+  if (platform === 'linux') return 'Linux';
+  return platform;
+}
+
+function defaultElectronClientInfo(): RefreshClientInfo {
+  const platform = formatElectronPlatform(process.platform);
+  return {
+    clientType: 'electron',
+    platform,
+    appName: 'ChatApp',
+    deviceLabel: `ChatApp, ${platform}`,
+    userAgent: `ChatApp Desktop (${platform})`,
+  };
+}
+
+let refreshInFlight: Promise<{ accessToken: string; sessionId?: string } | null> | null = null;
 
 function isTrustedSender(event: Electron.IpcMainInvokeEvent): boolean {
   const win = BrowserWindow.fromWebContents(event.sender);
@@ -63,6 +92,8 @@ ipcMain.handle(
       accessToken: string;
       refreshToken: string;
       expiresIn?: number;
+      sessionId?: string;
+      sessionFamilyId?: string;
       apiBase: string;
     },
   ) => {
@@ -81,6 +112,7 @@ ipcMain.handle(
       accessToken: session.accessToken,
       refreshToken: session.refreshToken,
       expiresIn: session.expiresIn,
+      sessionId: session.sessionId ?? session.sessionFamilyId,
       apiBase: session.apiBase,
     });
     return true;
@@ -103,7 +135,36 @@ ipcMain.handle('auth:clear-session', (event) => {
   return true;
 });
 
-ipcMain.handle('auth:refresh', async (event) => {
+ipcMain.handle('auth:sync-api-base', (event, { apiBase }: { apiBase: string }) => {
+  if (!isTrustedSender(event)) return false;
+  if (!apiBase || typeof apiBase !== 'string') return false;
+
+  const session = loadAuthSession();
+  if (!session) return false;
+
+  saveAuthSession({
+    ...session,
+    apiBase,
+  });
+  return true;
+});
+
+ipcMain.handle('auth:get-session-id', (event) => {
+  if (!isTrustedSender(event)) return null;
+  return getSessionId();
+});
+
+ipcMain.handle('auth:get-session-family-id', (event) => {
+  if (!isTrustedSender(event)) return null;
+  return getSessionId();
+});
+
+ipcMain.handle('auth:get-refresh-token', (event) => {
+  if (!isTrustedSender(event)) return null;
+  return getRefreshToken();
+});
+
+ipcMain.handle('auth:refresh', async (event, clientInfo?: RefreshClientInfo) => {
   if (!isTrustedSender(event)) return null;
 
   if (!refreshInFlight) {
@@ -111,11 +172,16 @@ ipcMain.handle('auth:refresh', async (event) => {
       const session = loadAuthSession();
       if (!session) return null;
 
+      const info = clientInfo ?? defaultElectronClientInfo();
+
       try {
         const res = await fetch(`${session.apiBase}/auth/refresh`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken: session.refreshToken }),
+          body: JSON.stringify({
+            refreshToken: session.refreshToken,
+            clientInfo: info,
+          }),
         });
         if (!res.ok) {
           // Only clear if the stored token was rejected (not on transient server errors).
@@ -129,20 +195,25 @@ ipcMain.handle('auth:refresh', async (event) => {
           accessToken: string;
           refreshToken: string;
           expiresIn?: number;
+          sessionId?: string;
+          sessionFamilyId?: string;
         };
 
         if (!data?.accessToken || !data?.refreshToken) {
           return null;
         }
 
+        const sessionId = data.sessionId ?? data.sessionFamilyId ?? session.sessionId ?? session.sessionFamilyId;
+
         const next: StoredAuthSession = {
           accessToken: data.accessToken,
           refreshToken: data.refreshToken,
           expiresIn: data.expiresIn,
+          sessionId,
           apiBase: session.apiBase,
         };
         saveAuthSession(next);
-        return { accessToken: next.accessToken };
+        return { accessToken: next.accessToken, sessionId: next.sessionId };
       } catch {
         // Network / parse errors: keep session so the user is not logged out on reload.
         return null;

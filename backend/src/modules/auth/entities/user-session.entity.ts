@@ -4,27 +4,27 @@ import {
   Entity,
   JoinColumn,
   ManyToOne,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 
-@Entity('refresh_tokens')
-export class RefreshToken {
-  @PrimaryGeneratedColumn('uuid')
+@Entity('user_sessions')
+export class UserSession {
+  @PrimaryColumn('uuid')
   id!: string;
 
   @Column({ name: 'user_id' })
   userId!: string;
 
-  @ManyToOne(() => User, (u) => u.refreshTokens, { onDelete: 'CASCADE' })
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user!: User;
 
-  @Column({ name: 'token_hash' })
-  tokenHash!: string;
+  @Column({ name: 'device_label' })
+  deviceLabel!: string;
 
-  @Column({ name: 'session_family_id', type: 'uuid' })
-  sessionFamilyId!: string;
+  @Column({ name: 'app_name', nullable: true })
+  appName?: string;
 
   @Column({ name: 'client_type', nullable: true })
   clientType?: string;
@@ -32,24 +32,18 @@ export class RefreshToken {
   @Column({ nullable: true })
   platform?: string;
 
-  @Column({ name: 'device_label', nullable: true })
-  deviceLabel?: string;
-
   @Column({ name: 'user_agent', type: 'text', nullable: true })
   userAgent?: string;
-
-  @Column({ name: 'last_used_at', type: 'timestamptz', nullable: true })
-  lastUsedAt?: Date;
 
   @Column({ name: 'ip_address', nullable: true })
   ipAddress?: string;
 
-  @Column({ name: 'expires_at', type: 'timestamptz' })
-  expiresAt!: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt!: Date;
+
+  @Column({ name: 'last_active_at', type: 'timestamptz' })
+  lastActiveAt!: Date;
 
   @Column({ name: 'revoked_at', type: 'timestamptz', nullable: true })
   revokedAt?: Date;
-
-  @CreateDateColumn({ name: 'created_at' })
-  createdAt!: Date;
 }

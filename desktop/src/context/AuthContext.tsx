@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { api, User } from '../services/api';
-import { realtime } from '../services/realtime';
 
 interface AuthContextValue {
   user: User | null;
@@ -8,10 +7,31 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, username: string, displayName: string, password: string) => Promise<void>;
   logout: () => void;
+  endSession: () => void;
   updateUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+const BOOTSTRAP_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error('Session restore timed out'));
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -22,24 +42,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
-        const hasTokens = await api.loadTokens();
-        if (!hasTokens) {
-          if (!cancelled) setLoading(false);
-          return;
-        }
-        if (cancelled) return;
+        await withTimeout(
+          (async () => {
+            const hasTokens = await api.loadTokens();
+            if (!hasTokens) return;
 
-        // Ensure we have a usable access token after reload (access TTL is short).
-        await api.refresh();
-        if (cancelled) return;
+            const me = await api.restoreSession();
+            if (cancelled) return;
 
-        const me = await api.me();
-        if (cancelled) return;
-        setUser(me);
-        realtime.connect();
+            setUser(me);
+          })(),
+          BOOTSTRAP_TIMEOUT_MS,
+        );
       } catch (err) {
-        // Never wipe session from a Strict Mode remount / aborted bootstrap,
-        // and don't logout on transient network failures.
         if (!cancelled) {
           const status = (err as { status?: number } | null)?.status;
           if (status === 401) {
@@ -47,33 +62,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       }
     })();
 
     return () => {
       cancelled = true;
-      realtime.disconnect();
     };
   }, []);
 
   const login = async (email: string, password: string) => {
     const res = await api.login(email, password);
-    await api.setTokens(res);
+    await api.setTokens({
+      accessToken: res.accessToken,
+      refreshToken: res.refreshToken,
+      expiresIn: res.expiresIn,
+      sessionId: res.sessionId ?? res.sessionFamilyId,
+    });
     setUser(res.user);
-    realtime.connect();
   };
 
   const register = async (email: string, username: string, displayName: string, password: string) => {
     const res = await api.register(email, username, displayName, password);
-    await api.setTokens(res);
+    await api.setTokens({
+      accessToken: res.accessToken,
+      refreshToken: res.refreshToken,
+      expiresIn: res.expiresIn,
+      sessionId: res.sessionId ?? res.sessionFamilyId,
+    });
     setUser(res.user);
-    realtime.connect();
   };
 
   const logout = () => {
     void (async () => {
-      realtime.disconnect();
+      await api.logout();
+      setUser(null);
+    })();
+  };
+
+  const endSession = () => {
+    void (async () => {
       await api.clearTokens();
       setUser(null);
     })();
@@ -84,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, endSession, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

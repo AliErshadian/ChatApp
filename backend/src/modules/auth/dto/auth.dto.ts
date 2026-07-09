@@ -1,4 +1,40 @@
-import { IsEmail, IsString, MinLength, MaxLength, Matches } from 'class-validator';
+import {
+  IsEmail,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+  Matches,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class SessionClientInfoDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  clientType?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  platform?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  appName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  deviceLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  userAgent?: string;
+}
 
 export class RegisterDto {
   @IsEmail()
@@ -19,6 +55,11 @@ export class RegisterDto {
   @MinLength(8)
   @MaxLength(128)
   password!: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SessionClientInfoDto)
+  clientInfo?: SessionClientInfoDto;
 }
 
 export class LoginDto {
@@ -27,9 +68,19 @@ export class LoginDto {
 
   @IsString()
   password!: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SessionClientInfoDto)
+  clientInfo?: SessionClientInfoDto;
 }
 
 export class RefreshTokenDto {
   @IsString()
   refreshToken!: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SessionClientInfoDto)
+  clientInfo?: SessionClientInfoDto;
 }

@@ -6,6 +6,9 @@ export interface StoredAuthSession {
   accessToken: string;
   refreshToken: string;
   expiresIn?: number;
+  sessionId?: string;
+  /** @deprecated use sessionId */
+  sessionFamilyId?: string;
   /** API base used by main-process refresh (e.g. http://localhost:3000/api/v1) */
   apiBase: string;
 }
@@ -27,7 +30,12 @@ function canEncrypt() {
 }
 
 export function saveAuthSession(session: StoredAuthSession): void {
-  const json = JSON.stringify(session);
+  const sessionId = session.sessionId ?? session.sessionFamilyId;
+  const json = JSON.stringify({
+    ...session,
+    sessionId,
+    sessionFamilyId: undefined,
+  });
   if (canEncrypt()) {
     const encrypted = safeStorage.encryptString(json);
     fs.writeFileSync(storePath(), Buffer.concat([ENC_MAGIC, encrypted]));
@@ -42,7 +50,8 @@ function parseSession(json: string): StoredAuthSession | null {
     if (!parsed?.accessToken || !parsed?.refreshToken || !parsed?.apiBase) {
       return null;
     }
-    return parsed;
+    const sessionId = parsed.sessionId ?? parsed.sessionFamilyId;
+    return sessionId ? { ...parsed, sessionId } : parsed;
   } catch {
     return null;
   }
@@ -90,4 +99,13 @@ export function clearAuthSession(): void {
 
 export function getAccessToken(): string | null {
   return loadAuthSession()?.accessToken ?? null;
+}
+
+export function getRefreshToken(): string | null {
+  return loadAuthSession()?.refreshToken ?? null;
+}
+
+export function getSessionId(): string | null {
+  const session = loadAuthSession();
+  return session?.sessionId ?? session?.sessionFamilyId ?? null;
 }

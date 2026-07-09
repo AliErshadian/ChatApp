@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { realtime, type AvatarPresence } from '../services/realtime';
+import { api } from '../services/api';
 import { useAuth } from './AuthContext';
 
 export type { AvatarPresence };
@@ -25,7 +26,7 @@ const PresenceContext = createContext<PresenceContextValue | null>(null);
 const PRESENCE_REFRESH_MS = 30_000;
 
 export function PresenceProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, endSession } = useAuth();
   const trackedIdsRef = useRef<string[]>([]);
   const [presenceVersion, setPresenceVersion] = useState(0);
 
@@ -48,12 +49,25 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
 
   useLayoutEffect(() => {
     realtime.connect();
+  }, [user?.id]);
+
+  useEffect(() => {
+    return () => {
+      realtime.disconnect();
+    };
   }, []);
 
   useEffect(() => {
     const unsubscribePresence = realtime.onPresenceChange(bumpPresence);
     const unsubscribeConnect = realtime.onConnect(() => {
       refreshPresence(trackedIdsRef.current);
+    });
+    const unsubscribeSessionTerminated = realtime.onSessionTerminated((data) => {
+      const currentSessionId = api.getSessionId();
+      if (!currentSessionId || data.sessionId === currentSessionId) {
+        realtime.disconnect();
+        endSession();
+      }
     });
 
     const refreshTracked = () => {
@@ -79,11 +93,12 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
     return () => {
       unsubscribePresence();
       unsubscribeConnect();
+      unsubscribeSessionTerminated();
       window.removeEventListener('focus', refreshTracked);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.clearInterval(interval);
     };
-  }, [bumpPresence, refreshPresence]);
+  }, [bumpPresence, refreshPresence, endSession]);
 
   const getPresence = useCallback(
     (userId: string | undefined): AvatarPresence | undefined => {

@@ -3,6 +3,7 @@ import { api, User } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { Avatar } from './Avatar';
 import { ConfirmModal } from './ConfirmModal';
+import { SessionsPanel } from './SessionsPanel';
 import { getLogoutConfirm } from '../utils/deleteChatConfirm';
 
 interface Props {
@@ -22,7 +23,7 @@ function formatDate(value?: string) {
 export function ProfilePanel({ onClose, isMobile = false }: Props) {
   const { user: authUser, logout, updateUser } = useAuth();
   const [profile, setProfile] = useState<User | null>(authUser);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!authUser);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
@@ -30,13 +31,25 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
   const logoutConfirm = getLogoutConfirm();
 
   useEffect(() => {
+    if (authUser) {
+      setProfile(authUser);
+      setLoading(false);
+      void api
+        .me()
+        .then(setProfile)
+        .catch(() => {
+          // Keep cached profile from auth context on transient failures.
+        });
+      return;
+    }
+
     setLoading(true);
     setError('');
     api.me()
       .then(setProfile)
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load profile'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [authUser]);
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -139,6 +152,11 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
               <dd>{formatDate(profile.createdAt)}</dd>
             </div>
           </dl>
+        </section>
+
+        <section className="profile-section">
+          <h4>Devices</h4>
+          <SessionsPanel />
         </section>
 
         <div className="profile-actions">

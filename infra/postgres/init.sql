@@ -101,6 +101,13 @@ CREATE TABLE refresh_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token_hash VARCHAR(255) NOT NULL UNIQUE,
+    session_family_id UUID NOT NULL DEFAULT gen_random_uuid(),
+    client_type VARCHAR(32),
+    platform VARCHAR(64),
+    device_label VARCHAR(128),
+    user_agent TEXT,
+    last_used_at TIMESTAMPTZ,
+    ip_address VARCHAR(45),
     expires_at TIMESTAMPTZ NOT NULL,
     revoked_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -108,6 +115,23 @@ CREATE TABLE refresh_tokens (
 
 CREATE INDEX idx_refresh_tokens_user ON refresh_tokens (user_id);
 CREATE INDEX idx_refresh_tokens_expires ON refresh_tokens (expires_at) WHERE revoked_at IS NULL;
+CREATE INDEX idx_refresh_tokens_family ON refresh_tokens (user_id, session_family_id) WHERE revoked_at IS NULL;
+
+CREATE TABLE user_sessions (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    device_label VARCHAR(128) NOT NULL,
+    app_name VARCHAR(64),
+    client_type VARCHAR(32),
+    platform VARCHAR(64),
+    user_agent TEXT,
+    ip_address VARCHAR(45),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_active_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    revoked_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_user_sessions_user ON user_sessions (user_id) WHERE revoked_at IS NULL;
 
 -- Direct conversations: enforce at most one DM per user pair via sorted member key
 CREATE TABLE direct_conversation_pairs (

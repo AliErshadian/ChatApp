@@ -30,9 +30,10 @@ async function bootstrap() {
   );
 
   const corsAllowlist = parseCorsOriginList(config.get<string>('CORS_ORIGIN')!);
+  const allowPrivateNetwork = config.get<string>('NODE_ENV') !== 'production';
   app.enableCors({
     origin: (origin, callback) => {
-      callback(null, isOriginAllowed(origin, corsAllowlist));
+      callback(null, isOriginAllowed(origin, corsAllowlist, { allowPrivateNetwork }));
     },
     credentials: true,
   });

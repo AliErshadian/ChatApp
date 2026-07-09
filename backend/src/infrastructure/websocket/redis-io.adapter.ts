@@ -16,6 +16,7 @@ class ConfiguredIoAdapter extends IoAdapter {
 
   createIOServer(port: number, options?: ServerOptions) {
     const allowlist = parseCorsOriginList(this.config.get<string>('CORS_ORIGIN')!);
+    const allowPrivateNetwork = this.config.get<string>('NODE_ENV') !== 'production';
     const merged = {
       ...options,
       // Socket.IO types require `path` to be a string
@@ -26,7 +27,7 @@ class ConfiguredIoAdapter extends IoAdapter {
         // Let gateway-level metadata override if explicitly set,
         // otherwise fall back to environment-driven allowlist.
         origin: (origin: string | undefined, callback: (err: Error | null, allowed?: boolean) => void) => {
-          callback(null, isOriginAllowed(origin, allowlist));
+          callback(null, isOriginAllowed(origin, allowlist, { allowPrivateNetwork }));
         },
         credentials: true,
         ...(options?.cors as object),

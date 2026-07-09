@@ -5,7 +5,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { SessionRealtimePublisher } from './session-realtime.publisher';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { UserSession } from './entities/user-session.entity';
 import { UsersModule } from '../users/users.module';
 
 @Module({
@@ -13,10 +15,10 @@ import { UsersModule } from '../users/users.module';
     UsersModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.register({}),
-    TypeOrmModule.forFeature([RefreshToken]),
+    TypeOrmModule.forFeature([RefreshToken, UserSession]),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
-  exports: [AuthService, JwtModule],
+  providers: [AuthService, JwtStrategy, SessionRealtimePublisher],
+  exports: [AuthService, JwtModule, SessionRealtimePublisher],
 })
 export class AuthModule {}

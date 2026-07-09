@@ -5,6 +5,15 @@ function isLocalHostname(hostname: string) {
   return hostname === 'localhost' || hostname === '127.0.0.1';
 }
 
+function isPrivateNetworkHostname(hostname: string) {
+  if (isLocalHostname(hostname)) return true;
+  if (hostname.endsWith('.local')) return true;
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+  return false;
+}
+
 /**
  * When the UI is opened from another device (e.g. phone on LAN), use that host
  * for API/WebSocket instead of localhost from .env.
@@ -36,11 +45,11 @@ export function resolveServiceUrls() {
   };
 }
 
-let cachedUrls: { apiBase: string; wsBase: string } | null = null;
-
 export function getServiceUrls() {
-  if (!cachedUrls) {
-    cachedUrls = resolveServiceUrls();
-  }
-  return cachedUrls;
+  return resolveServiceUrls();
+}
+
+export function isCurrentHostPrivateNetwork() {
+  if (typeof window === 'undefined') return false;
+  return isPrivateNetworkHostname(window.location.hostname);
 }

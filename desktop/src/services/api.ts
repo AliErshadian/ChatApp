@@ -1,4 +1,6 @@
 import { getServiceUrls } from '../config/endpoints';
+import { getClientSessionInfo } from '../utils/clientSession';
+import { getSessionIdFromToken, isAccessTokenUsable } from '../utils/jwt';
 
 export { getAssetBase, resolveAvatarUrl } from '../utils/avatar';
 
@@ -19,6 +21,19 @@ export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  sessionId?: string;
+  /** @deprecated use sessionId */
+  sessionFamilyId?: string;
+}
+
+export interface ActiveSession {
+  sessionId: string;
+  appName: string;
+  deviceLabel: string;
+  platform: string | null;
+  ipAddress: string | null;
+  createdAt: string;
+  lastActiveAt: string;
 }
 
 export interface Conversation {
@@ -122,6 +137,22 @@ export interface Message {
 class ApiClient {
   /** Short-lived access token kept in renderer memory only (never localStorage). */
   private accessToken: string | null = null;
+  private sessionId: string | null = null;
+  private refreshPromise: Promise<boolean> | null = null;
+
+  private normalizeAuthTokens(data: AuthTokens): AuthTokens {
+    const sessionId = data.sessionId ?? data.sessionFamilyId;
+    return sessionId ? { ...data, sessionId } : data;
+  }
+
+  private resolveSessionId(accessToken?: string | null) {
+    if (this.sessionId) return this.sessionId;
+    const fromToken = getSessionIdFromToken(accessToken ?? this.accessToken);
+    if (fromToken) {
+      this.applySessionId(fromToken);
+    }
+    return this.sessionId;
+  }
 
   private authApi() {
     return window.electronAPI?.auth;
@@ -137,23 +168,55 @@ class ApiClient {
   }
 
   /** Persist auth in the browser across restarts (Vite dev / web without Electron). */
-  private browserStoreTokens(accessToken: string, refreshToken: string) {
+  private browserStoreTokens(
+    accessToken: string,
+    refreshToken: string,
+    sessionId?: string,
+    apiBase?: string,
+  ) {
     localStorage.setItem('accessToken', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
+    localStorage.setItem('authApiBase', apiBase ?? this.apiBase());
+    if (sessionId) {
+      localStorage.setItem('sessionId', sessionId);
+    }
+    localStorage.removeItem('sessionFamilyId');
     sessionStorage.removeItem('accessToken');
     sessionStorage.removeItem('refreshToken');
+    sessionStorage.removeItem('sessionId');
+    sessionStorage.removeItem('sessionFamilyId');
+    sessionStorage.removeItem('authApiBase');
   }
 
-  private browserLoadTokens(): { accessToken: string; refreshToken: string } | null {
+  private browserLoadTokens(): {
+    accessToken: string;
+    refreshToken: string;
+    sessionId: string | null;
+  } | null {
     let accessToken = localStorage.getItem('accessToken');
     let refreshToken = localStorage.getItem('refreshToken');
+    let sessionId =
+      localStorage.getItem('sessionId') ?? localStorage.getItem('sessionFamilyId');
     if (!accessToken || !refreshToken) {
       accessToken = accessToken ?? sessionStorage.getItem('accessToken');
       refreshToken = refreshToken ?? sessionStorage.getItem('refreshToken');
+      sessionId =
+        sessionId ??
+        sessionStorage.getItem('sessionId') ??
+        sessionStorage.getItem('sessionFamilyId');
     }
     if (!accessToken || !refreshToken) return null;
-    this.browserStoreTokens(accessToken, refreshToken);
-    return { accessToken, refreshToken };
+    this.browserStoreTokens(
+      accessToken,
+      refreshToken,
+      sessionId ?? getSessionIdFromToken(accessToken) ?? undefined,
+      this.apiBase(),
+    );
+    return {
+      accessToken,
+      refreshToken,
+      sessionId: sessionId ?? getSessionIdFromToken(accessToken),
+    };
   }
 
   private browserGetRefreshToken(): string | null {
@@ -163,57 +226,167 @@ class ApiClient {
   private browserClearTokens() {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
+    localStorage.removeItem('sessionId');
+    localStorage.removeItem('sessionFamilyId');
+    localStorage.removeItem('authApiBase');
     sessionStorage.removeItem('accessToken');
     sessionStorage.removeItem('refreshToken');
+    sessionStorage.removeItem('sessionId');
+    sessionStorage.removeItem('sessionFamilyId');
+    sessionStorage.removeItem('authApiBase');
+  }
+
+  private applySessionId(sessionId?: string) {
+    if (!sessionId) return;
+    this.sessionId = sessionId;
+    if (!this.authApi()) {
+      localStorage.setItem('sessionId', sessionId);
+      localStorage.removeItem('sessionFamilyId');
+    }
+  }
+
+  private async getRefreshToken(): Promise<string | null> {
+    const auth = this.authApi();
+    if (auth?.getRefreshToken) {
+      return auth.getRefreshToken();
+    }
+    return this.browserGetRefreshToken();
+  }
+
+  private async revokeCurrentSessionOnServer() {
+    const refreshToken = await this.getRefreshToken();
+    if (!refreshToken) return;
+
+    try {
+      await this.fetchWithTimeout(
+        `${this.apiBase()}/auth/logout`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        },
+        5_000,
+      );
+    } catch {
+      // Best-effort server logout; always clear local state.
+    }
   }
 
   async setTokens(tokens: AuthTokens) {
-    this.accessToken = tokens.accessToken;
+    const normalized = this.normalizeAuthTokens(tokens);
+    this.accessToken = normalized.accessToken;
+    this.applySessionId(normalized.sessionId);
+    this.resolveSessionId(normalized.accessToken);
+
     const auth = this.authApi();
     if (auth) {
       const ok = await auth.setSession({
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        expiresIn: tokens.expiresIn,
+        accessToken: normalized.accessToken,
+        refreshToken: normalized.refreshToken,
+        expiresIn: normalized.expiresIn,
+        sessionId: normalized.sessionId,
         apiBase: this.apiBase(),
       });
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
+      localStorage.removeItem('sessionId');
+      localStorage.removeItem('sessionFamilyId');
       if (!ok) {
         throw new Error('Failed to persist auth session in Electron secure store');
       }
+      await this.syncElectronApiBase();
       return;
     }
 
-    // Dev browser (Vite without Electron): persist across browser restarts.
-    this.browserStoreTokens(tokens.accessToken, tokens.refreshToken);
+    this.browserStoreTokens(
+      normalized.accessToken,
+      normalized.refreshToken,
+      normalized.sessionId,
+      this.apiBase(),
+    );
+  }
+
+  private async syncElectronApiBase() {
+    const auth = this.authApi();
+    if (!auth?.syncApiBase) return;
+    await auth.syncApiBase(this.apiBase());
   }
 
   async loadTokens(): Promise<boolean> {
     const auth = this.authApi();
     if (auth) {
+      const [, accessToken, sessionId] = await Promise.all([
+        this.syncElectronApiBase(),
+        auth.getAccessToken(),
+        auth.getSessionId?.() ?? auth.getSessionFamilyId?.() ?? Promise.resolve(null),
+      ]);
+
       const legacy = this.migrateLegacyLocalStorageTokens();
       if (legacy) {
         await auth.setSession({
           ...legacy,
+          sessionId: legacy.sessionId,
           apiBase: this.apiBase(),
         });
       }
-      this.accessToken = await auth.getAccessToken();
-      if (this.accessToken) return true;
+
+      if (accessToken) {
+        this.accessToken = accessToken;
+        if (sessionId) this.sessionId = sessionId;
+        this.resolveSessionId(accessToken);
+        return true;
+      }
       return auth.hasSession();
     }
 
     const stored = this.browserLoadTokens();
     if (!stored) return false;
     this.accessToken = stored.accessToken;
+    this.sessionId = stored.sessionId;
+    this.resolveSessionId(stored.accessToken);
     return true;
+  }
+
+  async restoreSession(): Promise<User> {
+    if (isAccessTokenUsable(this.accessToken)) {
+      try {
+        return await this.me();
+      } catch (err) {
+        const status = (err as { status?: number }).status;
+        if (status !== 401) throw err;
+      }
+    }
+
+    const refreshed = await this.refresh();
+    if (!refreshed || !this.accessToken) {
+      await this.clearTokens();
+      const error = new Error('Session expired') as Error & { status?: number };
+      error.status = 401;
+      throw error;
+    }
+
+    return this.me();
+  }
+
+  async logout() {
+    await this.revokeCurrentSessionOnServer();
+    await this.clearTokens();
   }
 
   async clearTokens() {
     this.accessToken = null;
+    this.sessionId = null;
     this.browserClearTokens();
     await this.authApi()?.clearSession();
+  }
+
+  getSessionId() {
+    return this.resolveSessionId();
+  }
+
+  /** @deprecated use getSessionId */
+  getSessionFamilyId() {
+    return this.getSessionId();
   }
 
   getAccessToken() {
@@ -226,6 +399,20 @@ class ApiClient {
 
   private apiBase() {
     return getServiceUrls().apiBase;
+  }
+
+  private async fetchWithTimeout(
+    url: string,
+    options: RequestInit,
+    timeoutMs = 8_000,
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      window.clearTimeout(timer);
+    }
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -263,14 +450,35 @@ class ApiClient {
   }
 
   async refresh(): Promise<boolean> {
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.refreshPromise = this.performRefresh().finally(() => {
+      this.refreshPromise = null;
+    });
+    return this.refreshPromise;
+  }
+
+  private async performRefresh(): Promise<boolean> {
     const auth = this.authApi();
     if (auth) {
-      const next = await auth.refresh();
+      const next = await auth.refresh(getClientSessionInfo());
       if (!next?.accessToken) {
         this.accessToken = null;
+        const stillHasSession = await auth.hasSession();
+        if (!stillHasSession) {
+          this.sessionId = null;
+        }
         return false;
       }
       this.accessToken = next.accessToken;
+      const sessionId = next.sessionId ?? (await auth.getSessionId?.()) ?? null;
+      if (sessionId) {
+        this.applySessionId(sessionId);
+      } else {
+        this.resolveSessionId(next.accessToken);
+      }
       return true;
     }
 
@@ -281,16 +489,19 @@ class ApiClient {
     }
 
     try {
-      const res = await fetch(`${this.apiBase()}/auth/refresh`, {
+      const res = await this.fetchWithTimeout(`${this.apiBase()}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
+        body: JSON.stringify({
+          refreshToken,
+          clientInfo: getClientSessionInfo(),
+        }),
       });
       if (!res.ok) {
         await this.clearTokens();
         return false;
       }
-      const data = (await res.json()) as AuthTokens;
+      const data = this.normalizeAuthTokens((await res.json()) as AuthTokens);
       await this.setTokens(data);
       return true;
     } catch {
@@ -301,15 +512,46 @@ class ApiClient {
   register(email: string, username: string, displayName: string, password: string) {
     return this.request<{ user: User } & AuthTokens>('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ email, username, displayName, password }),
+      body: JSON.stringify({
+        email,
+        username,
+        displayName,
+        password,
+        clientInfo: getClientSessionInfo(),
+      }),
     });
   }
 
   login(email: string, password: string) {
     return this.request<{ user: User } & AuthTokens>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({
+        email,
+        password,
+        clientInfo: getClientSessionInfo(),
+      }),
     });
+  }
+
+  listSessions() {
+    const request = this.request<ActiveSession[]>('/auth/sessions');
+    const timeout = new Promise<never>((_, reject) => {
+      window.setTimeout(() => reject(new Error('Sessions request timed out')), 8_000);
+    });
+    return Promise.race([request, timeout]);
+  }
+
+  revokeSession(sessionId: string) {
+    return this.request<{ success: boolean }>(`/auth/sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  revokeOtherSessions(exceptSessionId: string) {
+    return this.request<{ success: boolean; revoked: number }>(
+      `/auth/sessions/others?except=${encodeURIComponent(exceptSessionId)}`,
+      { method: 'DELETE' },
+    );
   }
 
   me() {

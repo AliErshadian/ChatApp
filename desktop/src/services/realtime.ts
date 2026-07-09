@@ -43,6 +43,7 @@ type ConversationMessagesDeletedHandler = (data: {
 }) => void;
 type ConversationUpdatedHandler = (data: ConversationUpdatedEvent) => void;
 type ConversationCreatedHandler = (conversation: Conversation) => void;
+type SessionTerminatedHandler = (data: { sessionId: string }) => void;
 
 interface PendingSend {
   resolve: (message: Message) => void;
@@ -82,6 +83,7 @@ class RealtimeClient {
   private conversationMessagesDeletedHandlers = new Set<ConversationMessagesDeletedHandler>();
   private conversationUpdatedHandlers = new Set<ConversationUpdatedHandler>();
   private conversationCreatedHandlers = new Set<ConversationCreatedHandler>();
+  private sessionTerminatedHandlers = new Set<SessionTerminatedHandler>();
   private connectHandlers = new Set<ConnectHandler>();
   private presenceChangeHandlers = new Set<PresenceChangeHandler>();
   private pendingSends = new Map<string, PendingSend>();
@@ -165,6 +167,11 @@ class RealtimeClient {
 
     this.socket.on('conversation:created', (data: Conversation) => {
       this.conversationCreatedHandlers.forEach((h) => h(data));
+    });
+
+    this.socket.on('session:terminated', (data: { sessionId: string }) => {
+      if (!data?.sessionId) return;
+      this.sessionTerminatedHandlers.forEach((h) => h(data));
     });
 
     this.socket.on('user:typing', (data) => {
@@ -570,6 +577,11 @@ class RealtimeClient {
       handler();
     }
     return () => this.connectHandlers.delete(handler);
+  }
+
+  onSessionTerminated(handler: SessionTerminatedHandler) {
+    this.sessionTerminatedHandlers.add(handler);
+    return () => this.sessionTerminatedHandlers.delete(handler);
   }
 }
 

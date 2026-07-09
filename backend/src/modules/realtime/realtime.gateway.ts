@@ -15,6 +15,8 @@ import { MessagesService } from '../messages/messages.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ConversationRealtimePublisher } from '../conversations/conversation-realtime.publisher';
 import { MessageRealtimePublisher } from '../messages/message-realtime.publisher';
+import { SessionRealtimePublisher } from '../auth/session-realtime.publisher';
+import { AuthService } from '../auth/auth.service';
 import { PresenceService, PresenceStatus } from '../presence/presence.service';
 import { PresenceConnectionRegistry } from '../presence/presence-connection.registry';
 import { WsJwtGuard } from './guards/ws-jwt.guard';
@@ -27,7 +29,7 @@ import { WsRateLimit } from '../../observability/ws-rate-limit.decorator';
 import { WsRateLimitGuard } from '../../observability/ws-rate-limit.guard';
 
 interface AuthenticatedSocket extends Socket {
-  data: { userId: string; email: string };
+  data: { userId: string; email: string; sessionId?: string };
 }
 
 @WebSocketGateway({
@@ -51,6 +53,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly presenceConnections: PresenceConnectionRegistry,
     private readonly conversationPublisher: ConversationRealtimePublisher,
     private readonly messagePublisher: MessageRealtimePublisher,
+    private readonly sessionPublisher: SessionRealtimePublisher,
+    private readonly authService: AuthService,
   ) {}
 
   onModuleInit() {
@@ -66,6 +70,15 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.messagePublisher.setNewMessageEmitter((message, senderId) =>
       this.broadcastNewMessage(message, senderId),
     );
+    this.sessionPublisher.setTerminatedEmitter((sessionId) =>
+      this.broadcastSessionTerminated(sessionId),
+    );
+  }
+
+  private async broadcastSessionTerminated(sessionId: string) {
+    const room = `session:${sessionId}`;
+    this.server.to(room).emit('session:terminated', { sessionId });
+    await this.server.in(room).disconnectSockets(true);
   }
 
   async handleConnection(client: AuthenticatedSocket) {
@@ -79,16 +92,25 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         return;
       }
 
-      const payload = await this.jwtService.verifyAsync<{ sub: string; email: string }>(
+      const payload = await this.jwtService.verifyAsync<{ sub: string; email: string; sid?: string }>(
         token,
         { secret: this.config.get<string>('JWT_ACCESS_SECRET') },
       );
 
-      client.data = { userId: payload.sub, email: payload.email };
+      await this.authService.validateAccessToken(payload);
+
+      client.data = {
+        userId: payload.sub,
+        email: payload.email,
+        sessionId: payload.sid,
+      };
 
       const connectionCount = this.presenceConnections.register(payload.sub);
 
       await client.join(`user:${payload.sub}`);
+      if (payload.sid) {
+        await client.join(`session:${payload.sid}`);
+      }
       await this.presenceService.setOnline(payload.sub, client.id);
 
       if (connectionCount === 1) {

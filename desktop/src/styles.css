@@ -3004,6 +3004,128 @@ body {
   color: var(--text-secondary);
 }
 
+.profile-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.profile-sessions-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.profile-sessions-terminate-all {
+  margin-top: 0.85rem;
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
+  background: transparent;
+  color: var(--error);
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.profile-sessions-terminate-all:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+}
+
+.profile-sessions-terminate-all:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.profile-sessions-loading,
+.profile-sessions-empty {
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.profile-session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.profile-session-row-current {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-secondary));
+}
+
+.profile-session-icon {
+  flex-shrink: 0;
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.profile-session-info {
+  min-width: 0;
+}
+
+.profile-session-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.profile-session-current {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+}
+
+.profile-session-meta {
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.profile-session-ip {
+  font-family: ui-monospace, monospace;
+}
+
+.profile-session-logout-btn {
+  flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
+  background: transparent;
+  color: var(--error);
+  border-radius: 6px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.profile-session-logout-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+}
+
+.profile-session-logout-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .profile-actions {
   margin-top: 2rem;
 }
