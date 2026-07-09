@@ -10,6 +10,11 @@ export function isChannelOwner(conversation: Conversation, userId: string) {
   return conversation.members.some((m) => m.userId === userId && m.role === 'owner');
 }
 
+export function canSendInConversation(conversation: Conversation, userId: string) {
+  if (conversation.type !== 'channel') return true;
+  return isChannelOwner(conversation, userId);
+}
+
 export function partitionChannels(conversations: Conversation[], userId: string) {
   const owned: Conversation[] = [];
   const joined: Conversation[] = [];

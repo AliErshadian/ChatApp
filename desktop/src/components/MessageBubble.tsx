@@ -7,6 +7,7 @@ import { useGhostClickGuard } from '../hooks/useGhostClickGuard';
 import { MessageStatusTicks } from './MessageStatusTicks';
 import { LinkifiedMessageText } from './LinkifiedMessageText';
 import { MessageReplyQuote } from './MessageReplyQuote';
+import { MessageForwardedHeader } from './MessageForwardedHeader';
 import { MessageAttachmentContent, isAttachmentMessage } from './MessageAttachmentContent';
 import { isTextMessage } from '../utils/messageMedia';
 
@@ -16,8 +17,10 @@ interface Props {
   isFirstUnread?: boolean;
   isBeingEdited?: boolean;
   allowMessageMenu?: boolean;
+  canSendActions?: boolean;
   onStartEdit?: (messageId: string, content: string) => void;
   onReply?: (message: Message) => void;
+  onForward?: (message: Message) => void;
   onScrollToMessage?: (messageId: string) => void;
   onDelete: (messageId: string, scope: 'me' | 'everyone') => Promise<void>;
   onReaction: (messageId: string, emoji: string) => Promise<void>;
@@ -29,8 +32,10 @@ export function MessageBubble({
   isFirstUnread,
   isBeingEdited = false,
   allowMessageMenu = true,
+  canSendActions = true,
   onStartEdit,
   onReply,
+  onForward,
   onScrollToMessage,
   onDelete,
   onReaction,
@@ -52,11 +57,13 @@ export function MessageBubble({
   const { arm: armGhostClick, isSuppressed: isGhostClickSuppressed } = useGhostClickGuard();
 
   const canEdit =
+    canSendActions &&
     isOwn &&
     isTextMessage(message) &&
     !message.deletedForEveryone &&
     Boolean(onStartEdit);
-  const canReply = !message.deletedForEveryone && Boolean(onReply);
+  const canReply = canSendActions && !message.deletedForEveryone && Boolean(onReply);
+  const canForward = !message.deletedForEveryone && Boolean(onForward);
   const showMenu = allowMessageMenu;
   const isFocused = menuOpen && layout !== null;
 
@@ -266,6 +273,9 @@ export function MessageBubble({
         <div className="message-content deleted">Message deleted</div>
       ) : (
         <>
+          {message.forwardedFrom && (
+            <MessageForwardedHeader forwardedFrom={message.forwardedFrom} isOwn={isOwn} />
+          )}
           {message.replyTo && (
             <MessageReplyQuote
               replyTo={message.replyTo}
@@ -353,6 +363,17 @@ export function MessageBubble({
             }}
           >
             Reply
+          </button>
+        )}
+        {canForward && (
+          <button
+            type="button"
+            onClick={() => {
+              onForward?.(message);
+              setMenuOpen(false);
+            }}
+          >
+            Forward
           </button>
         )}
         {canEdit && (

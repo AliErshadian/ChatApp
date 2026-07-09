@@ -19,8 +19,8 @@ import { SendMessageDto } from './dto/message.dto';
 import { validateMessageMediaFile, isTextContentType } from './message-media.util';
 import { MessageRealtimePublisher } from './message-realtime.publisher';
 import { randomUUID } from 'crypto';
-import { join } from 'path';
-import { existsSync, mkdirSync, renameSync } from 'fs';
+import { join, extname } from 'path';
+import { existsSync, mkdirSync, renameSync, copyFileSync } from 'fs';
 
 export type MessageStatus = 'sent' | 'delivered' | 'read';
 
@@ -41,6 +41,12 @@ export interface MessageReplyPreview {
   sender?: { id: string; displayName: string; username: string };
 }
 
+export interface MessageForwardedFrom {
+  messageId: string;
+  senderId: string;
+  sender?: { id: string; displayName: string; username: string };
+}
+
 export interface MessagePayload {
   id: string;
   conversationId: string;
@@ -58,6 +64,7 @@ export interface MessagePayload {
   status?: MessageStatus;
   reactions?: ReactionSummary[];
   replyTo?: MessageReplyPreview;
+  forwardedFrom?: MessageForwardedFrom;
   sender?: { id: string; displayName: string; username: string };
 }
 
@@ -76,6 +83,13 @@ export interface StatusUpdatePayload {
 
 @Injectable()
 export class MessagesService {
+  private readonly messageRelations = [
+    'sender',
+    'replyTo',
+    'replyTo.sender',
+    'originalSender',
+  ] as const;
+
   constructor(
     @InjectRepository(Message)
     private readonly messageRepo: Repository<Message>,
@@ -107,7 +121,7 @@ export class MessagesService {
           senderId: userId,
           clientMessageId: dto.clientMessageId,
         },
-        relations: ['sender', 'replyTo', 'replyTo.sender'],
+        relations: [...this.messageRelations],
       });
       if (existing) {
         return this.toPayload(existing, userId, 'sent');
@@ -134,7 +148,7 @@ export class MessagesService {
     const saved = await this.messageRepo.save(message);
     const withSender = await this.messageRepo.findOne({
       where: { id: saved.id },
-      relations: ['sender', 'replyTo', 'replyTo.sender'],
+      relations: [...this.messageRelations],
     });
 
     return this.toPayload(withSender!, userId, 'sent');
@@ -159,7 +173,7 @@ export class MessagesService {
           senderId: userId,
           clientMessageId: options.clientMessageId,
         },
-        relations: ['sender', 'replyTo', 'replyTo.sender'],
+        relations: [...this.messageRelations],
       });
       if (existing) {
         return this.toPayload(existing, userId, 'sent');
@@ -210,12 +224,83 @@ export class MessagesService {
     const saved = await this.messageRepo.save(message);
     const withSender = await this.messageRepo.findOne({
       where: { id: saved.id },
-      relations: ['sender', 'replyTo', 'replyTo.sender'],
+      relations: [...this.messageRelations],
     });
 
     const payload = this.toPayload(withSender!, userId, 'sent');
     await this.messagePublisher.publishNewMessage(payload, userId);
     return payload;
+  }
+
+  async forward(
+    userId: string,
+    sourceConversationId: string,
+    messageId: string,
+    targetConversationIds: string[],
+  ): Promise<{ messages: MessagePayload[] }> {
+    if (targetConversationIds.length === 0) {
+      throw new BadRequestException('Select at least one destination');
+    }
+
+    const source = await this.messageRepo.findOne({
+      where: { id: messageId, conversationId: sourceConversationId },
+      relations: ['sender', 'originalSender'],
+    });
+    if (!source) throw new NotFoundException('Message not found');
+    if (source.deletedAt) {
+      throw new BadRequestException('Cannot forward a deleted message');
+    }
+
+    await this.conversationsService.assertMember(sourceConversationId, userId);
+
+    const hidden = await this.hiddenRepo.findOne({
+      where: { messageId, userId },
+    });
+    if (hidden) {
+      throw new BadRequestException('Cannot forward a hidden message');
+    }
+
+    const originalSenderId = source.originalSenderId ?? source.senderId;
+    const uniqueTargets = [...new Set(targetConversationIds)].filter(
+      (id) => id !== sourceConversationId,
+    );
+
+    if (uniqueTargets.length === 0) {
+      throw new BadRequestException('Select at least one other destination');
+    }
+
+    const payloads: MessagePayload[] = [];
+
+    for (const targetConversationId of uniqueTargets) {
+      await this.conversationsService.assertCanSendMessage(targetConversationId, userId);
+
+      const copied = await this.copyMessageContentForForward(source, targetConversationId);
+
+      const saved = await this.messageRepo.save(
+        this.messageRepo.create({
+          conversationId: targetConversationId,
+          senderId: userId,
+          content: copied.content,
+          contentType: copied.contentType,
+          fileName: copied.fileName,
+          fileSize: copied.fileSize,
+          caption: copied.caption,
+          forwardedFromMessageId: messageId,
+          originalSenderId,
+        }),
+      );
+
+      const withRelations = await this.messageRepo.findOne({
+        where: { id: saved.id },
+        relations: [...this.messageRelations],
+      });
+
+      const payload = this.toPayload(withRelations!, userId, 'sent');
+      await this.messagePublisher.publishNewMessage(payload, userId);
+      payloads.push(payload);
+    }
+
+    return { messages: payloads };
   }
 
   async list(conversationId: string, userId: string, cursor?: string, limit = 50) {
@@ -226,6 +311,7 @@ export class MessagesService {
       .leftJoinAndSelect('message.sender', 'sender')
       .leftJoinAndSelect('message.replyTo', 'replyTo')
       .leftJoinAndSelect('replyTo.sender', 'replyToSender')
+      .leftJoinAndSelect('message.originalSender', 'originalSender')
       .leftJoin(
         MessageUserHidden,
         'hidden',
@@ -338,7 +424,7 @@ export class MessagesService {
   async edit(userId: string, messageId: string, content: string): Promise<MessagePayload> {
     const message = await this.messageRepo.findOne({
       where: { id: messageId },
-      relations: ['sender', 'replyTo', 'replyTo.sender'],
+      relations: [...this.messageRelations],
     });
     if (!message) throw new NotFoundException('Message not found');
 
@@ -461,7 +547,7 @@ export class MessagesService {
   ): Promise<{ message?: MessagePayload; messageId: string; scope: 'me' | 'everyone' }> {
     const message = await this.messageRepo.findOne({
       where: { id: messageId },
-      relations: ['sender', 'replyTo', 'replyTo.sender'],
+      relations: [...this.messageRelations],
     });
     if (!message) throw new NotFoundException('Message not found');
 
@@ -604,6 +690,70 @@ export class MessagesService {
     return replyToMessageId;
   }
 
+  private async copyMessageContentForForward(
+    source: Message,
+    targetConversationId: string,
+  ): Promise<{
+    content: string;
+    contentType: string;
+    fileName?: string;
+    fileSize?: string;
+    caption?: string;
+  }> {
+    if (isTextContentType(source.contentType)) {
+      return {
+        content: source.content,
+        contentType: source.contentType,
+        caption: source.caption,
+      };
+    }
+
+    const relativePath = source.content.replace(/^\//, '').split('?')[0];
+    const sourcePath = join(process.cwd(), relativePath);
+    if (!existsSync(sourcePath)) {
+      throw new BadRequestException('Attachment file not found');
+    }
+
+    const ext = extname(relativePath) || extname(source.fileName ?? '');
+    const storedName = `${randomUUID()}${ext}`;
+    const targetDir = join(
+      process.cwd(),
+      'uploads',
+      'message-attachments',
+      targetConversationId,
+    );
+    if (!existsSync(targetDir)) {
+      mkdirSync(targetDir, { recursive: true });
+    }
+
+    copyFileSync(sourcePath, join(targetDir, storedName));
+
+    return {
+      content: `/uploads/message-attachments/${targetConversationId}/${storedName}`,
+      contentType: source.contentType,
+      fileName: source.fileName,
+      fileSize: source.fileSize,
+      caption: source.caption,
+    };
+  }
+
+  private toForwardedFrom(message: Message): MessageForwardedFrom | undefined {
+    if (!message.forwardedFromMessageId) return undefined;
+
+    const author = message.originalSender ?? message.sender;
+    return {
+      messageId: message.forwardedFromMessageId,
+      senderId: message.originalSenderId ?? message.senderId,
+      sender: author
+        ? {
+            id: author.id,
+            displayName: author.displayName,
+            username: author.username,
+          }
+        : undefined,
+    };
+  }
+
   private toReplyPreview(message: Message): MessageReplyPreview {
     const deletedForEveryone = !!message.deletedAt;
 
@@ -650,6 +800,7 @@ export class MessagesService {
       status: message.senderId === viewerId ? status : undefined,
       reactions,
       replyTo: message.replyTo ? this.toReplyPreview(message.replyTo) : undefined,
+      forwardedFrom: this.toForwardedFrom(message),
       sender: message.sender
         ? {
             id: message.sender.id,

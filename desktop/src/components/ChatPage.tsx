@@ -14,8 +14,9 @@ import { mergeMessageStatus, mergeOutgoingServerMessage } from '../utils/message
 import { ConversationListItem } from './ConversationListItem';
 import { NewGroupModal } from './NewGroupModal';
 import { AppNav } from './AppNav';
+import { ForwardDestinationModal } from './ForwardDestinationModal';
 import { bumpConversationFromMessage, reorderConversations } from '../utils/conversationList';
-import { getDirectPeer, partitionChannels } from '../utils/conversation';
+import { canSendInConversation, getDirectPeer, partitionChannels } from '../utils/conversation';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import {
@@ -39,6 +40,7 @@ export function ChatPage() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editBusy, setEditBusy] = useState(false);
   const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null);
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [sidebarList, setSidebarList] = useState<'chats' | 'channels'>('chats');
   const [showProfile, setShowProfile] = useState(false);
@@ -89,9 +91,7 @@ export function ChatPage() {
     activeConversation && user ? getDirectPeer(activeConversation, user.id) : undefined;
   const canSendInActiveChat = useMemo(() => {
     if (!activeConversation || !user) return true;
-    if (activeConversation.type !== 'channel') return true;
-    const membership = activeConversation.members.find((m) => m.userId === user.id);
-    return membership?.role === 'owner';
+    return canSendInConversation(activeConversation, user.id);
   }, [activeConversation, user]);
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isPanelVisible =
@@ -231,6 +231,46 @@ export function ChatPage() {
       scrollToMessage(message.id);
     });
   }, [cancelEditMessage, scrollToMessage]);
+
+  const startForwardMessage = useCallback((message: Message) => {
+    setForwardingMessage(message);
+  }, []);
+
+  const handleForwardMessage = useCallback(
+    async (targetConversationIds: string[]) => {
+      if (!forwardingMessage || !activeId) return;
+
+      const { messages: forwarded } = await api.forwardMessage(
+        activeId,
+        forwardingMessage.id,
+        targetConversationIds,
+      );
+
+      setForwardingMessage(null);
+      setConversations((prev) => {
+        let next = [...prev];
+        for (const msg of forwarded) {
+          const index = next.findIndex((c) => c.id === msg.conversationId);
+          if (index >= 0) {
+            next[index] = bumpConversationFromMessage(next[index], msg);
+          }
+        }
+        return reorderConversations(next);
+      });
+
+      const active = activeIdRef.current;
+      const forActive = forwarded.filter((msg) => msg.conversationId === active);
+      if (forActive.length > 0 && isPanelOpenRef.current) {
+        shouldScrollToBottomRef.current = true;
+        setMessages((prev) => {
+          const existing = new Set(prev.map((m) => m.id));
+          const toAdd = forActive.filter((m) => !existing.has(m.id));
+          return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+        });
+      }
+    },
+    [activeId, forwardingMessage],
+  );
 
   const handleSaveEdit = useCallback(async () => {
     if (!editingMessageId) return;
@@ -1457,9 +1497,11 @@ export function ChatPage() {
                   isOwn={m.senderId === user?.id}
                   isFirstUnread={firstUnreadMessageId === m.id}
                   isBeingEdited={editingMessageId === m.id}
-                  allowMessageMenu={canSendInActiveChat}
+                  allowMessageMenu={Boolean(activeConversation)}
+                  canSendActions={canSendInActiveChat}
                   onStartEdit={startEditMessage}
                   onReply={startReplyMessage}
+                  onForward={startForwardMessage}
                   onScrollToMessage={scrollToMessage}
                   onDelete={handleDeleteMessage}
                   onReaction={handleReactionMessage}
@@ -1665,6 +1707,18 @@ export function ChatPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {forwardingMessage && activeId && user && (
+        <ForwardDestinationModal
+          open
+          message={forwardingMessage}
+          conversations={conversations}
+          currentUserId={user.id}
+          sourceConversationId={activeId}
+          onClose={() => setForwardingMessage(null)}
+          onForward={handleForwardMessage}
+        />
       )}
     </div>
   );

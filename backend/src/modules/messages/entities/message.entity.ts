@@ -69,6 +69,20 @@ export class Message {
   @JoinColumn({ name: 'reply_to_message_id' })
   replyTo?: Message;
 
+  @Column({ name: 'forwarded_from_message_id', type: 'uuid', nullable: true })
+  forwardedFromMessageId?: string;
+
+  @ManyToOne(() => Message, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'forwarded_from_message_id' })
+  forwardedFrom?: Message;
+
+  @Column({ name: 'original_sender_id', type: 'uuid', nullable: true })
+  originalSenderId?: string;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'original_sender_id' })
+  originalSender?: User;
+
   @OneToMany(() => MessageReadReceipt, (r) => r.message)
   readReceipts!: MessageReadReceipt[];
 }

@@ -85,6 +85,12 @@ export interface MessageReplyPreview {
   sender?: { id: string; displayName: string; username: string };
 }
 
+export interface MessageForwardedFrom {
+  messageId: string;
+  senderId: string;
+  sender?: { id: string; displayName: string; username: string };
+}
+
 export interface Message {
   id: string;
   conversationId: string;
@@ -102,6 +108,7 @@ export interface Message {
   status?: MessageStatus;
   reactions?: MessageReaction[];
   replyTo?: MessageReplyPreview;
+  forwardedFrom?: MessageForwardedFrom;
   sender?: { id: string; displayName: string; username: string };
 }
 
@@ -464,6 +471,20 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ emoji }),
     });
+  }
+
+  forwardMessage(
+    conversationId: string,
+    messageId: string,
+    targetConversationIds: string[],
+  ) {
+    return this.request<{ messages: Message[] }>(
+      `/conversations/${conversationId}/messages/${messageId}/forward`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ targetConversationIds }),
+      },
+    );
   }
 
   searchUsers(q: string) {

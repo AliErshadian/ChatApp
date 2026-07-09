@@ -1,4 +1,4 @@
-import { IsString, IsUUID, IsOptional, MaxLength, MinLength, IsIn } from 'class-validator';
+import { IsString, IsUUID, IsOptional, MaxLength, MinLength, IsIn, IsArray, ArrayMinSize } from 'class-validator';
 
 export class SendMessageDto {
   @IsUUID()
@@ -41,4 +41,11 @@ export class ToggleReactionDto {
   @MinLength(1)
   @MaxLength(32)
   emoji!: string;
+}
+
+export class ForwardMessageDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsUUID('4', { each: true })
+  targetConversationIds!: string[];
 }

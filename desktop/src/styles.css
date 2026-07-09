@@ -1956,6 +1956,84 @@ body {
   border-left-color: color-mix(in srgb, var(--accent) 70%, white);
 }
 
+.message-forwarded-header {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  color: var(--accent);
+}
+
+.message-forwarded-header strong {
+  font-weight: 600;
+  color: inherit;
+}
+
+.message-forwarded-icon {
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.message-forwarded-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.forward-modal {
+  width: min(100%, 26rem);
+  max-height: min(85vh, 640px);
+  display: flex;
+  flex-direction: column;
+}
+
+.forward-preview {
+  margin: 0 1rem 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.forward-preview-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+}
+
+.forward-preview-text {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.forward-destination-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 1rem;
+}
+
+.forward-destination-section + .forward-destination-section {
+  margin-top: 0.75rem;
+}
+
+.forward-section-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin-bottom: 0.35rem;
+}
+
 .composer input {
   flex: 1;
   min-width: 0;

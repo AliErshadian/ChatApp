@@ -21,7 +21,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
 import { MessagesService } from './messages.service';
-import { MarkReadDto, EditMessageDto, DeleteMessageDto, ToggleReactionDto } from './dto/message.dto';
+import { MarkReadDto, EditMessageDto, DeleteMessageDto, ToggleReactionDto, ForwardMessageDto } from './dto/message.dto';
 
 const attachmentUploadDir = join(process.cwd(), 'uploads', 'message-attachments', '_tmp');
 if (!existsSync(attachmentUploadDir)) {
@@ -116,5 +116,20 @@ export class MessagesController {
     @Body() dto: ToggleReactionDto,
   ) {
     return this.messagesService.toggleReaction(user.id, messageId, dto.emoji);
+  }
+
+  @Post(':messageId/forward')
+  forward(
+    @Param('conversationId', ParseUUIDPipe) conversationId: string,
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @CurrentUser() user: User,
+    @Body() dto: ForwardMessageDto,
+  ) {
+    return this.messagesService.forward(
+      user.id,
+      conversationId,
+      messageId,
+      dto.targetConversationIds,
+    );
   }
 }
