@@ -5,9 +5,10 @@ import { ConversationsModule } from '../conversations/conversations.module';
 import { PresenceModule } from '../presence/presence.module';
 import { AuthModule } from '../auth/auth.module';
 import { WsJwtGuard } from './guards/ws-jwt.guard';
+import { WsRateLimitGuard } from '../../observability/ws-rate-limit.guard';
 
 @Module({
   imports: [AuthModule, MessagesModule, ConversationsModule, PresenceModule],
-  providers: [RealtimeGateway, WsJwtGuard],
+  providers: [RealtimeGateway, WsJwtGuard, WsRateLimitGuard],
 })
 export class RealtimeModule {}

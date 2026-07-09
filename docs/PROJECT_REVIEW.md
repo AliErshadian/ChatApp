@@ -98,7 +98,12 @@ ChatApp/
   - Ensure strong secrets in deployment, add `.env` validation (e.g., zod/env-schema) so prod crashes fast on misconfig.
 - **Observability**:
   - Structured logging, request IDs, error logging (Sentry), basic metrics (prometheus) for websocket connections and message rate.
+- **Rate limiting for websocket actions**:
+  - Token bucket (Redis) for events like `message:send`, `typing`, etc.
+- **Improve realtime fanout**:
+  - Prefer room broadcasts; avoid per-member loops when possible; batch side-effects.
 
+  
 #### Backend observability env vars
 
 These variables live in `backend/.env` (or injected by your deployment system).
@@ -148,10 +153,6 @@ These variables live in `backend/.env` (or injected by your deployment system).
 ### P1 (high value next)
 
 - **Move uploads to object storage** (S3/MinIO) for horizontal scaling.
-- **Rate limiting for websocket actions**:
-  - Token bucket (Redis) for events like `message:send`, `typing`, etc.
-- **Improve realtime fanout**:
-  - Prefer room broadcasts; avoid per-member loops when possible; batch side-effects.
 - **Desktop token handling**:
   - Keep tokens out of renderer storage; use Electron secure storage / main-process vault + IPC.
 

@@ -33,6 +33,10 @@ const EnvSchema = z
     SENTRY_DSN: z.string().trim().optional(),
     SENTRY_RELEASE: z.string().trim().optional(),
     SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).optional(),
+    WS_RATE_LIMIT_MESSAGE_SEND_CAPACITY: z.coerce.number().int().min(1).optional(),
+    WS_RATE_LIMIT_MESSAGE_SEND_REFILL_PER_SEC: z.coerce.number().min(0.01).optional(),
+    WS_RATE_LIMIT_TYPING_CAPACITY: z.coerce.number().int().min(1).optional(),
+    WS_RATE_LIMIT_TYPING_REFILL_PER_SEC: z.coerce.number().min(0.01).optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production') {

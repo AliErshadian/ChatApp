@@ -23,6 +23,8 @@ import {
   wsMessageBroadcastCounter,
   wsMessageSendCounter,
 } from '../../observability/metrics';
+import { WsRateLimit } from '../../observability/ws-rate-limit.decorator';
+import { WsRateLimitGuard } from '../../observability/ws-rate-limit.guard';
 
 interface AuthenticatedSocket extends Socket {
   data: { userId: string; email: string };
@@ -136,7 +138,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     return { success: true };
   }
 
-  @UseGuards(WsJwtGuard)
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'message_send',
+    capacity: 15,
+    refillPerSec: 0.5, // ~30/min
+  })
   @SubscribeMessage('message:send')
   async handleMessageSend(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -215,7 +222,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     return { success: true };
   }
 
-  @UseGuards(WsJwtGuard)
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'typing',
+    capacity: 6,
+    refillPerSec: 1.5, // bursty but capped
+    keySuffixFromBody: (body) => body?.conversationId,
+  })
   @SubscribeMessage('user:typing')
   async handleTyping(
     @ConnectedSocket() client: AuthenticatedSocket,
