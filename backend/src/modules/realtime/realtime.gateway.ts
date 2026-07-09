@@ -198,18 +198,28 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     },
     senderId: string,
   ) {
+    
+    // 1) Primary delivery: one room emit for all active viewers.
     this.server.to(`conversation:${message.conversationId}`).emit('message:receive', message);
     wsMessageBroadcastCounter.inc(1);
-
+    // 2) Minimal per-user side effects (no full message fanout).
+    // - unhide conversation for members (single query)
+    // - optional "activity" ping to update conversation lists / badges for users
+    await this.conversationsService.unhideConversationForConversation(message.conversationId);
     const memberIds = await this.conversationsService.getMemberUserIds(message.conversationId);
-    await this.conversationsService.unhideConversationForUsers(message.conversationId, memberIds);
-
     const recipientRooms = memberIds
       .filter((id) => id !== senderId)
       .map((id) => `user:${id}`);
     if (recipientRooms.length > 0) {
       this.server.to(recipientRooms).emit('message:receive', message);
       wsMessageBroadcastCounter.inc(recipientRooms.length);
+      this.server.to(recipientRooms).emit('conversation:activity', {
+        conversationId: message.conversationId,
+        messageId: message.id,
+        senderId: message.senderId,
+        sequence: message.sequence,
+        createdAt: message.createdAt,
+      });
     }
   }
 

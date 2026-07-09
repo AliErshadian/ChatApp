@@ -573,6 +573,14 @@ export class ConversationsService {
     await this.hiddenRepo.delete({ conversationId, userId: In(userIds) });
   }
 
+  /**
+   * Unhides a conversation for all members (single query).
+   * Used as a "side effect" when new activity happens in a conversation.
+   */
+  async unhideConversationForConversation(conversationId: string) {
+    await this.hiddenRepo.delete({ conversationId });
+  }
+
   async addMembers(conversationId: string, actorId: string, userIds: string[]) {
     const actor = await this.assertMember(conversationId, actorId);
     if (actor.role === MemberRole.MEMBER) {

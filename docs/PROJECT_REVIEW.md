@@ -90,7 +90,12 @@ ChatApp/
   - Token bucket (Redis) for events like `message:send`, `typing`, etc.
 - **Improve realtime fanout**:
   - Prefer room broadcasts; avoid per-member loops when possible; batch side-effects.
-- **Linting was missing initially** (now addressed)
+- **Linting was missing initially**
+- **Harden deployment configuration**:
+  - Strict env validation; explicit CORS allowlist for REST + websocket; rotate secrets; disable debug logs in prod.
+- **N+1 patterns in gateway broadcasting**:
+  - `RealtimeGateway.broadcastNewMessage` fetches member IDs and loops per member emitting.
+  - For large channels this can become expensive; consider room-based emits plus minimal per-user side effects.
 
 #### Backend observability env vars
 
@@ -109,9 +114,6 @@ These variables live in `backend/.env` (or injected by your deployment system).
 ### Backend correctness & performance
 
 - **No automated tests detected** (no Jest config/specs visible in the current repo snapshot).
-- **N+1 patterns in gateway broadcasting**:
-  - `RealtimeGateway.broadcastNewMessage` fetches member IDs and loops per member emitting.
-  - For large channels this can become expensive; consider room-based emits plus minimal per-user side effects.
 - **Uploads are served from local disk** (`/app/uploads`):
   - Works for a single instance but is tricky with horizontal scaling.
   - The architecture doc mentions S3/MinIO “future”; it’s a good next step for production.
@@ -129,8 +131,7 @@ These variables live in `backend/.env` (or injected by your deployment system).
   - At minimum: auth flows, membership ACL, message send/edit/delete, refresh rotation.
 - **Define a DB migration strategy**:
   - Move from “init.sql only” to a migration tool (TypeORM migrations, Flyway, Prisma Migrate, etc.).
-- **Harden deployment configuration**:
-  - Strict env validation; explicit CORS allowlist for REST + websocket; rotate secrets; disable debug logs in prod.
+
 
 
 
