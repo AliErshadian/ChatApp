@@ -16,6 +16,7 @@ import { NewGroupModal } from './NewGroupModal';
 import { AppNav } from './AppNav';
 import { ForwardDestinationModal } from './ForwardDestinationModal';
 import { MentionAutocomplete } from './MentionAutocomplete';
+import { MentionInAppNotifications } from './MentionInAppNotifications';
 import { bumpConversationFromMessage, reorderConversations } from '../utils/conversationList';
 import { canSendInConversation, getDirectPeer, isMultiMemberConversation, partitionChannels } from '../utils/conversation';
 import { detectActiveMentionQuery, insertMention } from '../utils/mentions';
@@ -31,6 +32,9 @@ import { createClientMessageId } from '../utils/uuid';
 import { takePendingInviteToken } from '../utils/channelInvite';
 import { ATTACHMENT_ACCEPT, getMessagePreviewText } from '../utils/messageMedia';
 import { isMessagesNearBottom } from '../utils/messageScroll';
+import { getConversationMentionLabel } from '../utils/conversationLabel';
+import { isMessageInView } from '../utils/isMessageInView';
+import type { MentionInAppNotification } from '../utils/mentionNotification';
 
 export function ChatPage() {
   const { user, logout } = useAuth();
@@ -77,6 +81,7 @@ export function ChatPage() {
   } | null>(null);
   const [inviteJoinBusy, setInviteJoinBusy] = useState(false);
   const [pendingBelowCount, setPendingBelowCount] = useState(0);
+  const [mentionNotifications, setMentionNotifications] = useState<MentionInAppNotification[]>([]);
   const pendingFirstMessageIdRef = useRef<string | null>(null);
   const activeChatMessageIdsRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -84,12 +89,15 @@ export function ChatPage() {
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const chatMainRef = useRef<HTMLElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
-  const scrollIntentRef = useRef<{ kind: 'unread' | 'bottom'; messageId?: string } | null>(null);
+  const scrollIntentRef = useRef<{ kind: 'unread' | 'bottom' | 'mention'; messageId?: string } | null>(null);
   const shouldScrollToBottomRef = useRef(false);
   const lastReadAtOnOpenRef = useRef<string | undefined>();
   const activeIdRef = useRef<string | null>(null);
   const userIdRef = useRef<string | undefined>(undefined);
   const pendingStatusRef = useRef<Map<string, MessageStatus>>(new Map());
+  const mentionNotificationTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
 
   const isPanelOpenRef = useRef(false);
   activeIdRef.current = activeId;
@@ -213,7 +221,60 @@ export function ChatPage() {
       next.delete(messageId);
       return next;
     });
+    setMentionNotifications((prev) => prev.filter((item) => item.messageId !== messageId));
+    const timer = mentionNotificationTimersRef.current.get(messageId);
+    if (timer) {
+      clearTimeout(timer);
+      mentionNotificationTimersRef.current.delete(messageId);
+    }
   }, []);
+
+  const dismissMentionNotification = useCallback((messageId: string) => {
+    setMentionNotifications((prev) => prev.filter((item) => item.messageId !== messageId));
+    const timer = mentionNotificationTimersRef.current.get(messageId);
+    if (timer) {
+      clearTimeout(timer);
+      mentionNotificationTimersRef.current.delete(messageId);
+    }
+  }, []);
+
+  const addMentionNotification = useCallback(
+    (item: MentionInAppNotification) => {
+      setMentionNotifications((prev) => {
+        if (prev.some((entry) => entry.messageId === item.messageId)) return prev;
+        const next = [...prev, item];
+        return next.length > 5 ? next.slice(-5) : next;
+      });
+
+      if (mentionNotificationTimersRef.current.has(item.messageId)) return;
+      const timer = setTimeout(() => {
+        dismissMentionNotification(item.messageId);
+      }, 8000);
+      mentionNotificationTimersRef.current.set(item.messageId, timer);
+    },
+    [dismissMentionNotification],
+  );
+
+  const maybeShowMentionInAppNotification = useCallback(
+    (msg: Message, isActive: boolean, nearBottom: boolean) => {
+      if (msg.senderId === userIdRef.current) return;
+      if (document.hidden) return;
+
+      const mentionedMe = msg.mentions?.some((mention) => mention.userId === userIdRef.current);
+      if (!mentionedMe) return;
+      if (isActive && nearBottom) return;
+      if (isActive && isMessageInView(msg.id, messagesScrollRef.current)) return;
+
+      const conversation = conversationsRef.current.find((c) => c.id === msg.conversationId);
+      addMentionNotification({
+        messageId: msg.id,
+        conversationId: msg.conversationId,
+        conversationLabel: getConversationMentionLabel(conversation, userIdRef.current),
+        conversationList: conversation?.type === 'channel' ? 'channels' : 'chats',
+      });
+    },
+    [addMentionNotification],
+  );
 
   const clearPendingBelow = useCallback(() => {
     setPendingBelowCount(0);
@@ -519,13 +580,15 @@ export function ChatPage() {
     setConversations(reorderConversations(list));
   }, []);
 
-  const conversationsRef = useRef(conversations);
-  conversationsRef.current = conversations;
 
   const loadConversationsRef = useRef(loadConversations);
   loadConversationsRef.current = loadConversations;
 
-  const openConversation = useCallback((id: string, preferredList?: 'chats' | 'channels') => {
+  const openConversation = useCallback((
+    id: string,
+    preferredList?: 'chats' | 'channels',
+    options?: { mentionMessageId?: string },
+  ) => {
     setShowProfile(false);
     setShowContacts(false);
     setShowNewChatPicker(false);
@@ -546,8 +609,32 @@ export function ChatPage() {
     setActiveId(id);
     setIsPanelOpen(true);
     setMentionQuery(null);
-    setMentionGlowIds(new Set());
+    if (options?.mentionMessageId) {
+      scrollIntentRef.current = { kind: 'mention', messageId: options.mentionMessageId };
+      setMentionGlowIds(new Set([options.mentionMessageId]));
+    } else {
+      setMentionGlowIds(new Set());
+    }
   }, []);
+
+  const goToMentionNotification = useCallback(
+    (item: MentionInAppNotification) => {
+      dismissMentionNotification(item.messageId);
+
+      const isActive =
+        item.conversationId === activeIdRef.current && isPanelOpenRef.current;
+      if (isActive) {
+        setMentionGlowIds((prev) => new Set(prev).add(item.messageId));
+        scrollToMessage(item.messageId);
+        return;
+      }
+
+      openConversation(item.conversationId, item.conversationList, {
+        mentionMessageId: item.messageId,
+      });
+    },
+    [dismissMentionNotification, openConversation, scrollToMessage],
+  );
 
   const handleInviteToken = useCallback(
     async (token: string) => {
@@ -840,6 +927,7 @@ export function ChatPage() {
     const unsubMsg = realtime.onMessage((msg) => {
       const isActive =
         msg.conversationId === activeIdRef.current && isPanelOpenRef.current;
+      let nearBottom = isMessagesNearBottom(messagesScrollRef.current);
 
       if (msg.senderId === userIdRef.current && msg.clientMessageId) {
         confirmOutgoing(msg, msg.clientMessageId);
@@ -849,7 +937,7 @@ export function ChatPage() {
         }
         activeChatMessageIdsRef.current.add(msg.id);
 
-        const nearBottom = isMessagesNearBottom(messagesScrollRef.current);
+        nearBottom = isMessagesNearBottom(messagesScrollRef.current);
         if (nearBottom) {
           shouldScrollToBottomRef.current = true;
           clearPendingBelow();
@@ -888,6 +976,7 @@ export function ChatPage() {
           }),
         );
       });
+      maybeShowMentionInAppNotification(msg, isActive, nearBottom);
       if (msg.senderId !== userIdRef.current && document.hidden) {
         const mentionedMe = msg.mentions?.some((mention) => mention.userId === userIdRef.current);
         const isActive =
@@ -991,7 +1080,17 @@ export function ChatPage() {
     confirmOutgoing,
     clearPendingBelow,
     trackPendingBelow,
+    maybeShowMentionInAppNotification,
   ]);
+
+  useEffect(() => {
+    return () => {
+      for (const timer of mentionNotificationTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+      mentionNotificationTimersRef.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (scrollIntentRef.current) {
@@ -1002,6 +1101,10 @@ export function ChatPage() {
           document
             .getElementById(`msg-${intent.messageId}`)
             ?.scrollIntoView({ block: 'start', behavior: 'auto' });
+        } else if (intent.kind === 'mention' && intent.messageId) {
+          document
+            .getElementById(`msg-${intent.messageId}`)
+            ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
         } else {
           messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
         }
@@ -1887,6 +1990,12 @@ export function ChatPage() {
           onForward={handleForwardMessage}
         />
       )}
+
+      <MentionInAppNotifications
+        items={mentionNotifications}
+        onDismiss={dismissMentionNotification}
+        onClick={goToMentionNotification}
+      />
     </div>
   );
 }
