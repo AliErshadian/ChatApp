@@ -291,7 +291,7 @@ export function ChatPage() {
 
       setForwardingMessage(null);
       setConversations((prev) => {
-        let next = [...prev];
+        const next = [...prev];
         for (const msg of forwarded) {
           const index = next.findIndex((c) => c.id === msg.conversationId);
           if (index >= 0) {
