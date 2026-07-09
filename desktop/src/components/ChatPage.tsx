@@ -76,6 +76,9 @@ export function ChatPage() {
     conversationType?: 'channel' | 'group';
   } | null>(null);
   const [inviteJoinBusy, setInviteJoinBusy] = useState(false);
+  const [pendingBelowCount, setPendingBelowCount] = useState(0);
+  const pendingFirstMessageIdRef = useRef<string | null>(null);
+  const activeChatMessageIdsRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerInputRef = useRef<HTMLInputElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
@@ -212,11 +215,29 @@ export function ChatPage() {
     });
   }, []);
 
-  const requestScrollToBottomIfNear = useCallback(() => {
-    if (isMessagesNearBottom(messagesScrollRef.current)) {
-      shouldScrollToBottomRef.current = true;
-    }
+  const clearPendingBelow = useCallback(() => {
+    setPendingBelowCount(0);
+    pendingFirstMessageIdRef.current = null;
   }, []);
+
+  const trackPendingBelow = useCallback((messageId: string) => {
+    if (!pendingFirstMessageIdRef.current) {
+      pendingFirstMessageIdRef.current = messageId;
+    }
+    setPendingBelowCount((count) => count + 1);
+  }, []);
+
+  const scrollToPendingBelow = useCallback(() => {
+    const messageId = pendingFirstMessageIdRef.current;
+    if (messageId) {
+      document
+        .getElementById(`msg-${messageId}`)
+        ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+    clearPendingBelow();
+  }, [clearPendingBelow]);
 
   const cancelEditMessage = useCallback(() => {
     setEditingMessageId(null);
@@ -472,6 +493,7 @@ export function ChatPage() {
   const confirmOutgoing = useCallback((serverMsg: Message, clientMessageId?: string) => {
     const pending = pendingStatusRef.current.get(serverMsg.id);
     if (pending) pendingStatusRef.current.delete(serverMsg.id);
+    activeChatMessageIdsRef.current.add(serverMsg.id);
 
     setMessages((prev) => {
       const idx = prev.findIndex(
@@ -767,6 +789,8 @@ export function ChatPage() {
     const lastReadAt = lastReadAtOnOpenRef.current;
     setMessages([]);
     setFirstUnreadMessageId(null);
+    activeChatMessageIdsRef.current = new Set();
+    clearPendingBelow();
     setEditingMessageId(null);
     setReplyingToMessage(null);
     setInput('');
@@ -783,6 +807,7 @@ export function ChatPage() {
         : { kind: 'bottom' };
       setFirstUnreadMessageId(firstUnread?.id ?? null);
       setMessages(res.messages);
+      activeChatMessageIdsRef.current = new Set(res.messages.map((message) => message.id));
 
       requestAnimationFrame(() => {
         res.messages.forEach((msg) => {
@@ -794,7 +819,21 @@ export function ChatPage() {
       });
     });
     return () => realtime.leaveConversation(activeId);
-  }, [activeId, isPanelOpen]);
+  }, [activeId, isPanelOpen, clearPendingBelow]);
+
+  useEffect(() => {
+    const container = messagesScrollRef.current;
+    if (!container || !activeId) return;
+
+    const handleScroll = () => {
+      if (isMessagesNearBottom(container)) {
+        clearPendingBelow();
+      }
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [activeId, clearPendingBelow]);
 
   // Realtime listeners — mount once, use refs to avoid stale closures
   useEffect(() => {
@@ -805,12 +844,21 @@ export function ChatPage() {
       if (msg.senderId === userIdRef.current && msg.clientMessageId) {
         confirmOutgoing(msg, msg.clientMessageId);
       } else if (isActive) {
-        requestScrollToBottomIfNear();
-        setFirstUnreadMessageId(null);
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === msg.id)) return prev;
-          return [...prev, msg];
-        });
+        if (activeChatMessageIdsRef.current.has(msg.id)) {
+          return;
+        }
+        activeChatMessageIdsRef.current.add(msg.id);
+
+        const nearBottom = isMessagesNearBottom(messagesScrollRef.current);
+        if (nearBottom) {
+          shouldScrollToBottomRef.current = true;
+          clearPendingBelow();
+          setFirstUnreadMessageId(null);
+        } else if (msg.senderId !== userIdRef.current) {
+          trackPendingBelow(msg.id);
+        }
+
+        setMessages((prev) => [...prev, msg]);
 
         const mentionedMe = msg.mentions?.some((mention) => mention.userId === userIdRef.current);
         if (mentionedMe && msg.senderId !== userIdRef.current) {
@@ -941,7 +989,8 @@ export function ChatPage() {
     applyReactionUpdate,
     applyStatusUpdate,
     confirmOutgoing,
-    requestScrollToBottomIfNear,
+    clearPendingBelow,
+    trackPendingBelow,
   ]);
 
   useEffect(() => {
@@ -1002,7 +1051,9 @@ export function ChatPage() {
       sender: { id: user!.id, displayName: user!.displayName, username: user!.username },
     };
     setMessages((prev) => [...prev, optimistic]);
+    activeChatMessageIdsRef.current.add(clientMessageId);
     shouldScrollToBottomRef.current = true;
+    clearPendingBelow();
     setFirstUnreadMessageId(null);
     setConversations((prev) =>
       reorderConversations(
@@ -1077,7 +1128,9 @@ export function ChatPage() {
     };
 
     setMessages((prev) => [...prev, optimistic]);
+    activeChatMessageIdsRef.current.add(clientMessageId);
     shouldScrollToBottomRef.current = true;
+    clearPendingBelow();
     setFirstUnreadMessageId(null);
     setConversations((prev) =>
       reorderConversations(
@@ -1582,6 +1635,22 @@ export function ChatPage() {
               )}
               <div ref={messagesEndRef} />
             </div>
+
+            {pendingBelowCount > 0 && (
+              <button
+                type="button"
+                className="new-messages-fab"
+                onClick={scrollToPendingBelow}
+                aria-label={`${pendingBelowCount} new messages below`}
+              >
+                <span className="new-messages-fab-arrow" aria-hidden>
+                  ↓
+                </span>
+                <span className="new-messages-fab-count">
+                  {pendingBelowCount > 99 ? '99+' : pendingBelowCount}
+                </span>
+              </button>
+            )}
 
             <footer className="composer">
               {canSendInActiveChat ? (

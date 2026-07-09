@@ -1081,6 +1081,42 @@ body {
   gap: 0.35rem;
 }
 
+.new-messages-fab {
+  position: absolute;
+  left: 50%;
+  bottom: 0.85rem;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.8rem 0.4rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: color-mix(in srgb, var(--c-bg2) 92%, transparent);
+  color: var(--accent);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.32);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.new-messages-fab:hover {
+  background: color-mix(in srgb, var(--c-bg2) 98%, var(--accent) 8%);
+}
+
+.new-messages-fab-arrow {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.new-messages-fab-count {
+  min-width: 1.1rem;
+  text-align: center;
+}
+
 .message-group {
   width: 100%;
 }
