@@ -16,7 +16,7 @@ import { NewGroupModal } from './NewGroupModal';
 import { AppNav } from './AppNav';
 import { ForwardDestinationModal } from './ForwardDestinationModal';
 import { MentionAutocomplete } from './MentionAutocomplete';
-import { MentionInAppNotifications } from './MentionInAppNotifications';
+import { InAppNotifications } from './InAppNotifications';
 import { bumpConversationFromMessage, reorderConversations } from '../utils/conversationList';
 import { canSendInConversation, getDirectPeer, isMultiMemberConversation, partitionChannels } from '../utils/conversation';
 import { detectActiveMentionQuery, insertMention } from '../utils/mentions';
@@ -32,9 +32,9 @@ import { createClientMessageId } from '../utils/uuid';
 import { takePendingInviteToken } from '../utils/channelInvite';
 import { ATTACHMENT_ACCEPT, getMessagePreviewText } from '../utils/messageMedia';
 import { isMessagesNearBottom } from '../utils/messageScroll';
-import { getConversationMentionLabel } from '../utils/conversationLabel';
+import { getConversationMentionLabel, buildMentionNotificationText, buildNewChatNotificationText, buildAddedToConversationText } from '../utils/conversationLabel';
 import { isMessageInView } from '../utils/isMessageInView';
-import type { MentionInAppNotification } from '../utils/mentionNotification';
+import type { InAppNotification } from '../utils/inAppNotification';
 
 export function ChatPage() {
   const { user, logout } = useAuth();
@@ -81,7 +81,7 @@ export function ChatPage() {
   } | null>(null);
   const [inviteJoinBusy, setInviteJoinBusy] = useState(false);
   const [pendingBelowCount, setPendingBelowCount] = useState(0);
-  const [mentionNotifications, setMentionNotifications] = useState<MentionInAppNotification[]>([]);
+  const [inAppNotifications, setInAppNotifications] = useState<InAppNotification[]>([]);
   const pendingFirstMessageIdRef = useRef<string | null>(null);
   const activeChatMessageIdsRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -95,7 +95,8 @@ export function ChatPage() {
   const activeIdRef = useRef<string | null>(null);
   const userIdRef = useRef<string | undefined>(undefined);
   const pendingStatusRef = useRef<Map<string, MessageStatus>>(new Map());
-  const mentionNotificationTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const inAppNotificationTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const selfInitiatedConversationIdsRef = useRef<Set<string>>(new Set());
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
 
@@ -214,6 +215,32 @@ export function ChatPage() {
     }
   }, [applyMessageUpdate]);
 
+  const dismissInAppNotification = useCallback((id: string) => {
+    setInAppNotifications((prev) => prev.filter((item) => item.id !== id));
+    const timer = inAppNotificationTimersRef.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      inAppNotificationTimersRef.current.delete(id);
+    }
+  }, []);
+
+  const addInAppNotification = useCallback(
+    (item: InAppNotification) => {
+      setInAppNotifications((prev) => {
+        if (prev.some((entry) => entry.id === item.id)) return prev;
+        const next = [...prev, item];
+        return next.length > 5 ? next.slice(-5) : next;
+      });
+
+      if (inAppNotificationTimersRef.current.has(item.id)) return;
+      const timer = setTimeout(() => {
+        dismissInAppNotification(item.id);
+      }, 8000);
+      inAppNotificationTimersRef.current.set(item.id, timer);
+    },
+    [dismissInAppNotification],
+  );
+
   const dismissMentionGlow = useCallback((messageId: string) => {
     setMentionGlowIds((prev) => {
       if (!prev.has(messageId)) return prev;
@@ -221,39 +248,8 @@ export function ChatPage() {
       next.delete(messageId);
       return next;
     });
-    setMentionNotifications((prev) => prev.filter((item) => item.messageId !== messageId));
-    const timer = mentionNotificationTimersRef.current.get(messageId);
-    if (timer) {
-      clearTimeout(timer);
-      mentionNotificationTimersRef.current.delete(messageId);
-    }
-  }, []);
-
-  const dismissMentionNotification = useCallback((messageId: string) => {
-    setMentionNotifications((prev) => prev.filter((item) => item.messageId !== messageId));
-    const timer = mentionNotificationTimersRef.current.get(messageId);
-    if (timer) {
-      clearTimeout(timer);
-      mentionNotificationTimersRef.current.delete(messageId);
-    }
-  }, []);
-
-  const addMentionNotification = useCallback(
-    (item: MentionInAppNotification) => {
-      setMentionNotifications((prev) => {
-        if (prev.some((entry) => entry.messageId === item.messageId)) return prev;
-        const next = [...prev, item];
-        return next.length > 5 ? next.slice(-5) : next;
-      });
-
-      if (mentionNotificationTimersRef.current.has(item.messageId)) return;
-      const timer = setTimeout(() => {
-        dismissMentionNotification(item.messageId);
-      }, 8000);
-      mentionNotificationTimersRef.current.set(item.messageId, timer);
-    },
-    [dismissMentionNotification],
-  );
+    dismissInAppNotification(`mention:${messageId}`);
+  }, [dismissInAppNotification]);
 
   const maybeShowMentionInAppNotification = useCallback(
     (msg: Message, isActive: boolean, nearBottom: boolean) => {
@@ -266,14 +262,75 @@ export function ChatPage() {
       if (isActive && isMessageInView(msg.id, messagesScrollRef.current)) return;
 
       const conversation = conversationsRef.current.find((c) => c.id === msg.conversationId);
-      addMentionNotification({
+      const conversationLabel = getConversationMentionLabel(conversation, userIdRef.current);
+      addInAppNotification({
+        id: `mention:${msg.id}`,
+        kind: 'mention',
         messageId: msg.id,
         conversationId: msg.conversationId,
-        conversationLabel: getConversationMentionLabel(conversation, userIdRef.current),
         conversationList: conversation?.type === 'channel' ? 'channels' : 'chats',
+        text: buildMentionNotificationText(conversationLabel),
       });
     },
-    [addMentionNotification],
+    [addInAppNotification],
+  );
+
+  const maybeShowNewChatInAppNotification = useCallback(
+    (msg: Message, isActive: boolean) => {
+      if (msg.senderId === userIdRef.current) return;
+      if (document.hidden) return;
+      if (isActive) return;
+      if (conversationsRef.current.some((c) => c.id === msg.conversationId)) return;
+
+      const senderName = msg.sender?.displayName ?? msg.sender?.username ?? 'Someone';
+      addInAppNotification({
+        id: `conv:${msg.conversationId}`,
+        kind: 'new_chat',
+        conversationId: msg.conversationId,
+        conversationList: 'chats',
+        text: buildNewChatNotificationText(senderName),
+      });
+    },
+    [addInAppNotification],
+  );
+
+  const maybeShowConversationInAppNotification = useCallback(
+    (conversation: Conversation) => {
+      if (document.hidden) return;
+
+      const isActive =
+        conversation.id === activeIdRef.current && isPanelOpenRef.current;
+      if (isActive) return;
+      if (conversationsRef.current.some((c) => c.id === conversation.id)) return;
+      if (selfInitiatedConversationIdsRef.current.has(conversation.id)) {
+        selfInitiatedConversationIdsRef.current.delete(conversation.id);
+        return;
+      }
+
+      const membership = conversation.members.find((m) => m.userId === userIdRef.current);
+      if (!membership) return;
+      if (conversation.type !== 'direct' && membership.role === 'owner') return;
+
+      if (conversation.type === 'direct') {
+        addInAppNotification({
+          id: `conv:${conversation.id}`,
+          kind: 'new_chat',
+          conversationId: conversation.id,
+          conversationList: 'chats',
+          text: buildNewChatNotificationText(conversation.name),
+        });
+        return;
+      }
+
+      addInAppNotification({
+        id: `conv:${conversation.id}`,
+        kind: 'added_to_conversation',
+        conversationId: conversation.id,
+        conversationList: conversation.type === 'channel' ? 'channels' : 'chats',
+        text: buildAddedToConversationText(conversation),
+      });
+    },
+    [addInAppNotification],
   );
 
   const clearPendingBelow = useCallback(() => {
@@ -617,23 +674,29 @@ export function ChatPage() {
     }
   }, []);
 
-  const goToMentionNotification = useCallback(
-    (item: MentionInAppNotification) => {
-      dismissMentionNotification(item.messageId);
+  const goToInAppNotification = useCallback(
+    (item: InAppNotification) => {
+      dismissInAppNotification(item.id);
 
       const isActive =
         item.conversationId === activeIdRef.current && isPanelOpenRef.current;
-      if (isActive) {
-        setMentionGlowIds((prev) => new Set(prev).add(item.messageId));
-        scrollToMessage(item.messageId);
+      if (item.kind === 'mention' && item.messageId) {
+        if (isActive) {
+          setMentionGlowIds((prev) => new Set(prev).add(item.messageId!));
+          scrollToMessage(item.messageId);
+          return;
+        }
+
+        openConversation(item.conversationId, item.conversationList, {
+          mentionMessageId: item.messageId,
+        });
         return;
       }
 
-      openConversation(item.conversationId, item.conversationList, {
-        mentionMessageId: item.messageId,
-      });
+      if (isActive) return;
+      openConversation(item.conversationId, item.conversationList);
     },
-    [dismissMentionNotification, openConversation, scrollToMessage],
+    [dismissInAppNotification, openConversation, scrollToMessage],
   );
 
   const handleInviteToken = useCallback(
@@ -654,6 +717,7 @@ export function ChatPage() {
             return;
           }
 
+          selfInitiatedConversationIdsRef.current.add(status.conversationId);
           const conversation = await api.joinChannelByInvite(token);
           setConversations((prev) => {
             const exists = prev.some((c) => c.id === conversation.id);
@@ -695,6 +759,7 @@ export function ChatPage() {
     if (!pendingChannelInvite) return;
     setInviteJoinBusy(true);
     try {
+      selfInitiatedConversationIdsRef.current.add(pendingChannelInvite.conversationId);
       const conversation = await api.joinChannelByInvite(pendingChannelInvite.token);
       setConversations((prev) => {
         const exists = prev.some((c) => c.id === conversation.id);
@@ -977,6 +1042,7 @@ export function ChatPage() {
         );
       });
       maybeShowMentionInAppNotification(msg, isActive, nearBottom);
+      maybeShowNewChatInAppNotification(msg, isActive);
       if (msg.senderId !== userIdRef.current && document.hidden) {
         const mentionedMe = msg.mentions?.some((mention) => mention.userId === userIdRef.current);
         const isActive =
@@ -1052,6 +1118,7 @@ export function ChatPage() {
     });
 
     const unsubConvCreated = realtime.onConversationCreated((conversation) => {
+      maybeShowConversationInAppNotification(conversation);
       applyConversationCreated(conversation);
     });
 
@@ -1081,14 +1148,16 @@ export function ChatPage() {
     clearPendingBelow,
     trackPendingBelow,
     maybeShowMentionInAppNotification,
+    maybeShowNewChatInAppNotification,
+    maybeShowConversationInAppNotification,
   ]);
 
   useEffect(() => {
     return () => {
-      for (const timer of mentionNotificationTimersRef.current.values()) {
+      for (const timer of inAppNotificationTimersRef.current.values()) {
         clearTimeout(timer);
       }
-      mentionNotificationTimersRef.current.clear();
+      inAppNotificationTimersRef.current.clear();
     };
   }, []);
 
@@ -1311,6 +1380,7 @@ export function ChatPage() {
 
   const handleGroupCreated = useCallback(
     (group: Conversation) => {
+      selfInitiatedConversationIdsRef.current.add(group.id);
       applyConversationCreated(group);
       openConversation(group.id, 'chats');
       setShowNewGroup(false);
@@ -1321,6 +1391,7 @@ export function ChatPage() {
   const createChannel = async () => {
     if (!channelName.trim()) return;
     const ch = await api.createChannel(channelName.trim());
+    selfInitiatedConversationIdsRef.current.add(ch.id);
     setConversations((prev) => reorderConversations([ch, ...prev]));
     openConversation(ch.id, 'channels');
     setShowNewChannel(false);
@@ -1341,6 +1412,7 @@ export function ChatPage() {
     }
 
     const dm = await api.createDirect(targetUser.id);
+    selfInitiatedConversationIdsRef.current.add(dm.id);
     setConversations((prev) => {
       const exists = prev.find((c) => c.id === dm.id);
       const next = exists ? prev : [dm, ...prev];
@@ -1991,10 +2063,10 @@ export function ChatPage() {
         />
       )}
 
-      <MentionInAppNotifications
-        items={mentionNotifications}
-        onDismiss={dismissMentionNotification}
-        onClick={goToMentionNotification}
+      <InAppNotifications
+        items={inAppNotifications}
+        onDismiss={dismissInAppNotification}
+        onClick={goToInAppNotification}
       />
     </div>
   );

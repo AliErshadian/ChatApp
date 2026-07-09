@@ -109,8 +109,8 @@ export class ConversationsService {
   }
 
   async createChannel(userId: string, dto: CreateChannelDto) {
-    return this.dataSource.transaction(async (manager) => {
-      const conversation = await manager.save(
+    const conversation = await this.dataSource.transaction(async (manager) => {
+      const created = await manager.save(
         manager.create(Conversation, {
           type: ConversationType.CHANNEL,
           name: dto.name.trim(),
@@ -122,22 +122,22 @@ export class ConversationsService {
       const memberIds = new Set([userId, ...(dto.memberIds ?? [])]);
       const members = [...memberIds].map((uid) =>
         manager.create(ConversationMember, {
-          conversationId: conversation.id,
+          conversationId: created.id,
           userId: uid,
           role: uid === userId ? MemberRole.OWNER : MemberRole.MEMBER,
         }),
       );
       await manager.save(members);
 
-      const full = await manager.findOne(Conversation, {
-        where: { id: conversation.id },
+      return manager.findOne(Conversation, {
+        where: { id: created.id },
         relations: ['members', 'members.user'],
       });
-
-      await this.ensureInvite(manager, conversation.id, userId);
-
-      return this.toConversationSummary(full!, userId);
     });
+
+    await this.ensureInvite(this.dataSource.manager, conversation!.id, userId);
+    await this.publishConversationCreated(conversation!.id);
+    return this.toConversationSummary(conversation!, userId);
   }
 
   async createGroup(userId: string, dto: CreateGroupDto) {
@@ -457,11 +457,13 @@ export class ConversationsService {
         }),
       );
 
-      const full = await manager.findOne(Conversation, {
+      return manager.findOne(Conversation, {
         where: { id: conversation.id },
         relations: ['members', 'members.user'],
       });
-      return this.toConversationSummary(full!, userId);
+    }).then(async (conversation) => {
+      await this.publishConversationCreated(conversation!.id);
+      return this.toConversationSummary(conversation!, userId);
     });
   }
 

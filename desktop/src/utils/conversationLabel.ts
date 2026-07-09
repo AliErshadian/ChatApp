@@ -15,3 +15,27 @@ export function getConversationMentionLabel(
   }
   return conversation.name;
 }
+
+export function getDirectPeerName(
+  conversation: Conversation | undefined,
+  currentUserId?: string,
+): string {
+  if (!conversation || !currentUserId) return 'Someone';
+  const peer = getDirectPeer(conversation, currentUserId);
+  return peer?.displayName ?? peer?.username ?? 'Someone';
+}
+
+export function buildMentionNotificationText(conversationLabel: string): string {
+  return `You were mentioned in ${conversationLabel}`;
+}
+
+export function buildNewChatNotificationText(peerName: string): string {
+  return `${peerName} started a chat with you`;
+}
+
+export function buildAddedToConversationText(conversation: Conversation): string {
+  if (conversation.type === 'channel') {
+    return `You were added to #${conversation.name}`;
+  }
+  return `You were added to ${conversation.name}`;
+}
