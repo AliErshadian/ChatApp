@@ -26,7 +26,7 @@ const EnvSchema = z
     JWT_REFRESH_SECRET: strongSecret('JWT_REFRESH_SECRET'),
     JWT_ACCESS_EXPIRES_IN: nonEmpty('JWT_ACCESS_EXPIRES_IN').default('15m'),
     JWT_REFRESH_EXPIRES_IN: nonEmpty('JWT_REFRESH_EXPIRES_IN').default('7d'),
-    CORS_ORIGIN: z.string().trim().default('*'),
+    CORS_ORIGIN: nonEmpty('CORS_ORIGIN'),
     RATE_LIMIT_TTL: z.coerce.number().int().min(1).default(60),
     RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(100),
     LOG_LEVEL: z.string().trim().optional(),
@@ -52,6 +52,14 @@ const EnvSchema = z
           code: z.ZodIssueCode.custom,
           path: ['CORS_ORIGIN'],
           message: 'CORS_ORIGIN must not be "*" in production',
+        });
+      }
+      const level = (env.LOG_LEVEL ?? '').toLowerCase();
+      if (level === 'debug' || level === 'trace') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['LOG_LEVEL'],
+          message: 'LOG_LEVEL must not be debug/trace in production',
         });
       }
     }

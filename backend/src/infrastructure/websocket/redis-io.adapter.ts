@@ -4,19 +4,7 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { createClient } from 'redis';
 import { ServerOptions } from 'socket.io';
-
-function parseCorsOrigin(value: string | undefined): string | string[] {
-  if (!value) return '*';
-  const trimmed = value.trim();
-  if (trimmed === '*') return '*';
-  if (trimmed.includes(',')) {
-    return trimmed
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }
-  return trimmed;
-}
+import { isOriginAllowed, parseCorsOriginList } from '../../config/cors';
 
 class ConfiguredIoAdapter extends IoAdapter {
   constructor(
@@ -27,7 +15,7 @@ class ConfiguredIoAdapter extends IoAdapter {
   }
 
   createIOServer(port: number, options?: ServerOptions) {
-    const origin = parseCorsOrigin(this.config.get<string>('CORS_ORIGIN', '*'));
+    const allowlist = parseCorsOriginList(this.config.get<string>('CORS_ORIGIN')!);
     const merged = {
       ...options,
       // Socket.IO types require `path` to be a string
@@ -37,7 +25,9 @@ class ConfiguredIoAdapter extends IoAdapter {
       cors: {
         // Let gateway-level metadata override if explicitly set,
         // otherwise fall back to environment-driven allowlist.
-        origin,
+        origin: (origin: string | undefined, callback: (err: Error | null, allowed?: boolean) => void) => {
+          callback(null, isOriginAllowed(origin, allowlist));
+        },
         credentials: true,
         ...(options?.cors as object),
       },

@@ -10,6 +10,7 @@ import { RequestIdMiddleware } from './observability/request-id.middleware';
 import { createHttpLogger } from './observability/logging';
 import { initSentry } from './observability/sentry';
 import { SentryExceptionFilter } from './observability/sentry-exception.filter';
+import { isOriginAllowed, parseCorsOriginList } from './config/cors';
 
 async function bootstrap() {
   initSentry();
@@ -27,8 +28,12 @@ async function bootstrap() {
       crossOriginResourcePolicy: { policy: 'cross-origin' },
     }),
   );
+
+  const corsAllowlist = parseCorsOriginList(config.get<string>('CORS_ORIGIN')!);
   app.enableCors({
-    origin: config.get<string>('CORS_ORIGIN', '*'),
+    origin: (origin, callback) => {
+      callback(null, isOriginAllowed(origin, corsAllowlist));
+    },
     credentials: true,
   });
   app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads' });

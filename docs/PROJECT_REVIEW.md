@@ -1,4 +1,4 @@
-# ChatApp — Project Review (2026-07-08)
+# ChatApp — Project Review (2026-07-09)
 
 This document summarizes the current codebase, highlights strengths and weaknesses, and proposes a prioritized improvement roadmap.
 
@@ -21,12 +21,7 @@ ChatApp/
 ├── docker-compose.prod.yml  # Prod-like stack (nginx + persistent uploads)
 └── .github/workflows/       # CI/CD (build, lint, docker publish)
 ```
-
-
-
 ## What’s implemented today
-
-
 
 ### Backend (NestJS)
 
@@ -53,10 +48,11 @@ ChatApp/
 ### Desktop (Electron + React)
 
 - Uses REST for CRUD and Socket.IO for realtime
-- Local token storage (access/refresh) in `localStorage`
+- Token storage:
+  - Refresh tokens live in Electron main process (`safeStorage` + encrypted file under `userData`)
+  - Renderer keeps a short-lived access token in memory
+  - Token refresh runs over a trusted IPC boundary (`auth:refresh`)
 - Presence/typing/receipts/reactions are wired via realtime events
-
-
 
 ## Pros (what’s good)
 
@@ -76,34 +72,26 @@ ChatApp/
   - CI/CD workflows exist and build/publish images
   - root scripts exist to run from repo root
 
-
-
 ## Cons / risks (what can bite you in production)
 
 
 
 ### Security & configuration
 
-
-
-### Recently addressed
+#### Recently addressed
 
 - **Realtime CORS** is now environment-driven via `CORS_ORIGIN` (Socket.IO adapter) instead of hardcoded `*`.
 - **Socket.IO transports** are now websocket-only on backend + desktop (no HTTP long-polling).
-- **Desktop token storage** moved out of `localStorage`:
-  - Refresh tokens live in Electron main process (`safeStorage` + encrypted file under `userData`)
-  - Renderer only keeps a short-lived access token in memory
-  - Token refresh runs over a trusted IPC boundary (`auth:refresh`)
 - **Secrets & config hardening**:
-  - Ensure strong secrets in deployment, add `.env` validation (e.g., zod/env-schema) so prod crashes fast on misconfig.
+  - Ensure strong secrets in deployment; add `.env` validation so prod fails fast on misconfig.
 - **Observability**:
   - Structured logging, request IDs, error logging (Sentry), basic metrics (prometheus) for websocket connections and message rate.
 - **Rate limiting for websocket actions**:
   - Token bucket (Redis) for events like `message:send`, `typing`, etc.
 - **Improve realtime fanout**:
   - Prefer room broadcasts; avoid per-member loops when possible; batch side-effects.
+- **Linting was missing initially** (now addressed)
 
-  
 #### Backend observability env vars
 
 These variables live in `backend/.env` (or injected by your deployment system).
@@ -128,24 +116,21 @@ These variables live in `backend/.env` (or injected by your deployment system).
   - Works for a single instance but is tricky with horizontal scaling.
   - The architecture doc mentions S3/MinIO “future”; it’s a good next step for production.
 
-
-
 ### DevEx / quality
 
-- **Linting was missing initially** (now addressed), but formatting and code quality standards could be expanded (prettier, consistent rules, CI gate).
 - **Dependency vulnerabilities**: `npm audit` reports high/moderate issues (common in JS ecosystems).
   - You’ll want a routine to track/patch (Dependabot + scheduled audit job).
 
-
-
 ## What should be improved (prioritized roadmap)
-
-
 
 ### P0 (must do before real production)
 
 - **Add automated tests**:
   - At minimum: auth flows, membership ACL, message send/edit/delete, refresh rotation.
+- **Define a DB migration strategy**:
+  - Move from “init.sql only” to a migration tool (TypeORM migrations, Flyway, Prisma Migrate, etc.).
+- **Harden deployment configuration**:
+  - Strict env validation; explicit CORS allowlist for REST + websocket; rotate secrets; disable debug logs in prod.
 
 
 
@@ -153,8 +138,8 @@ These variables live in `backend/.env` (or injected by your deployment system).
 ### P1 (high value next)
 
 - **Move uploads to object storage** (S3/MinIO) for horizontal scaling.
-- **Desktop token handling**:
-  - Keep tokens out of renderer storage; use Electron secure storage / main-process vault + IPC.
+- **Add API docs**:
+  - OpenAPI/Swagger for REST + a formal event schema doc for realtime.
 
 
 
@@ -162,10 +147,8 @@ These variables live in `backend/.env` (or injected by your deployment system).
 
 - **Release automation for desktop**:
   - GitHub Actions matrix build (win/linux/mac) with signed artifacts (where applicable).
-- **DB migration strategy**:
-  - Move from “init.sql only” to a migration tool (TypeORM migrations, Flyway, Prisma Migrate, etc.).
-- **API docs**:
-  - OpenAPI/Swagger for REST + a formal event schema doc for realtime.
+- **Realtime performance work**:
+  - Prefer room-based emits; measure message fanout cost; consider payload slimming and event batching.
 
 
 
