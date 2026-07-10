@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, AdminStats } from '../services/api';
 import { formatNumber, formatPercent, formatRelative } from '../utils/format';
 import { formatAuditAction, formatAuditDetails } from '../utils/auditLabels';
+import { StoragePanel } from '../components/StoragePanel';
 
 interface Props {
   onSelectUser?: (userId: string) => void;
@@ -189,6 +190,8 @@ export function DashboardPage({ onSelectUser, onOpenAudit }: Props) {
           </div>
         </div>
       </section>
+
+      <StoragePanel storage={stats.storage} />
     </div>
   );
 }

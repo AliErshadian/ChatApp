@@ -15,6 +15,7 @@ import { UpdateAdminUserDto } from './dto/admin.dto';
 import { AuditService, PaginatedAuditLogs, AuditLogSummary } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit-action';
 import { ConversationMember } from '../conversations/entities/conversation-member.entity';
+import { AdminStorageService, AdminStorageStats } from './admin-storage.service';
 
 export interface AdminStats {
   users: {
@@ -28,6 +29,7 @@ export interface AdminStats {
   messages: { total: number; last24h: number; last7d: number };
   sessions: { active: number };
   audit: { last24h: number };
+  storage: AdminStorageStats;
   recentActivity: AuditLogSummary[];
 }
 
@@ -75,6 +77,7 @@ export class AdminService {
     private readonly refreshTokenRepo: Repository<RefreshToken>,
     private readonly authService: AuthService,
     private readonly audit: AuditService,
+    private readonly storage: AdminStorageService,
   ) {}
 
   async getStats(): Promise<AdminStats> {
@@ -95,6 +98,7 @@ export class AdminService {
       messages7d,
       audit24h,
       recentActivity,
+      storageStats,
     ] = await Promise.all([
       this.userRepo.count(),
       this.userRepo.count({ where: { isActive: true } }),
@@ -120,6 +124,7 @@ export class AdminService {
         .list({ page: 1, limit: 1, from: since24h.toISOString() })
         .then((r) => r.total),
       this.audit.list({ page: 1, limit: 8 }).then((r) => r.items),
+      this.storage.getStorageStats(),
     ]);
 
     const activeSessions = await this.countActiveSessions();
@@ -145,6 +150,7 @@ export class AdminService {
       },
       sessions: { active: activeSessions },
       audit: { last24h: audit24h },
+      storage: storageStats,
       recentActivity,
     };
   }
@@ -321,6 +327,10 @@ export class AdminService {
     q?: string;
   }): Promise<PaginatedAuditLogs> {
     return this.audit.list(options);
+  }
+
+  getStorageStats(): Promise<AdminStorageStats> {
+    return this.storage.getStorageStats();
   }
 
   toAdminSummary(user: User): AdminUserSummary {

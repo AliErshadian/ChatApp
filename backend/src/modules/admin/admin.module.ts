@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AdminStorageService } from './admin-storage.service';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AdminGuard } from './guards/admin.guard';
@@ -24,6 +25,6 @@ import { Message } from '../messages/entities/message.entity';
     ]),
   ],
   controllers: [AdminController],
-  providers: [AdminService, AdminGuard],
+  providers: [AdminService, AdminGuard, AdminStorageService],
 })
 export class AdminModule {}

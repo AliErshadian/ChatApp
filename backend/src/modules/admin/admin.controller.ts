@@ -33,6 +33,11 @@ export class AdminController {
     return this.adminService.getStats();
   }
 
+  @Get('storage')
+  getStorage() {
+    return this.adminService.getStorageStats();
+  }
+
   @Get('users')
   listUsers(
     @Query('page') page?: string,

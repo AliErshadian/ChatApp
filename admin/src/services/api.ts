@@ -37,7 +37,26 @@ export interface AdminStats {
   messages: { total: number; last24h: number; last7d: number };
   sessions: { active: number };
   audit: { last24h: number };
+  storage: AdminStorageStats;
   recentActivity: AuditLogEntry[];
+}
+
+export interface AdminStorageStats {
+  totalBytes: number;
+  database: {
+    totalBytes: number;
+    tables: Array<{ name: string; bytes: number; approxRows: number }>;
+  };
+  files: {
+    totalBytes: number;
+    categories: Array<{ id: string; label: string; bytes: number; fileCount: number }>;
+  };
+  messages: {
+    textCount: number;
+    attachmentCount: number;
+    attachmentBytes: number;
+    byKind: Array<{ kind: string; label: string; count: number; bytes: number }>;
+  };
 }
 
 export interface PaginatedUsers {
@@ -226,6 +245,10 @@ class AdminApiClient {
 
   getStats() {
     return this.request<AdminStats>('/admin/stats');
+  }
+
+  getStorage() {
+    return this.request<AdminStorageStats>('/admin/storage');
   }
 
   listUsers(params: {

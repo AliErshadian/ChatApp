@@ -800,6 +800,78 @@ select {
   max-height: 200px;
 }
 
+.storage-panel .panel-intro {
+  margin: 0 0 1rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.storage-panel .panel-intro strong {
+  color: var(--text);
+}
+
+.storage-overview {
+  margin-bottom: 1.25rem;
+}
+
+.bar-db { background: #f59e0b; }
+.bar-files { background: #06b6d4; }
+.dot-db { background: #f59e0b; }
+.dot-files { background: #06b6d4; }
+
+.storage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+
+.storage-block-wide {
+  grid-column: 1 / -1;
+}
+
+.storage-block h3 {
+  margin: 0 0 0.65rem;
+  font-size: 0.95rem;
+}
+
+.mini-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.mini-table th,
+.mini-table td {
+  padding: 0.45rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.mini-table th {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.75rem;
+}
+
+.storage-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.inline-stats.compact {
+  margin-bottom: 0.75rem;
+}
+
+.inline-stats.compact > div strong {
+  font-size: 1rem;
+}
+
+.muted.small {
+  font-size: 0.8rem;
+  margin: 0 0 0.5rem;
+}
+
 @media (max-width: 768px) {
   .admin-shell {
     flex-direction: column;
