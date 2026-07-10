@@ -1,6 +1,6 @@
 # ChatApp — Enterprise Internal Messaging Platform
 
-Production-oriented MVP for a Slack-like internal chat system with cross-platform desktop client (Electron), browser dev client (Vite + React), modular NestJS backend, PostgreSQL persistence, and Redis-backed real-time scaling.
+Production-oriented MVP for a Slack-like internal chat system with cross-platform desktop client (Electron), browser dev client (Vite + React), **admin dashboard**, modular NestJS backend, PostgreSQL persistence, and Redis-backed real-time scaling.
 
 ## Quick Start (Docker Compose)
 
@@ -104,7 +104,8 @@ ChatApp/
 │       │   ├── users/
 │       │   ├── contacts/
 │       │   ├── conversations/  # DMs, channels, groups, invites
-│       │   ├── messages/       # Text, attachments, mentions, reactions
+│       │   ├── messages/       # Text, attachments, mentions, reactions, search
+│       │   ├── admin/          # Admin-only REST (stats, users, storage)
 │       │   ├── presence/
 │       │   └── realtime/       # WebSocket gateway
 │       ├── infrastructure/
@@ -116,12 +117,12 @@ ChatApp/
 │   └── src/
 ├── admin/                      # Admin dashboard (Vite + React, port 5174)
 │   └── src/
-│       ├── pages/              # Dashboard, users, audit log
+│       ├── pages/              # Dashboard, users, user detail, audit log
 │       ├── services/           # Admin API client
 │       └── components/
 ├── infra/postgres/
 │   ├── init.sql                # Full schema for new databases
-│   └── migrations/             # Incremental SQL migrations (001–017+)
+│   └── migrations/             # Incremental SQL migrations (001–019+)
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── PROJECT_REVIEW.md
@@ -149,16 +150,19 @@ Base URL: `http://localhost:3000/api/v1`
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/admin/me` | Current admin profile |
-| GET | `/admin/stats` | Platform statistics |
-| GET | `/admin/users` | Paginated user list (`page`, `limit`, `q`, `isActive`) |
+| GET | `/admin/stats` | Platform statistics (users, messages, conversations, audit activity) |
+| GET | `/admin/storage` | Storage breakdown (DB tables, upload folders, message kinds) |
+| GET | `/admin/users` | Paginated user list (`page`, `limit`, `q`, `isActive`, `role`, `sort`) |
 | GET | `/admin/users/:id` | User detail |
 | PATCH | `/admin/users/:id` | Update `isActive`, `isAdmin` |
 | GET | `/admin/users/:id/sessions` | User's active sessions |
 | DELETE | `/admin/users/:id/sessions/:sessionId` | Force logout device |
 | DELETE | `/admin/users/:id/sessions` | Terminate all user sessions |
-| GET | `/admin/audit-logs` | Paginated audit trail (`page`, `limit`, `userId`, `category`, `action`, `q`) |
+| GET | `/admin/audit-logs` | Paginated audit trail (`page`, `limit`, `userId`, `category`, `action`, `from`, `to`, `q`) |
 
-The **Audit log** page records sign-in/out, messages, conversations, contacts, profile changes, and admin actions. Apply migration `019_audit_logs.sql` on existing databases.
+The **admin dashboard** (`admin/`, port 5174) includes Dashboard (stats + storage panel), Users (filters, detail, sessions), and Audit log (expandable rows, date/action filters).
+
+The **audit trail** records sign-in/out, messages, conversations, contacts, profile changes, and admin actions. Apply migration `019_audit_logs.sql` on existing databases.
 
 Access tokens include a `sid` claim (session id). Refresh tokens are SHA-256 hashed at rest and grouped by `session_family_id` / `user_sessions.id`.
 
@@ -173,9 +177,10 @@ Access tokens include a `sid` claim (session id). Refresh tokens are SHA-256 has
 | GET/POST | `/conversations/:id/messages` | History + send (REST); realtime preferred for send |
 | POST | `/conversations/:id/messages/attachment` | Upload file attachment |
 | PATCH/DELETE | `/conversations/:id/messages/:messageId` | Edit / delete message |
+| GET | `/messages/search` | Search message content (`q`, `limit`; min 2 chars) |
 | POST | `/conversations/:id/messages/:messageId/reactions` | Toggle reaction |
 | POST | `/contacts` | Add contact |
-| GET | `/users/search` | User search |
+| GET | `/users/search` | Partial user search (username, display name, email) |
 
 See controllers under `backend/src/modules/` for the full surface area (invites, avatars, pins, forwards, etc.).
 
@@ -210,6 +215,7 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 - In-app notifications: mentions, new DMs, added to group/channel, new device login
 - Read/delivered ticks, typing indicators, presence
 - Profile avatars, conversation pins, contact list
+- **Search**: sidebar filter (chats/groups/channels + message content); global search (`Ctrl+K` / `Cmd+K`); click result to jump and scroll to message
 - **Devices** (Profile → Devices): Telegram-style session list, terminate device, terminate all others
 - Electron: system tray, native notifications, encrypted refresh-token store, deep links (`chatapp://`)
 
@@ -236,7 +242,7 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 
 ## CI/CD
 
-- **CI**: backend lint/build, desktop lint/build, Docker image build on PRs and `main`
+- **CI**: backend lint/build, desktop lint/build, admin lint/build, Docker image build on PRs and `main`
 - **CD**: publishes backend image to GHCR on `main` and version tags (`vX.Y.Z`)
   - Image: `ghcr.io/<owner>/<repo>/backend`
 

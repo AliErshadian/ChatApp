@@ -4,9 +4,12 @@ This document summarizes the current codebase, highlights strengths and weakness
 
 ## Overview
 
-- **Product**: internal Slack-like chat (desktop + browser client + API)
+- **Product**: internal Slack-like chat (desktop + browser client + admin dashboard + API)
 - **Backend**: NestJS (REST + Socket.IO realtime), PostgreSQL, Redis (presence + Socket.IO adapter)
-- **Client**: Electron + React (Vite); same React app runs in the browser for development
+- **Clients**:
+  - **Desktop**: Electron + React (Vite)
+  - **Browser**: same React app for development (`localStorage` auth)
+  - **Admin**: separate Vite + React app (`admin/`, port 5174)
 - **Infra**: Docker Compose (Postgres/Redis/API), production-like compose with Nginx reverse proxy
 
 ## Repository structure (high level)
@@ -15,6 +18,7 @@ This document summarizes the current codebase, highlights strengths and weakness
 ChatApp/
 ├── backend/                 # NestJS API + realtime gateway
 ├── desktop/                 # Electron + React client
+├── admin/                   # Admin dashboard (Vite + React, port 5174)
 ├── infra/                   # Postgres init + migrations + nginx
 ├── docs/                    # Architecture + this review
 ├── docker-compose.yml       # Local dev stack
@@ -26,7 +30,7 @@ ChatApp/
 
 ### Backend (NestJS)
 
-- **Modules**: `auth`, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`
+- **Modules**: `auth`, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`, `audit`, `admin`
 - **Auth & sessions**:
   - JWT access tokens (15m) with `sid` session claim
   - Rotating refresh tokens (SHA-256 hashed, grouped by `session_family_id`)
@@ -39,6 +43,7 @@ ChatApp/
   - Edit, delete (me / everyone), replies, forwards, reactions
   - Attachments (multipart upload to local disk)
   - `@mentions` parsed server-side; stored in `message_mentions`
+  - **Content search**: `GET /messages/search` — ILIKE on content/caption/file name, membership-scoped
   - Read/delivered receipts via realtime + `message_deliveries`
   - `sanitize-html` on text content
 - **Conversations**:
@@ -48,6 +53,14 @@ ChatApp/
   - Socket.IO `/realtime`, websocket-only transport
   - Redis adapter when Redis is available
   - Room-based fanout (`conversation:`, `user:`, `session:`)
+- **Audit** (`audit` module, global):
+  - Append-only `audit_logs` table (migration `019`)
+  - Records auth, messages, conversations, contacts, profile, and admin actions
+  - `GET /admin/audit-logs` with filters (user, action, category, date range, text)
+- **Admin** (`admin` module):
+  - `AdminGuard` — requires `users.is_admin` (migration `018`)
+  - Dashboard stats, user list/detail, session management
+  - Storage metrics: DB table sizes, upload folders, message kind breakdown
 - **Observability**:
   - `pino-http` structured logging + request IDs
   - Sentry integration + global exception filter (returns JSON to client)
@@ -55,8 +68,16 @@ ChatApp/
   - `GET /api/v1/health`
 - **DB**:
   - `infra/postgres/init.sql` for new databases
-  - Incremental SQL migrations in `infra/postgres/migrations/` (001–017+)
+  - Incremental SQL migrations in `infra/postgres/migrations/` (001–019+)
   - **Gap**: migrations are manual SQL files, not applied automatically by the app
+
+### Admin client (`admin/`)
+
+- Separate Vite + React app on port **5174** (`npm run dev:admin`, `npm run dev:all`)
+- Own auth flow; uses admin JWT against `/api/v1/admin/*`
+- **Dashboard**: platform stats, recent activity chart, storage panel
+- **Users**: role/status filters, sort, pagination; user detail with counts and sessions
+- **Audit log**: expandable rows, date presets, action filter, metadata copy
 
 ### Desktop / Browser client
 
@@ -68,9 +89,13 @@ ChatApp/
   - Mentions autocomplete + highlighted mention text
   - In-app toast notifications (mentions, new DM, added to group/channel, new device login)
   - Profile, contacts, conversation info, forward modal, attachment viewers
+  - **Search**:
+    - Sidebar: split panel (conversations on top, message content hits below)
+    - Global: `Ctrl+K` / `Cmd+K` modal (chats, channels, people, messages)
+    - Click message result → open chat, paginate history if needed, scroll + highlight
   - **Devices panel**: list sessions, terminate, terminate all others
   - User-friendly auth error messages on login/register
-- **Lint**: ESLint configured for backend and desktop; runs in CI
+- **Lint**: ESLint configured for backend, desktop, and admin; runs in CI
 
 ## Pros (what’s good)
 
@@ -81,7 +106,9 @@ ChatApp/
   - WS auth on connect; session checked on each API use
   - DTO validation, throttling on auth, message sanitization
 - **Thoughtful schema** — message ordering, dedup indexes, membership constraints, session tables
-- **Dev ergonomics** — root `npm run dev`, compose stack, CI/CD, dual client targets (Electron + browser)
+- **Dev ergonomics** — root `npm run dev`, `dev:all` (backend + desktop + admin), compose stack, CI/CD
+- **Admin & audit** — separate admin app, storage visibility, append-only audit trail
+- **Search UX** — unified conversation + message content search with jump-to-message
 - **Session management** — practical Telegram-style device list with push logout
 
 ## Cons / risks (what can bite you in production)
@@ -97,6 +124,7 @@ ChatApp/
 
 - **No automated tests** — auth, ACL, messaging, and session flows are untested in CI
 - **Uploads on local disk** — breaks horizontal scaling; architecture assumes S3/MinIO later
+- **Message search at scale** — current `ILIKE` query is fine for MVP; consider full-text search (Postgres `tsvector` or external index) for large histories
 - **Some gateway paths** still use per-member emits where room broadcast would suffice — watch fanout cost in large channels
 - **Session DB check per request** — fine for MVP; consider Redis session cache at scale
 
@@ -107,12 +135,15 @@ ChatApp/
 
 ## Recently addressed (2026-07)
 
+- **Admin dashboard** — separate `admin/` app; user management, stats, storage panel
+- **Audit log** — `audit_logs` table, global `AuditModule`, admin audit page with filters
+- **Message content search** — `GET /messages/search`; sidebar split search + global search; jump-to-message with history pagination
 - Device session management (`user_sessions`, JWT `sid`, terminate + remote logout)
 - In-app notifications (mentions, new chats, group adds, new device login)
 - Browser auth persistence (`localStorage`) and LAN API URL resolution
 - Session reuse on same device (no duplicate sessions on restart)
 - Login error handling (friendly messages, no stuck loading on 401)
-- ESLint for backend and desktop
+- ESLint for backend, desktop, and admin
 - CORS / websocket transport hardening
 - Sentry + pino + basic Prometheus metrics
 
@@ -127,8 +158,10 @@ ChatApp/
 ### P1 (high value next)
 
 - **Object storage** for uploads/avatars (S3/MinIO + pre-signed URLs)
+- **Full-text message search** (Postgres FTS or Meilisearch) for large deployments
 - **OpenAPI** for REST + formal realtime event catalog
 - **Desktop release pipeline** (signed builds for Windows/Linux)
+- **Admin CI** — add `admin` lint/build to CI workflow
 
 ### P2 (polish and scale)
 
@@ -139,8 +172,8 @@ ChatApp/
 
 ## Suggested “definition of done” for production readiness
 
-- [ ] CI runs lint + build + **tests** (backend + desktop)
-- [x] CI runs lint + build today
+- [ ] CI runs lint + build + **tests** (backend + desktop + admin)
+- [x] CI runs lint + build today (backend + desktop)
 - [x] CD publishes backend Docker image
 - [x] WebSocket: CORS allowlist, websocket-only transport
 - [x] Secure token storage (Electron) + session revocation
