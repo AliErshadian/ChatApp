@@ -240,6 +240,7 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 6. Set `CORS_ORIGIN` to explicit client origins in production
 7. Enable structured logging (pino), Sentry (`SENTRY_DSN`), and metrics (Prometheus)
 8. Move uploads to object storage for multi-instance deployments (local disk today)
+9. Validate production env before deploy: `cd backend && npm run build && NODE_ENV=production npm run validate:env`
 
 ## CI/CD
 

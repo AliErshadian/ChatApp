@@ -139,6 +139,7 @@ ChatApp/
 - **Audit log** — `audit_logs` table, global `AuditModule`, admin audit page with filters
 - **Message content search** — `GET /messages/search`; sidebar split search + global search; jump-to-message with history pagination
 - **Postgres FTS for messages** — `search_vector` column, GIN index, trigger (migration `020`)
+- **Production env validation** — Zod checks for secrets, CORS, Redis, DB password, log level at startup
 - Device session management (`user_sessions`, JWT `sid`, terminate + remote logout)
 - In-app notifications (mentions, new chats, group adds, new device login)
 - Browser auth persistence (`localStorage`) and LAN API URL resolution
@@ -154,7 +155,6 @@ ChatApp/
 
 - **Automated tests**: auth + refresh rotation, membership ACL, message send/edit/delete, session revoke
 - **Migration runner**: apply `infra/postgres/migrations` automatically (Flyway, TypeORM migrations, or startup script)
-- **Env validation**: fail fast on missing/weak secrets in production
 
 ### P1 (high value next)
 
@@ -174,6 +174,7 @@ ChatApp/
 
 - [ ] CI runs lint + build + **tests** (backend + desktop + admin)
 - [x] CI runs lint + build today (backend + desktop)
+- [x] Production env validation (JWT secrets, CORS, Redis, DB password, log level)
 - [x] CD publishes backend Docker image
 - [x] WebSocket: CORS allowlist, websocket-only transport
 - [x] Secure token storage (Electron) + session revocation
