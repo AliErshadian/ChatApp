@@ -30,6 +30,7 @@ export interface SessionSummary {
   appName: string;
   deviceLabel: string;
   platform: string | null;
+  clientType: string | null;
   ipAddress: string | null;
   createdAt: string;
   lastActiveAt: string;
@@ -460,6 +461,7 @@ export class AuthService {
       appName: session.appName ?? this.inferAppName(session.clientType, session.deviceLabel),
       deviceLabel: session.deviceLabel,
       platform: session.platform ?? null,
+      clientType: session.clientType ?? null,
       ipAddress: session.ipAddress ?? null,
       createdAt: session.createdAt.toISOString(),
       lastActiveAt: session.lastActiveAt.toISOString(),

@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, MoreThan, Repository } from 'typeorm';
+import { IsNull, In, MoreThan, Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { UserSession } from '../auth/entities/user-session.entity';
 import { Conversation, ConversationType } from '../conversations/entities/conversation.entity';
@@ -12,14 +12,23 @@ import { Message } from '../messages/entities/message.entity';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { AuthService, SessionSummary } from '../auth/auth.service';
 import { UpdateAdminUserDto } from './dto/admin.dto';
-import { AuditService, PaginatedAuditLogs } from '../audit/audit.service';
+import { AuditService, PaginatedAuditLogs, AuditLogSummary } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit-action';
+import { ConversationMember } from '../conversations/entities/conversation-member.entity';
 
 export interface AdminStats {
-  users: { total: number; active: number; inactive: number; admins: number };
+  users: {
+    total: number;
+    active: number;
+    inactive: number;
+    admins: number;
+    newLast7d: number;
+  };
   conversations: { total: number; direct: number; channel: number; group: number };
-  messages: { total: number; last24h: number };
+  messages: { total: number; last24h: number; last7d: number };
   sessions: { active: number };
+  audit: { last24h: number };
+  recentActivity: AuditLogSummary[];
 }
 
 export interface AdminUserSummary {
@@ -32,10 +41,14 @@ export interface AdminUserSummary {
   isAdmin: boolean;
   createdAt: string;
   updatedAt: string;
+  activeSessionCount?: number;
 }
 
 export interface AdminUserDetail extends AdminUserSummary {
-  activeSessionCount: number;
+  messageCount: number;
+  conversationCount: number;
+  lastSeenAt: string | null;
+  recentActivity: AuditLogSummary[];
 }
 
 export interface PaginatedUsers {
@@ -56,6 +69,8 @@ export class AdminService {
     private readonly conversationRepo: Repository<Conversation>,
     @InjectRepository(Message)
     private readonly messageRepo: Repository<Message>,
+    @InjectRepository(ConversationMember)
+    private readonly memberRepo: Repository<ConversationMember>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepo: Repository<RefreshToken>,
     private readonly authService: AuthService,
@@ -64,21 +79,30 @@ export class AdminService {
 
   async getStats(): Promise<AdminStats> {
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     const [
       totalUsers,
       activeUsers,
       adminUsers,
+      newUsers7d,
       totalConversations,
       directCount,
       channelCount,
       groupCount,
       totalMessages,
       messages24h,
+      messages7d,
+      audit24h,
+      recentActivity,
     ] = await Promise.all([
       this.userRepo.count(),
       this.userRepo.count({ where: { isActive: true } }),
       this.userRepo.count({ where: { isAdmin: true } }),
+      this.userRepo
+        .createQueryBuilder('user')
+        .where('user.createdAt >= :since', { since: since7d })
+        .getCount(),
       this.conversationRepo.count(),
       this.conversationRepo.count({ where: { type: ConversationType.DIRECT } }),
       this.conversationRepo.count({ where: { type: ConversationType.CHANNEL } }),
@@ -86,8 +110,16 @@ export class AdminService {
       this.messageRepo.count(),
       this.messageRepo
         .createQueryBuilder('m')
-        .where('m.created_at >= :since', { since: since24h })
+        .where('m.createdAt >= :since', { since: since24h })
         .getCount(),
+      this.messageRepo
+        .createQueryBuilder('m')
+        .where('m.createdAt >= :since', { since: since7d })
+        .getCount(),
+      this.audit
+        .list({ page: 1, limit: 1, from: since24h.toISOString() })
+        .then((r) => r.total),
+      this.audit.list({ page: 1, limit: 8 }).then((r) => r.items),
     ]);
 
     const activeSessions = await this.countActiveSessions();
@@ -98,6 +130,7 @@ export class AdminService {
         active: activeUsers,
         inactive: totalUsers - activeUsers,
         admins: adminUsers,
+        newLast7d: newUsers7d,
       },
       conversations: {
         total: totalConversations,
@@ -108,8 +141,11 @@ export class AdminService {
       messages: {
         total: totalMessages,
         last24h: messages24h,
+        last7d: messages7d,
       },
       sessions: { active: activeSessions },
+      audit: { last24h: audit24h },
+      recentActivity,
     };
   }
 
@@ -118,29 +154,51 @@ export class AdminService {
     limit?: number;
     q?: string;
     isActive?: boolean;
+    isAdmin?: boolean;
+    sortBy?: 'createdAt' | 'displayName' | 'email' | 'updatedAt';
+    sortDir?: 'asc' | 'desc';
   }): Promise<PaginatedUsers> {
     const page = Math.max(1, options.page ?? 1);
     const limit = Math.min(100, Math.max(1, options.limit ?? 20));
     const skip = (page - 1) * limit;
+    const sortBy = options.sortBy ?? 'createdAt';
+    const sortDir = (options.sortDir ?? 'desc').toUpperCase() as 'ASC' | 'DESC';
 
-    const qb = this.userRepo.createQueryBuilder('user').orderBy('user.created_at', 'DESC');
+    const sortColumn: Record<string, string> = {
+      createdAt: 'user.createdAt',
+      updatedAt: 'user.updatedAt',
+      displayName: 'user.displayName',
+      email: 'user.email',
+    };
+
+    const qb = this.userRepo
+      .createQueryBuilder('user')
+      .orderBy(sortColumn[sortBy] ?? 'user.createdAt', sortDir);
 
     if (options.q?.trim()) {
       const q = `%${options.q.trim().toLowerCase()}%`;
       qb.andWhere(
-        '(LOWER(user.email) LIKE :q OR LOWER(user.username) LIKE :q OR LOWER(user.display_name) LIKE :q)',
+        '(LOWER(user.email) LIKE :q OR LOWER(user.username) LIKE :q OR LOWER(user.displayName) LIKE :q)',
         { q },
       );
     }
 
     if (options.isActive !== undefined) {
-      qb.andWhere('user.is_active = :isActive', { isActive: options.isActive });
+      qb.andWhere('user.isActive = :isActive', { isActive: options.isActive });
+    }
+
+    if (options.isAdmin !== undefined) {
+      qb.andWhere('user.isAdmin = :isAdmin', { isAdmin: options.isAdmin });
     }
 
     const [users, total] = await qb.skip(skip).take(limit).getManyAndCount();
+    const sessionCounts = await this.countActiveSessionsForUsers(users.map((u) => u.id));
 
     return {
-      items: users.map((user) => this.toAdminSummary(user)),
+      items: users.map((user) => ({
+        ...this.toAdminSummary(user),
+        activeSessionCount: sessionCounts.get(user.id) ?? 0,
+      })),
       total,
       page,
       limit,
@@ -151,11 +209,28 @@ export class AdminService {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    const sessions = await this.authService.listSessions(userId);
+    const [sessions, messageCount, conversationCount, lastSeenAt, recentActivity] =
+      await Promise.all([
+        this.authService.listSessions(userId),
+        this.messageRepo.count({ where: { senderId: userId } }),
+        this.memberRepo.count({ where: { userId } }),
+        this.sessionRepo
+          .createQueryBuilder('s')
+          .select('MAX(s.lastActiveAt)', 'lastSeen')
+          .where('s.userId = :userId', { userId })
+          .andWhere('s.revokedAt IS NULL')
+          .getRawOne<{ lastSeen: Date | null }>()
+          .then((row) => row?.lastSeen?.toISOString() ?? null),
+        this.audit.list({ page: 1, limit: 10, userId }).then((r) => r.items),
+      ]);
 
     return {
       ...this.toAdminSummary(user),
       activeSessionCount: sessions.length,
+      messageCount,
+      conversationCount,
+      lastSeenAt,
+      recentActivity,
     };
   }
 
@@ -260,6 +335,35 @@ export class AdminService {
       createdAt: user.createdAt.toISOString(),
       updatedAt: user.updatedAt.toISOString(),
     };
+  }
+
+  private async countActiveSessionsForUsers(userIds: string[]): Promise<Map<string, number>> {
+    const map = new Map<string, number>();
+    if (userIds.length === 0) return map;
+
+    for (const userId of userIds) {
+      map.set(userId, 0);
+    }
+
+    const sessions = await this.sessionRepo.find({
+      where: { userId: In(userIds), revokedAt: IsNull() },
+    });
+
+    for (const session of sessions) {
+      const hasToken = await this.refreshTokenRepo.exist({
+        where: {
+          userId: session.userId,
+          sessionFamilyId: session.id,
+          revokedAt: IsNull(),
+          expiresAt: MoreThan(new Date()),
+        },
+      });
+      if (hasToken) {
+        map.set(session.userId, (map.get(session.userId) ?? 0) + 1);
+      }
+    }
+
+    return map;
   }
 
   private async countActiveSessions(): Promise<number> {

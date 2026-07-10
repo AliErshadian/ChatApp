@@ -30,6 +30,31 @@ const ACTION_LABELS: Record<string, string> = {
   'admin.session_revoke_all': 'Admin revoked all sessions',
 };
 
+export const AUDIT_ACTIONS = Object.entries(ACTION_LABELS).map(([value, label]) => ({
+  value,
+  label,
+}));
+
+export const AUDIT_DATE_PRESETS = [
+  { value: '', label: 'All time' },
+  { value: '24h', label: 'Last 24 hours' },
+  { value: '7d', label: 'Last 7 days' },
+  { value: '30d', label: 'Last 30 days' },
+] as const;
+
+export function auditDateRange(preset: string): { from?: string; to?: string } {
+  if (!preset) return {};
+  const now = Date.now();
+  const offsets: Record<string, number> = {
+    '24h': 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+    '30d': 30 * 24 * 60 * 60 * 1000,
+  };
+  const ms = offsets[preset];
+  if (!ms) return {};
+  return { from: new Date(now - ms).toISOString() };
+}
+
 export const AUDIT_CATEGORIES = [
   { value: '', label: 'All categories' },
   { value: 'auth', label: 'Authentication' },
@@ -68,6 +93,18 @@ export function formatAuditDetails(metadata: Record<string, unknown>): string {
   if (typeof metadata.forwardedCount === 'number') {
     parts.push(`${metadata.forwardedCount} destination(s)`);
   }
+  if (typeof metadata.deviceLabel === 'string') parts.push(metadata.deviceLabel);
+  if (typeof metadata.appName === 'string') parts.push(metadata.appName);
+  if (typeof metadata.contentType === 'string') parts.push(metadata.contentType);
+  if (typeof metadata.peerUserId === 'string') parts.push(`peer ${metadata.peerUserId.slice(0, 8)}…`);
+  if (typeof metadata.deletedMessageCount === 'number') {
+    parts.push(`${metadata.deletedMessageCount} message(s)`);
+  }
 
   return parts.join(' · ') || '—';
+}
+
+export function formatAuditMetadata(metadata: Record<string, unknown>): string {
+  if (!metadata || Object.keys(metadata).length === 0) return '{}';
+  return JSON.stringify(metadata, null, 2);
 }

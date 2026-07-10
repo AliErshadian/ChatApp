@@ -39,7 +39,9 @@ function AdminApp() {
 
   return (
     <AdminLayout page={page} onNavigate={navigate} onSelectUser={selectUser}>
-      {page === 'dashboard' && <DashboardPage />}
+      {page === 'dashboard' && (
+        <DashboardPage onSelectUser={selectUser} onOpenAudit={() => navigate('audit')} />
+      )}
       {page === 'users' && <UsersPage onSelectUser={selectUser} />}
       {page === 'user-detail' && selectedUserId && (
         <UserDetailPage

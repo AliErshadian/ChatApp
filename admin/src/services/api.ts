@@ -19,13 +19,25 @@ export interface AdminUser {
   createdAt: string;
   updatedAt: string;
   activeSessionCount?: number;
+  messageCount?: number;
+  conversationCount?: number;
+  lastSeenAt?: string | null;
+  recentActivity?: AuditLogEntry[];
 }
 
 export interface AdminStats {
-  users: { total: number; active: number; inactive: number; admins: number };
+  users: {
+    total: number;
+    active: number;
+    inactive: number;
+    admins: number;
+    newLast7d: number;
+  };
   conversations: { total: number; direct: number; channel: number; group: number };
-  messages: { total: number; last24h: number };
+  messages: { total: number; last24h: number; last7d: number };
   sessions: { active: number };
+  audit: { last24h: number };
+  recentActivity: AuditLogEntry[];
 }
 
 export interface PaginatedUsers {
@@ -40,6 +52,7 @@ export interface AdminSession {
   appName: string;
   deviceLabel: string;
   platform: string | null;
+  clientType: string | null;
   ipAddress: string | null;
   createdAt: string;
   lastActiveAt: string;
@@ -215,12 +228,23 @@ class AdminApiClient {
     return this.request<AdminStats>('/admin/stats');
   }
 
-  listUsers(params: { page?: number; limit?: number; q?: string; isActive?: boolean }) {
+  listUsers(params: {
+    page?: number;
+    limit?: number;
+    q?: string;
+    isActive?: boolean;
+    isAdmin?: boolean;
+    sortBy?: 'createdAt' | 'displayName' | 'email' | 'updatedAt';
+    sortDir?: 'asc' | 'desc';
+  }) {
     const qs = new URLSearchParams();
     if (params.page) qs.set('page', String(params.page));
     if (params.limit) qs.set('limit', String(params.limit));
     if (params.q) qs.set('q', params.q);
     if (params.isActive !== undefined) qs.set('isActive', String(params.isActive));
+    if (params.isAdmin !== undefined) qs.set('isAdmin', String(params.isAdmin));
+    if (params.sortBy) qs.set('sortBy', params.sortBy);
+    if (params.sortDir) qs.set('sortDir', params.sortDir);
     const query = qs.toString();
     return this.request<PaginatedUsers>(`/admin/users${query ? `?${query}` : ''}`);
   }

@@ -39,6 +39,9 @@ export class AdminController {
     @Query('limit') limit?: string,
     @Query('q') q?: string,
     @Query('isActive') isActive?: string,
+    @Query('isAdmin') isAdmin?: string,
+    @Query('sortBy') sortBy?: 'createdAt' | 'displayName' | 'email' | 'updatedAt',
+    @Query('sortDir') sortDir?: 'asc' | 'desc',
   ) {
     return this.adminService.listUsers({
       page: page ? parseInt(page, 10) : undefined,
@@ -46,6 +49,10 @@ export class AdminController {
       q,
       isActive:
         isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+      isAdmin:
+        isAdmin === 'true' ? true : isAdmin === 'false' ? false : undefined,
+      sortBy,
+      sortDir,
     });
   }
 
