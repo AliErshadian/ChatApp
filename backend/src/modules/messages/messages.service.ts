@@ -14,6 +14,7 @@ import { MessageUserHidden } from './entities/message-user-hidden.entity';
 import { MessageReaction } from './entities/message-reaction.entity';
 import { MessageMention } from './entities/message-mention.entity';
 import { ConversationMember } from '../conversations/entities/conversation-member.entity';
+import { ConversationType } from '../conversations/entities/conversation.entity';
 import { ConversationsService } from '../conversations/conversations.service';
 import { SanitizationService } from '../../common/services/sanitization.service';
 import { SendMessageDto } from './dto/message.dto';
@@ -1002,5 +1003,139 @@ export class MessagesService {
     const trimmed = content.trim();
     if (trimmed.length <= max) return trimmed;
     return `${trimmed.slice(0, max)}…`;
+  }
+
+  private escapeLikePattern(value: string): string {
+    return value.replace(/[%_\\]/g, '\\$&');
+  }
+
+  async searchMessages(userId: string, query: string, limit = 40) {
+    const q = query.trim();
+    if (q.length < 2) {
+      return { items: [], total: 0 };
+    }
+
+    const cappedLimit = Math.min(50, Math.max(1, limit));
+    const pattern = `%${this.escapeLikePattern(q)}%`;
+
+    const matched = await this.messageRepo
+      .createQueryBuilder('message')
+      .leftJoin(
+        MessageUserHidden,
+        'hidden',
+        'hidden.message_id = message.id AND hidden.user_id = :userId',
+        { userId },
+      )
+      .where('message.deletedAt IS NULL')
+      .andWhere('hidden.id IS NULL')
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM conversation_members cm
+          WHERE cm.conversation_id = message.conversation_id
+            AND cm.user_id = :userId
+        )`,
+        { userId },
+      )
+      .andWhere(
+        `NOT EXISTS (
+          SELECT 1 FROM conversation_user_hidden cuh
+          WHERE cuh.conversation_id = message.conversation_id
+            AND cuh.user_id = :userId
+        )`,
+        { userId },
+      )
+      .andWhere(
+        `(
+          message.content ILIKE :pattern ESCAPE '\\'
+          OR COALESCE(message.caption, '') ILIKE :pattern ESCAPE '\\'
+          OR COALESCE(message.file_name, '') ILIKE :pattern ESCAPE '\\'
+        )`,
+        { pattern },
+      )
+      .orderBy('message.createdAt', 'DESC')
+      .take(cappedLimit)
+      .getMany();
+
+    if (matched.length === 0) {
+      return { items: [], total: 0 };
+    }
+
+    const ids = matched.map((row) => row.id);
+    const rows = await this.messageRepo.find({
+      where: { id: In(ids) },
+      relations: ['conversation', 'sender'],
+    });
+    const rowsById = new Map(rows.map((row) => [row.id, row]));
+    const orderedRows = ids
+      .map((id) => rowsById.get(id))
+      .filter((row): row is Message => row != null);
+
+    const conversationIds = [...new Set(orderedRows.map((row) => row.conversationId))];
+    const memberships =
+      conversationIds.length > 0
+        ? await this.memberRepo.find({
+            where: { conversationId: In(conversationIds) },
+            relations: ['user'],
+          })
+        : [];
+
+    const membersByConversation = new Map<string, typeof memberships>();
+    for (const membership of memberships) {
+      const list = membersByConversation.get(membership.conversationId) ?? [];
+      list.push(membership);
+      membersByConversation.set(membership.conversationId, list);
+    }
+
+    const items = orderedRows.map((message) => {
+      const conversation = message.conversation;
+      const members = membersByConversation.get(message.conversationId) ?? [];
+      let conversationName = conversation?.name ?? 'Conversation';
+
+      if (conversation?.type === ConversationType.DIRECT) {
+        const peer = members.find((member) => member.userId !== userId)?.user;
+        conversationName = peer?.displayName ?? peer?.username ?? conversationName;
+      }
+
+      const previewSource = isTextContentType(message.contentType)
+        ? message.content
+        : message.caption || message.fileName || message.content;
+
+      return {
+        id: message.id,
+        conversationId: message.conversationId,
+        conversationType: conversation?.type ?? 'direct',
+        conversationName,
+        senderId: message.senderId,
+        senderDisplayName: message.sender?.displayName ?? 'Unknown',
+        senderUsername: message.sender?.username ?? '',
+        content: message.content,
+        contentType: message.contentType,
+        fileName: message.fileName,
+        caption: message.caption,
+        createdAt: message.createdAt.toISOString(),
+        snippet: this.buildSearchSnippet(previewSource, q),
+      };
+    });
+
+    return { items, total: items.length };
+  }
+
+  private buildSearchSnippet(text: string, query: string, radius = 48): string {
+    const source = text.replace(/\s+/g, ' ').trim();
+    if (!source) return '';
+
+    const lowerSource = source.toLowerCase();
+    const lowerQuery = query.toLowerCase();
+    const index = lowerSource.indexOf(lowerQuery);
+
+    if (index < 0) {
+      return source.length > radius * 2 ? `${source.slice(0, radius * 2)}…` : source;
+    }
+
+    const start = Math.max(0, index - radius);
+    const end = Math.min(source.length, index + lowerQuery.length + radius);
+    const prefix = start > 0 ? '…' : '';
+    const suffix = end < source.length ? '…' : '';
+    return `${prefix}${source.slice(start, end)}${suffix}`;
   }
 }

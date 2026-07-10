@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { Avatar } from './Avatar';
-import { api, Conversation, Message, MessageStatus, User, ConversationUpdatedEvent } from '../services/api';
+import { api, Conversation, Message, MessageSearchResult, MessageStatus, User, ConversationUpdatedEvent } from '../services/api';
 import { realtime } from '../services/realtime';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
@@ -15,6 +15,8 @@ import { ConversationListItem } from './ConversationListItem';
 import { NewGroupModal } from './NewGroupModal';
 import { AppNav } from './AppNav';
 import { ForwardDestinationModal } from './ForwardDestinationModal';
+import { GlobalSearchModal } from './GlobalSearchModal';
+import { SidebarSearchPanel } from './SidebarSearchPanel';
 import { MentionAutocomplete } from './MentionAutocomplete';
 import { InAppNotifications } from './InAppNotifications';
 import { bumpConversationFromMessage, reorderConversations } from '../utils/conversationList';
@@ -31,11 +33,12 @@ import { formatLastSeen } from '../utils/time';
 import { createClientMessageId } from '../utils/uuid';
 import { takePendingInviteToken } from '../utils/channelInvite';
 import { ATTACHMENT_ACCEPT, getMessagePreviewText } from '../utils/messageMedia';
-import { isMessagesNearBottom } from '../utils/messageScroll';
+import { isMessagesNearBottom, scrollToMessageById } from '../utils/messageScroll';
 import { getConversationMentionLabel, buildMentionNotificationText, buildNewChatNotificationText, buildAddedToConversationText } from '../utils/conversationLabel';
 import { isMessageInView } from '../utils/isMessageInView';
 import type { InAppNotification } from '../utils/inAppNotification';
 import { buildNewSessionNotificationText } from '../utils/sessionDisplay';
+import { filterConversationsBySearch, isSearchQueryActive } from '../utils/search';
 
 export function ChatPage() {
   const { user, logout } = useAuth();
@@ -55,6 +58,10 @@ export function ChatPage() {
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [sidebarList, setSidebarList] = useState<'chats' | 'channels'>('chats');
+  const [sidebarSearch, setSidebarSearch] = useState('');
+  const [messageSearchResults, setMessageSearchResults] = useState<MessageSearchResult[]>([]);
+  const [messageSearchLoading, setMessageSearchLoading] = useState(false);
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showContacts, setShowContacts] = useState(false);
   const [showNewChatPicker, setShowNewChatPicker] = useState(false);
@@ -100,6 +107,8 @@ export function ChatPage() {
   const selfInitiatedConversationIdsRef = useRef<Set<string>>(new Set());
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
 
   const isPanelOpenRef = useRef(false);
   activeIdRef.current = activeId;
@@ -389,8 +398,32 @@ export function ChatPage() {
   }, []);
 
   const scrollToMessage = useCallback((messageId: string) => {
-    document.getElementById(`msg-${messageId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    scrollToMessageById(messageId, { block: 'center', behavior: 'smooth' });
   }, []);
+
+  const loadMessagesUntilTarget = useCallback(
+    async (
+      conversationId: string,
+      targetMessageId?: string,
+      initialPage?: Awaited<ReturnType<typeof api.getMessages>>,
+    ) => {
+      const firstPage = initialPage ?? (await api.getMessages(conversationId));
+      let loadedMessages = firstPage.messages;
+      let cursor = firstPage.nextCursor ?? undefined;
+
+      if (targetMessageId && !loadedMessages.some((m) => m.id === targetMessageId) && cursor) {
+        for (let page = 0; page < 20 && cursor; page += 1) {
+          const res = await api.getMessages(conversationId, cursor);
+          loadedMessages = [...res.messages, ...loadedMessages];
+          if (res.messages.some((m) => m.id === targetMessageId)) break;
+          cursor = res.nextCursor ?? undefined;
+        }
+      }
+
+      return loadedMessages;
+    },
+    [],
+  );
 
   const startEditMessage = useCallback((messageId: string, content: string) => {
     cancelReplyMessage();
@@ -872,6 +905,17 @@ export function ChatPage() {
 
   const openChats = useCallback(() => switchSidebarList('chats'), [switchSidebarList]);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setShowGlobalSearch(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const openChannels = useCallback(() => switchSidebarList('channels'), [switchSidebarList]);
 
   const closeChatPanel = useCallback(() => {
@@ -977,22 +1021,45 @@ export function ChatPage() {
     setReplyingToMessage(null);
     setInput('');
 
-    api.getMessages(activeId).then((res) => {
-      const firstUnread = res.messages.find(
-        (m) =>
-          m.senderId !== userIdRef.current &&
-          (!lastReadAt || new Date(m.createdAt) > new Date(lastReadAt)),
-      );
+    api.getMessages(activeId).then(async (firstPage) => {
+      const mentionTarget =
+        scrollIntentRef.current?.kind === 'mention'
+          ? scrollIntentRef.current.messageId
+          : undefined;
 
-      scrollIntentRef.current = firstUnread
-        ? { kind: 'unread', messageId: firstUnread.id }
-        : { kind: 'bottom' };
+      let loadedMessages = firstPage.messages;
+      if (
+        mentionTarget &&
+        !loadedMessages.some((m) => m.id === mentionTarget) &&
+        firstPage.nextCursor
+      ) {
+        loadedMessages = await loadMessagesUntilTarget(activeId, mentionTarget, firstPage);
+      }
+
+      const firstUnread = mentionTarget
+        ? undefined
+        : loadedMessages.find(
+            (m) =>
+              m.senderId !== userIdRef.current &&
+              (!lastReadAt || new Date(m.createdAt) > new Date(lastReadAt)),
+          );
+
+      if (mentionTarget) {
+        scrollIntentRef.current = loadedMessages.some((m) => m.id === mentionTarget)
+          ? { kind: 'mention', messageId: mentionTarget }
+          : { kind: 'bottom' };
+      } else {
+        scrollIntentRef.current = firstUnread
+          ? { kind: 'unread', messageId: firstUnread.id }
+          : { kind: 'bottom' };
+      }
+
       setFirstUnreadMessageId(firstUnread?.id ?? null);
-      setMessages(res.messages);
-      activeChatMessageIdsRef.current = new Set(res.messages.map((message) => message.id));
+      setMessages(loadedMessages);
+      activeChatMessageIdsRef.current = new Set(loadedMessages.map((message) => message.id));
 
       requestAnimationFrame(() => {
-        res.messages.forEach((msg) => {
+        loadedMessages.forEach((msg) => {
           if (msg.senderId !== userIdRef.current) {
             realtime.markDelivered(msg.id);
             realtime.markRead(msg.id);
@@ -1001,7 +1068,7 @@ export function ChatPage() {
       });
     });
     return () => realtime.leaveConversation(activeId);
-  }, [activeId, isPanelOpen, clearPendingBelow]);
+  }, [activeId, isPanelOpen, clearPendingBelow, loadMessagesUntilTarget]);
 
   useEffect(() => {
     const container = messagesScrollRef.current;
@@ -1196,22 +1263,32 @@ export function ChatPage() {
   }, []);
 
   useEffect(() => {
-    if (scrollIntentRef.current) {
-      const intent = scrollIntentRef.current;
-      scrollIntentRef.current = null;
-      requestAnimationFrame(() => {
-        if (intent.kind === 'unread' && intent.messageId) {
-          document
-            .getElementById(`msg-${intent.messageId}`)
-            ?.scrollIntoView({ block: 'start', behavior: 'auto' });
-        } else if (intent.kind === 'mention' && intent.messageId) {
-          document
-            .getElementById(`msg-${intent.messageId}`)
-            ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        } else {
+    const intent = scrollIntentRef.current;
+    if (intent) {
+      if (intent.kind === 'unread' && intent.messageId) {
+        const messageId = intent.messageId;
+        scrollToMessageById(messageId, {
+          block: 'start',
+          behavior: 'auto',
+          onComplete: (scrolled) => {
+            if (scrolled) scrollIntentRef.current = null;
+          },
+        });
+      } else if (intent.kind === 'mention' && intent.messageId) {
+        const messageId = intent.messageId;
+        scrollToMessageById(messageId, {
+          block: 'center',
+          behavior: 'smooth',
+          onComplete: (scrolled) => {
+            if (scrolled) scrollIntentRef.current = null;
+          },
+        });
+      } else if (intent.kind === 'bottom') {
+        scrollIntentRef.current = null;
+        requestAnimationFrame(() => {
           messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
-        }
-      });
+        });
+      }
       return;
     }
 
@@ -1493,6 +1570,57 @@ export function ChatPage() {
   const sidebarConversations =
     sidebarList === 'channels' ? channelConversations : chatConversations;
 
+  const filteredSidebarConversations = useMemo(
+    () => filterConversationsBySearch(sidebarConversations, sidebarSearch, user?.id),
+    [sidebarConversations, sidebarSearch, user?.id],
+  );
+  const filteredOwnedChannels = useMemo(
+    () => filterConversationsBySearch(ownedChannels, sidebarSearch, user?.id),
+    [ownedChannels, sidebarSearch, user?.id],
+  );
+  const filteredJoinedChannels = useMemo(
+    () => filterConversationsBySearch(joinedChannels, sidebarSearch, user?.id),
+    [joinedChannels, sidebarSearch, user?.id],
+  );
+  const allSearchConversations = useMemo(
+    () => filterConversationsBySearch(conversations, sidebarSearch, user?.id),
+    [conversations, sidebarSearch, user?.id],
+  );
+  const sidebarSearchConversations = useMemo(() => {
+    const byId = new Map<string, Conversation>();
+    for (const conversation of allSearchConversations) {
+      byId.set(conversation.id, conversation);
+    }
+    for (const result of messageSearchResults) {
+      if (byId.has(result.conversationId)) continue;
+      const conversation = conversations.find((item) => item.id === result.conversationId);
+      if (conversation) byId.set(conversation.id, conversation);
+    }
+    return reorderConversations([...byId.values()]);
+  }, [allSearchConversations, messageSearchResults, conversations]);
+  const sidebarSearchActive = isSearchQueryActive(sidebarSearch);
+  const sidebarMessageSearchQuery = sidebarSearch.trim();
+
+  useEffect(() => {
+    const q = sidebarSearch.trim();
+    if (q.length < 2) {
+      setMessageSearchResults([]);
+      setMessageSearchLoading(false);
+      return;
+    }
+
+    setMessageSearchLoading(true);
+    const timer = window.setTimeout(() => {
+      api
+        .searchMessages(q, 40)
+        .then((res) => setMessageSearchResults(res.items))
+        .catch(() => setMessageSearchResults([]))
+        .finally(() => setMessageSearchLoading(false));
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [sidebarSearch]);
+
   const countUnreadConversations = useCallback(
     (list: Conversation[]) =>
       list.filter((c) => {
@@ -1606,6 +1734,51 @@ export function ChatPage() {
     );
   };
 
+  const getConversationSidebarActions = useCallback(
+    (conversation: Conversation) => ({
+      deleteBusy: deleteChatBusy,
+      onTogglePin: () => handleTogglePin(conversation.id, !!conversation.isPinned),
+      onDeleteChat: (scope: 'me' | 'everyone') => handleDeleteChat(conversation.id, scope),
+      onLeaveChannel:
+        conversation.type === 'channel' || conversation.type === 'group'
+          ? (newOwnerId?: string) => handleLeaveChannel(conversation.id, newOwnerId)
+          : undefined,
+    }),
+    [deleteChatBusy, handleDeleteChat, handleLeaveChannel, handleTogglePin],
+  );
+
+  const jumpToSearchMessage = useCallback(
+    async (conversationId: string, messageId: string, conversationType: Conversation['type']) => {
+      setSidebarSearch('');
+      setMessageSearchResults([]);
+      setShowGlobalSearch(false);
+      setMentionGlowIds(new Set([messageId]));
+
+      const preferredList = conversationType === 'channel' ? 'channels' : 'chats';
+      const isSameOpenChat =
+        conversationId === activeIdRef.current && isPanelOpenRef.current;
+
+      if (!isSameOpenChat) {
+        openConversation(conversationId, preferredList, { mentionMessageId: messageId });
+        return;
+      }
+
+      if (messagesRef.current.some((message) => message.id === messageId)) {
+        scrollIntentRef.current = { kind: 'mention', messageId };
+        scrollToMessage(messageId);
+        return;
+      }
+
+      const loadedMessages = await loadMessagesUntilTarget(conversationId, messageId);
+      activeChatMessageIdsRef.current = new Set(loadedMessages.map((message) => message.id));
+      scrollIntentRef.current = loadedMessages.some((message) => message.id === messageId)
+        ? { kind: 'mention', messageId }
+        : { kind: 'bottom' };
+      setMessages(loadedMessages);
+    },
+    [loadMessagesUntilTarget, openConversation, scrollToMessage],
+  );
+
   return (
     <div className={`chat-layout ${isPanelVisible ? 'panel-open' : ''}`}>
       {!isMobile && (
@@ -1628,7 +1801,36 @@ export function ChatPage() {
       <aside className="sidebar">
         <header className="sidebar-header">
           <h2>{sidebarList === 'channels' ? 'Channels' : 'Chats'}</h2>
+          <button
+            type="button"
+            className="icon-btn sidebar-search-btn"
+            onClick={() => setShowGlobalSearch(true)}
+            title="Search (Ctrl+K)"
+            aria-label="Search"
+          >
+            ⌕
+          </button>
         </header>
+
+        <div className="sidebar-search">
+          <input
+            type="search"
+            value={sidebarSearch}
+            onChange={(e) => setSidebarSearch(e.target.value)}
+            placeholder="Search chats, groups, channels, messages..."
+            aria-label="Search chats, groups, channels, and messages"
+          />
+          {sidebarSearchActive && (
+            <button
+              type="button"
+              className="sidebar-search-clear"
+              onClick={() => setSidebarSearch('')}
+              aria-label="Clear search"
+            >
+              ✕
+            </button>
+          )}
+        </div>
 
         <div className="sidebar-actions">
           {sidebarList === 'channels' ? (
@@ -1647,31 +1849,53 @@ export function ChatPage() {
           )}
         </div>
 
-        <div className="conversation-list">
-          {sidebarList === 'channels' ? (
+        <div className={`conversation-list${sidebarSearchActive ? ' conversation-list-search-mode' : ''}`}>
+          {sidebarSearchActive ? (
+            <SidebarSearchPanel
+              conversations={sidebarSearchConversations}
+              messageResults={messageSearchResults}
+              messageLoading={messageSearchLoading}
+              messageQuery={sidebarMessageSearchQuery}
+              currentUserId={user!.id}
+              activeConversationId={activeId}
+              onOpenConversation={(conversationId) => {
+                const conv = conversations.find((c) => c.id === conversationId);
+                openConversation(
+                  conversationId,
+                  conv?.type === 'channel' ? 'channels' : 'chats',
+                );
+              }}
+              onOpenMessage={jumpToSearchMessage}
+              renderConversationActions={getConversationSidebarActions}
+            />
+          ) : sidebarList === 'channels' ? (
             channelConversations.length === 0 ? (
               <div className="conversation-list-empty">
                 <p>No channels yet</p>
                 <span>Create a channel to get started</span>
               </div>
+            ) : filteredOwnedChannels.length === 0 && filteredJoinedChannels.length === 0 ? (
+              <div className="conversation-list-empty">
+                <p>No channels match your search</p>
+              </div>
             ) : (
               <>
-                {ownedChannels.length > 0 && (
+                {filteredOwnedChannels.length > 0 && (
                   <section className="conversation-list-section">
                     <div className="conversation-list-header">
                       <span>My Channels</span>
-                      <span className="conversation-count">{ownedChannels.length}</span>
+                      <span className="conversation-count">{filteredOwnedChannels.length}</span>
                     </div>
-                    {ownedChannels.map((c) => renderSidebarItem(c))}
+                    {filteredOwnedChannels.map((c) => renderSidebarItem(c))}
                   </section>
                 )}
-                {joinedChannels.length > 0 && (
+                {filteredJoinedChannels.length > 0 && (
                   <section className="conversation-list-section">
                     <div className="conversation-list-header">
                       <span>Joined</span>
-                      <span className="conversation-count">{joinedChannels.length}</span>
+                      <span className="conversation-count">{filteredJoinedChannels.length}</span>
                     </div>
-                    {joinedChannels.map((c) => renderSidebarItem(c))}
+                    {filteredJoinedChannels.map((c) => renderSidebarItem(c))}
                   </section>
                 )}
               </>
@@ -1681,13 +1905,17 @@ export function ChatPage() {
               <p>No conversations yet</p>
               <span>Use New Chat or New Group to start messaging</span>
             </div>
+          ) : filteredSidebarConversations.length === 0 ? (
+            <div className="conversation-list-empty">
+              <p>No chats match your search</p>
+            </div>
           ) : (
             <>
               <div className="conversation-list-header">
-                <span>Messages</span>
-                <span className="conversation-count">{sidebarConversations.length}</span>
+                <span>Chats</span>
+                <span className="conversation-count">{filteredSidebarConversations.length}</span>
               </div>
-              {sidebarConversations.map((c) => renderSidebarItem(c))}
+              {filteredSidebarConversations.map((c) => renderSidebarItem(c))}
             </>
           )}
         </div>
@@ -2094,6 +2322,20 @@ export function ChatPage() {
           sourceConversationId={activeId}
           onClose={() => setForwardingMessage(null)}
           onForward={handleForwardMessage}
+        />
+      )}
+
+      {user && (
+        <GlobalSearchModal
+          open={showGlobalSearch}
+          conversations={conversations}
+          currentUserId={user.id}
+          onClose={() => setShowGlobalSearch(false)}
+          onOpenConversation={(conversationId, preferredList) =>
+            openConversation(conversationId, preferredList)
+          }
+          onMessageUser={(targetUser) => void startDM(targetUser)}
+          onOpenMessage={jumpToSearchMessage}
         />
       )}
 

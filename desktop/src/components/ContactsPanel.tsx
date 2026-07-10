@@ -71,7 +71,7 @@ export function ContactsPanel({
     return searchQuery.trim().replace(/^@/, '');
   }, [searchQuery]);
 
-  const isValidUsernameQuery = /^[a-zA-Z0-9_]{3,64}$/.test(normalizedSearchUsername);
+  const isValidUsernameQuery = normalizedSearchUsername.length >= 2;
 
   useEffect(() => {
     if (!isValidUsernameQuery) {
@@ -146,13 +146,13 @@ export function ContactsPanel({
         <section className="contacts-search-section">
           <input
             className="contacts-search-input"
-            placeholder="Search by username..."
+            placeholder="Search by username or name..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
           {searching && <p className="contacts-hint">Searching...</p>}
           {!searching && isValidUsernameQuery && searchResults.length === 0 && (
-            <p className="contacts-hint">No user with that username</p>
+            <p className="contacts-hint">No users found</p>
           )}
           {searchResults.length > 0 && (
             <ul className="contacts-search-results">

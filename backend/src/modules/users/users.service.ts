@@ -54,16 +54,25 @@ export class UsersService {
       .getOne();
   }
 
-  searchByUsername(username: string) {
-    const normalized = username.trim().replace(/^@/, '');
-    if (!normalized) {
+  searchUsers(query: string) {
+    const normalized = query.trim().replace(/^@/, '');
+    if (normalized.length < 2) {
       return Promise.resolve([]);
     }
+
+    const pattern = `%${normalized.toLowerCase()}%`;
 
     return this.userRepo
       .createQueryBuilder('user')
       .where('user.is_active = true')
-      .andWhere('LOWER(user.username) = LOWER(:username)', { username: normalized })
+      .andWhere(
+        `(LOWER(user.username) LIKE :pattern
+          OR LOWER(user.display_name) LIKE :pattern
+          OR LOWER(user.email) LIKE :pattern)`,
+        { pattern },
+      )
+      .orderBy('user.username', 'ASC')
+      .take(20)
       .getMany();
   }
 

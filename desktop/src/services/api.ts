@@ -70,6 +70,22 @@ export interface Conversation {
   };
 }
 
+export interface MessageSearchResult {
+  id: string;
+  conversationId: string;
+  conversationType: Conversation['type'];
+  conversationName: string;
+  senderId: string;
+  senderDisplayName: string;
+  senderUsername: string;
+  content: string;
+  contentType: string;
+  fileName?: string;
+  caption?: string;
+  createdAt: string;
+  snippet: string;
+}
+
 export interface ConversationUpdatedEvent {
   conversationId: string;
   type?: Conversation['type'];
@@ -801,6 +817,13 @@ class ApiClient {
 
   searchUsers(q: string) {
     return this.request<User[]>(`/users/search?q=${encodeURIComponent(q)}`);
+  }
+
+  searchMessages(q: string, limit = 40) {
+    const qs = new URLSearchParams({ q, limit: String(limit) });
+    return this.request<{ items: MessageSearchResult[]; total: number }>(
+      `/messages/search?${qs.toString()}`,
+    );
   }
 
   listContacts() {

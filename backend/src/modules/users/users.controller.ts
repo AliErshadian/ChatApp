@@ -68,7 +68,7 @@ export class UsersController {
 
   @Get('search')
   search(@Query('q') q: string, @CurrentUser() _user: User) {
-    return this.usersService.searchByUsername(q ?? '').then((users) =>
+    return this.usersService.searchUsers(q ?? '').then((users) =>
       users.map((u) => this.usersService.toPublic(u)),
     );
   }

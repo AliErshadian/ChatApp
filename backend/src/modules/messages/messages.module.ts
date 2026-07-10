@@ -9,6 +9,7 @@ import { MessageMention } from './entities/message-mention.entity';
 import { ConversationMember } from '../conversations/entities/conversation-member.entity';
 import { MessagesService } from './messages.service';
 import { MessagesController } from './messages.controller';
+import { MessagesSearchController } from './messages-search.controller';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { SanitizationService } from '../../common/services/sanitization.service';
 import { MessageRealtimePublisher } from './message-realtime.publisher';
@@ -26,7 +27,7 @@ import { MessageRealtimePublisher } from './message-realtime.publisher';
     ]),
     ConversationsModule,
   ],
-  controllers: [MessagesController],
+  controllers: [MessagesController, MessagesSearchController],
   providers: [MessagesService, SanitizationService, MessageRealtimePublisher],
   exports: [MessagesService, MessageRealtimePublisher],
 })
