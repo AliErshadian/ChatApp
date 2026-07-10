@@ -4,6 +4,8 @@ import { Repository } from 'typeorm';
 import { join, extname } from 'path';
 import { existsSync, unlinkSync, mkdirSync, renameSync } from 'fs';
 import { User } from './entities/user.entity';
+import { AuditService } from '../audit/audit.service';
+import { AuditAction } from '../audit/audit-action';
 
 export interface CreateUserInput {
   email: string;
@@ -20,6 +22,7 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    private readonly audit: AuditService,
   ) {
     if (!existsSync(AVATAR_DIR)) {
       mkdirSync(AVATAR_DIR, { recursive: true });
@@ -91,6 +94,13 @@ export class UsersService {
 
     user.avatarUrl = `/uploads/avatars/${filename}?v=${Date.now()}`;
     await this.userRepo.save(user);
+
+    this.audit.record({
+      action: AuditAction.USER_AVATAR_UPDATE,
+      userId,
+      resourceType: 'user',
+      resourceId: userId,
+    });
 
     return this.toPublic(user);
   }

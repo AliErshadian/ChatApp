@@ -20,6 +20,8 @@ import { SendMessageDto } from './dto/message.dto';
 import { validateMessageMediaFile, isTextContentType } from './message-media.util';
 import { resolveMentionUserIds } from './mention.util';
 import { MessageRealtimePublisher } from './message-realtime.publisher';
+import { AuditService } from '../audit/audit.service';
+import { AuditAction } from '../audit/audit-action';
 import { randomUUID } from 'crypto';
 import { join, extname } from 'path';
 import { existsSync, mkdirSync, renameSync, copyFileSync } from 'fs';
@@ -119,6 +121,7 @@ export class MessagesService {
     private readonly conversationsService: ConversationsService,
     private readonly sanitization: SanitizationService,
     private readonly messagePublisher: MessageRealtimePublisher,
+    private readonly audit: AuditService,
   ) {}
 
   async send(userId: string, dto: SendMessageDto): Promise<MessagePayload> {
@@ -163,6 +166,18 @@ export class MessagesService {
     const withSender = await this.messageRepo.findOne({
       where: { id: saved.id },
       relations: [...this.messageRelations],
+    });
+
+    this.audit.record({
+      action: AuditAction.MESSAGE_SEND,
+      userId,
+      resourceType: 'message',
+      resourceId: saved.id,
+      metadata: {
+        conversationId: dto.conversationId,
+        preview: this.auditPreview(content),
+        contentType: 'text',
+      },
     });
 
     return this.toPayload(withSender!, userId, 'sent');
@@ -247,6 +262,19 @@ export class MessagesService {
 
     const payload = this.toPayload(withSender!, userId, 'sent');
     await this.messagePublisher.publishNewMessage(payload, userId);
+
+    this.audit.record({
+      action: AuditAction.MESSAGE_SEND_ATTACHMENT,
+      userId,
+      resourceType: 'message',
+      resourceId: saved.id,
+      metadata: {
+        conversationId,
+        contentType: media.mimeType,
+        fileName: media.originalName,
+      },
+    });
+
     return payload;
   }
 
@@ -327,6 +355,18 @@ export class MessagesService {
       await this.messagePublisher.publishNewMessage(payload, userId);
       payloads.push(payload);
     }
+
+    this.audit.record({
+      action: AuditAction.MESSAGE_FORWARD,
+      userId,
+      resourceType: 'message',
+      resourceId: messageId,
+      metadata: {
+        sourceConversationId,
+        targetConversationIds: uniqueTargets,
+        forwardedCount: payloads.length,
+      },
+    });
 
     return { messages: payloads };
   }
@@ -488,6 +528,17 @@ export class MessagesService {
         : undefined;
     const reactions = await this.getReactionsForMessage(saved.id, userId);
 
+    this.audit.record({
+      action: AuditAction.MESSAGE_EDIT,
+      userId,
+      resourceType: 'message',
+      resourceId: saved.id,
+      metadata: {
+        conversationId: message.conversationId,
+        preview: this.auditPreview(sanitized),
+      },
+    });
+
     return this.toPayload(withRelations!, userId, status, reactions);
   }
 
@@ -514,6 +565,18 @@ export class MessagesService {
     }
 
     const reactions = await this.getReactionsForMessage(messageId, userId);
+
+    this.audit.record({
+      action: AuditAction.MESSAGE_REACTION,
+      userId,
+      resourceType: 'message',
+      resourceId: messageId,
+      metadata: {
+        conversationId: message.conversationId,
+        emoji: normalized,
+        removed: !!existing,
+      },
+    });
 
     return {
       messageId,
@@ -596,6 +659,13 @@ export class MessagesService {
       if (!existing) {
         await this.hiddenRepo.save({ messageId, userId });
       }
+      this.audit.record({
+        action: AuditAction.MESSAGE_DELETE,
+        userId,
+        resourceType: 'message',
+        resourceId: messageId,
+        metadata: { conversationId: message.conversationId, scope: 'me' },
+      });
       return { messageId, scope: 'me' };
     }
 
@@ -610,6 +680,14 @@ export class MessagesService {
     const saved = await this.messageRepo.save(message);
     const status = await this.computeStatus(saved.id, saved.senderId, saved.conversationId);
     const reactions = await this.getReactionsForMessage(saved.id, userId);
+
+    this.audit.record({
+      action: AuditAction.MESSAGE_DELETE,
+      userId,
+      resourceType: 'message',
+      resourceId: messageId,
+      metadata: { conversationId: message.conversationId, scope: 'everyone' },
+    });
 
     return {
       messageId,
@@ -918,5 +996,11 @@ export class MessagesService {
           }
         : undefined,
     };
+  }
+
+  private auditPreview(content: string, max = 120): string {
+    const trimmed = content.trim();
+    if (trimmed.length <= max) return trimmed;
+    return `${trimmed.slice(0, max)}…`;
   }
 }

@@ -8,6 +8,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserContact } from './entities/user-contact.entity';
 import { UsersService } from '../users/users.service';
+import { AuditService } from '../audit/audit.service';
+import { AuditAction } from '../audit/audit-action';
 
 @Injectable()
 export class ContactsService {
@@ -15,6 +17,7 @@ export class ContactsService {
     @InjectRepository(UserContact)
     private readonly contactRepo: Repository<UserContact>,
     private readonly usersService: UsersService,
+    private readonly audit: AuditService,
   ) {}
 
   async list(userId: string) {
@@ -51,6 +54,14 @@ export class ContactsService {
       this.contactRepo.create({ userId, contactUserId }),
     );
 
+    this.audit.record({
+      action: AuditAction.CONTACT_ADD,
+      userId,
+      resourceType: 'user',
+      resourceId: contactUserId,
+      metadata: { username: contactUser.username },
+    });
+
     return {
       ...this.usersService.toPublic(contactUser),
       addedAt: contact.createdAt,
@@ -62,6 +73,12 @@ export class ContactsService {
     if (!result.affected) {
       throw new NotFoundException('Contact not found');
     }
+    this.audit.record({
+      action: AuditAction.CONTACT_REMOVE,
+      userId,
+      resourceType: 'user',
+      resourceId: contactUserId,
+    });
     return { removed: true };
   }
 }

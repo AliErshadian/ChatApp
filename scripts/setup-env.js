@@ -7,6 +7,7 @@ const copies = [
   ['.env.example', '.env'],
   ['backend/.env.example', 'backend/.env'],
   ['desktop/.env.example', 'desktop/.env'],
+  ['admin/.env.example', 'admin/.env'],
 ];
 
 for (const [fromRel, toRel] of copies) {

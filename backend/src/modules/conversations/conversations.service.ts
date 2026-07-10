@@ -22,6 +22,8 @@ import { existsSync, mkdirSync, renameSync, unlinkSync } from 'fs';
 import { MessageUserHidden } from '../messages/entities/message-user-hidden.entity';
 import { CreateChannelDto, CreateGroupDto, CreateDirectDto } from './dto/conversation.dto';
 import { ConversationRealtimePublisher } from './conversation-realtime.publisher';
+import { AuditService } from '../audit/audit.service';
+import { AuditAction } from '../audit/audit-action';
 
 @Injectable()
 export class ConversationsService {
@@ -40,6 +42,7 @@ export class ConversationsService {
     private readonly messageRepo: Repository<Message>,
     private readonly dataSource: DataSource,
     private readonly conversationPublisher: ConversationRealtimePublisher,
+    private readonly audit: AuditService,
   ) {}
 
   async listForUser(userId: string) {
@@ -137,6 +140,13 @@ export class ConversationsService {
 
     await this.ensureInvite(this.dataSource.manager, conversation!.id, userId);
     await this.publishConversationCreated(conversation!.id);
+    this.audit.record({
+      action: AuditAction.CONVERSATION_CREATE_CHANNEL,
+      userId,
+      resourceType: 'conversation',
+      resourceId: conversation!.id,
+      metadata: { name: conversation!.name, memberCount: conversation!.members?.length ?? 0 },
+    });
     return this.toConversationSummary(conversation!, userId);
   }
 
@@ -173,6 +183,17 @@ export class ConversationsService {
     });
 
     await this.publishConversationCreated(conversation!.id);
+    this.audit.record({
+      action: AuditAction.CONVERSATION_CREATE_GROUP,
+      userId,
+      resourceType: 'conversation',
+      resourceId: conversation!.id,
+      metadata: {
+        name: conversation!.name,
+        isPublic: conversation!.isPublic,
+        memberCount: conversation!.members?.length ?? 0,
+      },
+    });
     return this.toConversationSummary(conversation!, userId);
   }
 
@@ -311,6 +332,14 @@ export class ConversationsService {
     await this.tryRestoreOrphanedOwner(conversationId, userId);
     await this.publishConversationCreated(conversationId);
 
+    this.audit.record({
+      action: AuditAction.CONVERSATION_JOIN_INVITE,
+      userId,
+      resourceType: 'conversation',
+      resourceId: conversationId,
+      metadata: { type: invite.conversation.type, name: invite.conversation.name },
+    });
+
     return this.getById(conversationId, userId);
   }
 
@@ -410,6 +439,13 @@ export class ConversationsService {
     await this.conversationRepo.save(conversation);
     await this.publishConversationUpdate(conversationId);
 
+    this.audit.record({
+      action: AuditAction.CONVERSATION_AVATAR_UPDATE,
+      userId,
+      resourceType: 'conversation',
+      resourceId: conversationId,
+    });
+
     return {
       id: conversation.id,
       avatarUrl: conversation.avatarUrl,
@@ -463,6 +499,13 @@ export class ConversationsService {
       });
     }).then(async (conversation) => {
       await this.publishConversationCreated(conversation!.id);
+      this.audit.record({
+        action: AuditAction.CONVERSATION_CREATE_DIRECT,
+        userId,
+        resourceType: 'conversation',
+        resourceId: conversation!.id,
+        metadata: { peerUserId: dto.userId },
+      });
       return this.toConversationSummary(conversation!, userId);
     });
   }
@@ -508,6 +551,14 @@ export class ConversationsService {
     await this.hideConversation(conversationId, userId);
     await this.publishConversationUpdate(conversationId);
 
+    this.audit.record({
+      action: AuditAction.CONVERSATION_LEAVE,
+      userId,
+      resourceType: 'conversation',
+      resourceId: conversationId,
+      metadata: { type: conversation.type, newOwnerId: newOwnerId ?? null },
+    });
+
     return { conversationId, newOwnerId: newOwnerId ?? null };
   }
 
@@ -546,6 +597,14 @@ export class ConversationsService {
 
     await this.hideAllMessagesForUser(conversationId, userId);
     await this.hideConversation(conversationId, userId);
+
+    this.audit.record({
+      action: AuditAction.CONVERSATION_DELETE,
+      userId,
+      resourceType: 'conversation',
+      resourceId: conversationId,
+      metadata: { scope, deletedMessageCount: deletedMessageIds.length },
+    });
 
     return { conversationId, scope, deletedMessageIds };
   }
@@ -627,6 +686,13 @@ export class ConversationsService {
     await this.publishConversationUpdate(conversationId);
     if (toAdd.length > 0) {
       await this.publishConversationCreated(conversationId);
+      this.audit.record({
+        action: AuditAction.CONVERSATION_ADD_MEMBERS,
+        userId: actorId,
+        resourceType: 'conversation',
+        resourceId: conversationId,
+        metadata: { addedUserIds: toAdd },
+      });
     }
     return { added: toAdd };
   }
@@ -660,6 +726,14 @@ export class ConversationsService {
     await this.hideConversation(conversationId, targetUserId);
     await this.publishConversationUpdate(conversationId);
     await this.conversationPublisher.publishMemberRemoved(conversationId, targetUserId);
+
+    this.audit.record({
+      action: AuditAction.CONVERSATION_REMOVE_MEMBER,
+      userId: actorId,
+      resourceType: 'conversation',
+      resourceId: conversationId,
+      metadata: { removedUserId: targetUserId },
+    });
 
     return { conversationId, removedUserId: targetUserId };
   }
@@ -844,6 +918,12 @@ export class ConversationsService {
       { conversationId, userId },
       { pinnedAt: pinned ? new Date() : null },
     );
+    this.audit.record({
+      action: pinned ? AuditAction.CONVERSATION_PIN : AuditAction.CONVERSATION_UNPIN,
+      userId,
+      resourceType: 'conversation',
+      resourceId: conversationId,
+    });
     return this.getById(conversationId, userId);
   }
 

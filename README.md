@@ -47,7 +47,31 @@ npm run dev
 # Or run them separately (still from root)
 npm run dev:backend
 npm run dev:desktop
+npm run dev:admin      # Admin dashboard only (http://localhost:5174)
+npm run dev:all        # Backend + desktop + admin together
 ```
+
+### Admin dashboard
+
+Separate web app in `admin/` (port **5174**). Uses the same API with admin-only routes under `/api/v1/admin/*`.
+
+1. Apply migrations if your DB already exists:
+   - `infra/postgres/migrations/018_admin_users.sql`
+   - `infra/postgres/migrations/019_audit_logs.sql`
+2. Promote an admin user in Postgres:
+
+```sql
+UPDATE users SET is_admin = TRUE WHERE email = 'your@email.com';
+```
+
+3. Start API + admin:
+
+```bash
+npm run dev:backend
+npm run dev:admin
+```
+
+Open http://localhost:5174 and sign in with the admin account.
 
 **Browser-only client** (no Electron): start the API, then from `desktop/` run `npm run dev` and open `http://localhost:5173`. Auth persists in `localStorage`. The client auto-targets the API on port 3000; when opened via a LAN IP (Vite `host: true`), API/WebSocket URLs follow the same host.
 
@@ -76,6 +100,7 @@ ChatApp/
 │   └── src/
 │       ├── modules/
 │       │   ├── auth/           # JWT, refresh rotation, device sessions
+│       │   ├── audit/          # User behavior audit trail
 │       │   ├── users/
 │       │   ├── contacts/
 │       │   ├── conversations/  # DMs, channels, groups, invites
@@ -89,10 +114,11 @@ ChatApp/
 ├── desktop/                    # Electron + React client
 │   ├── electron/               # Main process, tray, secure auth store
 │   └── src/
-│       ├── components/         # Chat UI, profile, sessions, notifications
-│       ├── context/
-│       ├── services/           # REST + Socket.IO clients
-│       └── utils/
+├── admin/                      # Admin dashboard (Vite + React, port 5174)
+│   └── src/
+│       ├── pages/              # Dashboard, users, audit log
+│       ├── services/           # Admin API client
+│       └── components/
 ├── infra/postgres/
 │   ├── init.sql                # Full schema for new databases
 │   └── migrations/             # Incremental SQL migrations (001–017+)
@@ -117,6 +143,22 @@ Base URL: `http://localhost:3000/api/v1`
 | GET | `/auth/sessions` | List active devices/sessions |
 | DELETE | `/auth/sessions/:sessionId` | Terminate a session (remote logout) |
 | DELETE | `/auth/sessions/others?except=:sessionId` | Terminate all other sessions |
+
+### Admin (`/admin/*`, requires `is_admin`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/admin/me` | Current admin profile |
+| GET | `/admin/stats` | Platform statistics |
+| GET | `/admin/users` | Paginated user list (`page`, `limit`, `q`, `isActive`) |
+| GET | `/admin/users/:id` | User detail |
+| PATCH | `/admin/users/:id` | Update `isActive`, `isAdmin` |
+| GET | `/admin/users/:id/sessions` | User's active sessions |
+| DELETE | `/admin/users/:id/sessions/:sessionId` | Force logout device |
+| DELETE | `/admin/users/:id/sessions` | Terminate all user sessions |
+| GET | `/admin/audit-logs` | Paginated audit trail (`page`, `limit`, `userId`, `category`, `action`, `q`) |
+
+The **Audit log** page records sign-in/out, messages, conversations, contacts, profile changes, and admin actions. Apply migration `019_audit_logs.sql` on existing databases.
 
 Access tokens include a `sid` claim (session id). Refresh tokens are SHA-256 hashed at rest and grouped by `session_family_id` / `user_sessions.id`.
 

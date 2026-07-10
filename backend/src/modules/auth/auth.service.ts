@@ -15,6 +15,8 @@ import { RefreshToken } from './entities/refresh-token.entity';
 import { UserSession } from './entities/user-session.entity';
 import { SessionRealtimePublisher } from './session-realtime.publisher';
 import { LoginDto, RegisterDto, SessionClientInfoDto } from './dto/auth.dto';
+import { AuditService } from '../audit/audit.service';
+import { AuditAction } from '../audit/audit-action';
 
 export interface TokenPair {
   accessToken: string;
@@ -55,6 +57,7 @@ export class AuthService {
     @InjectRepository(UserSession)
     private readonly sessionRepo: Repository<UserSession>,
     private readonly sessionRealtime: SessionRealtimePublisher,
+    private readonly audit: AuditService,
   ) {}
 
   async register(dto: RegisterDto, ipAddress?: string) {
@@ -76,21 +79,53 @@ export class AuthService {
       ...this.clientInfoToOptions(dto.clientInfo),
       ipAddress,
     });
+    this.audit.record({
+      action: AuditAction.AUTH_REGISTER,
+      userId: user.id,
+      ipAddress,
+      userAgent: dto.clientInfo?.userAgent,
+      metadata: { email: user.email, username: user.username },
+    });
     return { user: this.usersService.toPublic(user), ...tokens };
   }
 
   async login(dto: LoginDto, ipAddress?: string) {
     const user = await this.usersService.findByEmailWithPassword(dto.email);
     if (!user || !user.isActive) {
+      this.audit.record({
+        action: AuditAction.AUTH_LOGIN_FAILED,
+        ipAddress,
+        userAgent: dto.clientInfo?.userAgent,
+        metadata: { email: dto.email },
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
     const valid = await bcrypt.compare(dto.password, user.passwordHash);
-    if (!valid) throw new UnauthorizedException('Invalid credentials');
+    if (!valid) {
+      this.audit.record({
+        action: AuditAction.AUTH_LOGIN_FAILED,
+        ipAddress,
+        userAgent: dto.clientInfo?.userAgent,
+        metadata: { email: dto.email },
+      });
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     const tokens = await this.issueTokensForAuth(user.id, user.email, {
       ...this.clientInfoToOptions(dto.clientInfo),
       ipAddress,
+    });
+    this.audit.record({
+      action: AuditAction.AUTH_LOGIN,
+      userId: user.id,
+      ipAddress,
+      userAgent: dto.clientInfo?.userAgent,
+      metadata: {
+        email: user.email,
+        deviceLabel: dto.clientInfo?.deviceLabel,
+        appName: dto.clientInfo?.appName,
+      },
     });
     return { user: this.usersService.toPublic(user), ...tokens };
   }
@@ -128,6 +163,12 @@ export class AuthService {
     const stored = await this.refreshTokenRepo.findOne({ where: { tokenHash: hash } });
     if (stored) {
       await this.revokeSessionById(stored.userId, stored.sessionFamilyId);
+      this.audit.record({
+        action: AuditAction.AUTH_LOGOUT,
+        userId: stored.userId,
+        resourceType: 'session',
+        resourceId: stored.sessionFamilyId,
+      });
     }
     return { success: true };
   }
@@ -168,13 +209,21 @@ export class AuthService {
     return [...byDevice.values()].sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt));
   }
 
-  async revokeSession(userId: string, sessionId: string) {
+  async revokeSession(userId: string, sessionId: string, options?: { silent?: boolean }) {
     const session = await this.sessionRepo.findOne({
       where: { id: sessionId, userId, revokedAt: IsNull() },
     });
     if (!session) throw new NotFoundException('Session not found');
 
     await this.revokeSessionById(userId, sessionId);
+    if (!options?.silent) {
+      this.audit.record({
+        action: AuditAction.AUTH_SESSION_REVOKE,
+        userId,
+        resourceType: 'session',
+        resourceId: sessionId,
+      });
+    }
     return { success: true };
   }
 
@@ -188,6 +237,14 @@ export class AuthService {
       if (session.id === currentSessionId) continue;
       await this.revokeSessionById(userId, session.id);
       revoked += 1;
+    }
+
+    if (revoked > 0) {
+      this.audit.record({
+        action: AuditAction.AUTH_SESSION_REVOKE_OTHERS,
+        userId,
+        metadata: { revoked, exceptSessionId: currentSessionId },
+      });
     }
 
     return { success: true, revoked };

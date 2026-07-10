@@ -1,23 +1,27 @@
 {
   "name": "chatapp",
   "private": true,
-  "description": "Enterprise internal chat — root scripts for backend + desktop",
+  "description": "Enterprise internal chat — root scripts for backend, desktop, and admin",
   "scripts": {
     "setup:env": "node scripts/setup-env.js",
-    "install:all": "npm install --prefix backend && npm install --prefix desktop",
+    "install:all": "npm install --prefix backend && npm install --prefix desktop && npm install --prefix admin",
     "setup": "npm run setup:env && npm run install:all",
     "dev:backend": "npm run start:dev --prefix backend",
     "dev:desktop": "npm run electron:dev --prefix desktop",
+    "dev:admin": "npm run dev --prefix admin",
     "dev": "concurrently -n backend,desktop -c blue,magenta \"npm run dev:backend\" \"npm run dev:desktop\"",
+    "dev:all": "concurrently -n backend,desktop,admin -c blue,magenta,cyan \"npm run dev:backend\" \"npm run dev:desktop\" \"npm run dev:admin\"",
     "dev:infra": "docker compose up -d postgres redis",
     "docker:up": "docker compose up --build -d",
     "docker:down": "docker compose down",
     "build:backend": "npm run build --prefix backend",
     "build:desktop": "npm run build --prefix desktop",
-    "build": "npm run build:backend && npm run build:desktop",
+    "build:admin": "npm run build --prefix admin",
+    "build": "npm run build:backend && npm run build:desktop && npm run build:admin",
     "lint:backend": "npm run lint --prefix backend",
     "lint:desktop": "npm run lint --prefix desktop",
-    "lint": "npm run lint:backend && npm run lint:desktop"
+    "lint:admin": "npm run lint --prefix admin",
+    "lint": "npm run lint:backend && npm run lint:desktop && npm run lint:admin"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
