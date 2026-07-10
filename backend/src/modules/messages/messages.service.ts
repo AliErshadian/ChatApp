@@ -19,6 +19,7 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { SanitizationService } from '../../common/services/sanitization.service';
 import { SendMessageDto } from './dto/message.dto';
 import { validateMessageMediaFile, isTextContentType } from './message-media.util';
+import { buildMessageSearchTsQuery } from './message-search.util';
 import { resolveMentionUserIds } from './mention.util';
 import { MessageRealtimePublisher } from './message-realtime.publisher';
 import { AuditService } from '../audit/audit.service';
@@ -1005,18 +1006,18 @@ export class MessagesService {
     return `${trimmed.slice(0, max)}…`;
   }
 
-  private escapeLikePattern(value: string): string {
-    return value.replace(/[%_\\]/g, '\\$&');
-  }
-
   async searchMessages(userId: string, query: string, limit = 40) {
     const q = query.trim();
     if (q.length < 2) {
       return { items: [], total: 0 };
     }
 
+    const tsQuery = buildMessageSearchTsQuery(q);
+    if (!tsQuery) {
+      return { items: [], total: 0 };
+    }
+
     const cappedLimit = Math.min(50, Math.max(1, limit));
-    const pattern = `%${this.escapeLikePattern(q)}%`;
 
     const matched = await this.messageRepo
       .createQueryBuilder('message')
@@ -1044,14 +1045,7 @@ export class MessagesService {
         )`,
         { userId },
       )
-      .andWhere(
-        `(
-          message.content ILIKE :pattern ESCAPE '\\'
-          OR COALESCE(message.caption, '') ILIKE :pattern ESCAPE '\\'
-          OR COALESCE(message.file_name, '') ILIKE :pattern ESCAPE '\\'
-        )`,
-        { pattern },
-      )
+      .andWhere(`message.search_vector @@ to_tsquery('simple', :tsQuery)`, { tsQuery })
       .orderBy('message.createdAt', 'DESC')
       .take(cappedLimit)
       .getMany();

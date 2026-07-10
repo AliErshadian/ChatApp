@@ -43,7 +43,7 @@ ChatApp/
   - Edit, delete (me / everyone), replies, forwards, reactions
   - Attachments (multipart upload to local disk)
   - `@mentions` parsed server-side; stored in `message_mentions`
-  - **Content search**: `GET /messages/search` — ILIKE on content/caption/file name, membership-scoped
+  - **Content search**: `GET /messages/search` — PostgreSQL FTS (`search_vector` + GIN), membership-scoped
   - Read/delivered receipts via realtime + `message_deliveries`
   - `sanitize-html` on text content
 - **Conversations**:
@@ -68,7 +68,7 @@ ChatApp/
   - `GET /api/v1/health`
 - **DB**:
   - `infra/postgres/init.sql` for new databases
-  - Incremental SQL migrations in `infra/postgres/migrations/` (001–019+)
+  - Incremental SQL migrations in `infra/postgres/migrations/` (001–020+)
   - **Gap**: migrations are manual SQL files, not applied automatically by the app
 
 ### Admin client (`admin/`)
@@ -124,7 +124,7 @@ ChatApp/
 
 - **No automated tests** — auth, ACL, messaging, and session flows are untested in CI
 - **Uploads on local disk** — breaks horizontal scaling; architecture assumes S3/MinIO later
-- **Message search at scale** — current `ILIKE` query is fine for MVP; consider full-text search (Postgres `tsvector` or external index) for large histories
+- **Message search at scale** — Postgres FTS with GIN index; consider Meilisearch/Elasticsearch only if cross-service search is required
 - **Some gateway paths** still use per-member emits where room broadcast would suffice — watch fanout cost in large channels
 - **Session DB check per request** — fine for MVP; consider Redis session cache at scale
 
@@ -138,6 +138,7 @@ ChatApp/
 - **Admin dashboard** — separate `admin/` app; user management, stats, storage panel
 - **Audit log** — `audit_logs` table, global `AuditModule`, admin audit page with filters
 - **Message content search** — `GET /messages/search`; sidebar split search + global search; jump-to-message with history pagination
+- **Postgres FTS for messages** — `search_vector` column, GIN index, trigger (migration `020`)
 - Device session management (`user_sessions`, JWT `sid`, terminate + remote logout)
 - In-app notifications (mentions, new chats, group adds, new device login)
 - Browser auth persistence (`localStorage`) and LAN API URL resolution
@@ -158,7 +159,6 @@ ChatApp/
 ### P1 (high value next)
 
 - **Object storage** for uploads/avatars (S3/MinIO + pre-signed URLs)
-- **Full-text message search** (Postgres FTS or Meilisearch) for large deployments
 - **OpenAPI** for REST + formal realtime event catalog
 - **Desktop release pipeline** (signed builds for Windows/Linux)
 - **Admin CI** — add `admin` lint/build to CI workflow

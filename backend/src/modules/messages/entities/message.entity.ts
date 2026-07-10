@@ -63,6 +63,9 @@ export class Message {
   @Column({ name: 'deleted_at', nullable: true })
   deletedAt?: Date;
 
+  @Column({ name: 'search_vector', type: 'tsvector', nullable: true, select: false })
+  searchVector?: string;
+
   @Column({ name: 'reply_to_message_id', type: 'uuid', nullable: true })
   replyToMessageId?: string;
 

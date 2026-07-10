@@ -64,8 +64,12 @@ CREATE TABLE messages (
     reply_to_message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
     forwarded_from_message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
     original_sender_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    search_vector tsvector,
     CONSTRAINT content_not_empty CHECK (length(trim(content)) > 0)
 );
+
+CREATE INDEX idx_messages_search_vector
+    ON messages USING GIN (search_vector);
 
 CREATE UNIQUE INDEX idx_messages_client_dedup
     ON messages (conversation_id, sender_id, client_message_id)
@@ -236,6 +240,22 @@ CREATE TRIGGER users_updated_at BEFORE UPDATE ON users
 
 CREATE TRIGGER conversations_updated_at BEFORE UPDATE ON conversations
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE FUNCTION messages_search_vector_update() RETURNS trigger AS $$
+BEGIN
+    NEW.search_vector :=
+        setweight(to_tsvector('simple', coalesce(NEW.content, '')), 'A') ||
+        setweight(to_tsvector('simple', coalesce(NEW.caption, '')), 'B') ||
+        setweight(to_tsvector('simple', coalesce(NEW.file_name, '')), 'C');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER messages_search_vector_trigger
+    BEFORE INSERT OR UPDATE OF content, caption, file_name
+    ON messages
+    FOR EACH ROW
+    EXECUTE FUNCTION messages_search_vector_update();
 
 -- Grant app user access (required when schema is created by postgres superuser)
 GRANT USAGE ON SCHEMA public TO chatapp;

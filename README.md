@@ -29,7 +29,7 @@ curl http://localhost/api/v1/health
 ### Notes
 
 - **Database schema**: initialized from `infra/postgres/init.sql` when the `postgres` container is first created.
-- **Incremental migrations**: SQL files in `infra/postgres/migrations/` (e.g. sessions, mentions, groups). Apply to existing databases manually or via your migration process.
+- **Incremental migrations**: SQL files in `infra/postgres/migrations/` (e.g. sessions, mentions, groups, FTS). Apply to existing databases manually or via your migration process.
 - **Uploads**: in Docker, files are served from `/app/uploads`; `docker-compose.prod.yml` mounts a named volume there.
 
 ### Local Development (from repo root)
@@ -58,6 +58,7 @@ Separate web app in `admin/` (port **5174**). Uses the same API with admin-only 
 1. Apply migrations if your DB already exists:
    - `infra/postgres/migrations/018_admin_users.sql`
    - `infra/postgres/migrations/019_audit_logs.sql`
+   - `infra/postgres/migrations/020_message_search_fts.sql`
 2. Promote an admin user in Postgres:
 
 ```sql
@@ -122,7 +123,7 @@ ChatApp/
 │       └── components/
 ├── infra/postgres/
 │   ├── init.sql                # Full schema for new databases
-│   └── migrations/             # Incremental SQL migrations (001–019+)
+│   └── migrations/             # Incremental SQL migrations (001–020+)
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── PROJECT_REVIEW.md
@@ -177,7 +178,7 @@ Access tokens include a `sid` claim (session id). Refresh tokens are SHA-256 has
 | GET/POST | `/conversations/:id/messages` | History + send (REST); realtime preferred for send |
 | POST | `/conversations/:id/messages/attachment` | Upload file attachment |
 | PATCH/DELETE | `/conversations/:id/messages/:messageId` | Edit / delete message |
-| GET | `/messages/search` | Search message content (`q`, `limit`; min 2 chars) |
+| GET | `/messages/search` | Full-text search (`q`, `limit`; min 2 chars; Postgres FTS + GIN index) |
 | POST | `/conversations/:id/messages/:messageId/reactions` | Toggle reaction |
 | POST | `/contacts` | Add contact |
 | GET | `/users/search` | Partial user search (username, display name, email) |

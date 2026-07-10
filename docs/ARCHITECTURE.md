@@ -218,7 +218,7 @@ GET /api/v1/conversations/{id}/messages?cursor=1042
 Authorization: Bearer eyJhbG...
 ```
 
-### Search Messages (content)
+### Search Messages (full-text)
 
 ```http
 GET /api/v1/messages/search?q=hello&limit=40
@@ -227,8 +227,9 @@ Authorization: Bearer eyJhbG...
 
 - Minimum query length: 2 characters
 - Scoped to conversations the user is a member of (excludes hidden chats/messages)
-- Matches `content`, `caption`, and `file_name` via `ILIKE`
-- Returns snippet, sender, conversation name/type, and timestamps
+- **PostgreSQL FTS** on `messages.search_vector` (GIN index) — weighted `content`, `caption`, `file_name`
+- Uses `simple` text config (language-neutral) with prefix matching (`term:*`)
+- Maintained by DB trigger on insert/update; apply migration `020_message_search_fts.sql` on existing databases
 
 ## 9. WebSocket Event Payloads
 
@@ -297,6 +298,7 @@ audit_logs ── users (user_id, actor_user_id)
 Key indexes:
 
 - `messages(conversation_id, sequence DESC)` — feed pagination
+- `messages(search_vector)` GIN — full-text message search
 - `messages(conversation_id, sender_id, client_message_id)` — idempotent sends
 - `audit_logs(created_at DESC)`, `audit_logs(action)` — admin audit queries
 - `user_sessions(user_id)` partial where not revoked
