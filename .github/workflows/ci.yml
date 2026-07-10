@@ -60,6 +60,31 @@ jobs:
       - name: Build
         run: npm run build
 
+  admin:
+    name: Admin (lint/build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint -- --max-warnings=0
+
+      - name: Build
+        run: npm run build
+
   docker:
     name: Docker build (backend)
     runs-on: ubuntu-latest

@@ -140,6 +140,7 @@ ChatApp/
 - **Message content search** — `GET /messages/search`; sidebar split search + global search; jump-to-message with history pagination
 - **Postgres FTS for messages** — `search_vector` column, GIN index, trigger (migration `020`)
 - **Production env validation** — Zod checks for secrets, CORS, Redis, DB password, log level at startup
+- **Admin CI** — lint/build job in GitHub Actions workflow
 - Device session management (`user_sessions`, JWT `sid`, terminate + remote logout)
 - In-app notifications (mentions, new chats, group adds, new device login)
 - Browser auth persistence (`localStorage`) and LAN API URL resolution
@@ -161,7 +162,6 @@ ChatApp/
 - **Object storage** for uploads/avatars (S3/MinIO + pre-signed URLs)
 - **OpenAPI** for REST + formal realtime event catalog
 - **Desktop release pipeline** (signed builds for Windows/Linux)
-- **Admin CI** — add `admin` lint/build to CI workflow
 
 ### P2 (polish and scale)
 
@@ -173,7 +173,7 @@ ChatApp/
 ## Suggested “definition of done” for production readiness
 
 - [ ] CI runs lint + build + **tests** (backend + desktop + admin)
-- [x] CI runs lint + build today (backend + desktop)
+- [x] CI runs lint + build today (backend + desktop + admin)
 - [x] Production env validation (JWT secrets, CORS, Redis, DB password, log level)
 - [x] CD publishes backend Docker image
 - [x] WebSocket: CORS allowlist, websocket-only transport
