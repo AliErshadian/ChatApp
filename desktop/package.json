@@ -1,6 +1,7 @@
 {
   "name": "chatapp-desktop",
   "version": "1.0.0",
+  "private": true,
   "description": "Enterprise internal chat desktop client",
   "main": "dist-electron/main.js",
   "scripts": {

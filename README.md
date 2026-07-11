@@ -35,7 +35,7 @@ curl http://localhost/api/v1/health
 ### Local Development (from repo root)
 
 ```bash
-# One-time: copy .env files + install backend/desktop deps
+# One-time: copy .env files + install all workspace deps
 npm run setup
 
 # Optional: start Postgres + Redis only (if not using full docker compose)
@@ -97,7 +97,8 @@ Open http://localhost:5174 and sign in with the admin account.
 
 ```
 ChatApp/
-├── package.json                # Root scripts (setup / dev / build / lint)
+├── package.json                # npm workspaces root (backend, desktop, admin)
+├── package-lock.json           # Single lockfile for all workspaces
 ├── scripts/setup-env.js        # Copies .env.example → .env
 ├── backend/                    # NestJS API + WebSocket gateway
 │   └── src/

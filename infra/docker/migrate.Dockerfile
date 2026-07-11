@@ -2,14 +2,16 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY backend/package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+COPY package.json package-lock.json ./
+COPY backend/package.json backend/
+RUN npm ci -w chatapp-backend --omit=dev && npm cache clean --force
 
-COPY backend/scripts/migrate.mjs ./scripts/migrate.mjs
-COPY infra/postgres/migrations ./migrations
+COPY backend/scripts/migrate.mjs backend/scripts/migrate.mjs
+COPY infra/postgres/migrations infra/postgres/migrations
 
-ENV MIGRATIONS_DIR=/app/migrations
+ENV MIGRATIONS_DIR=/app/infra/postgres/migrations
 
 USER node
+WORKDIR /app/backend
 
 CMD ["node", "scripts/migrate.mjs"]

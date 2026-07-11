@@ -16,9 +16,10 @@ This document summarizes the current codebase, highlights strengths and weakness
 
 ```
 ChatApp/
-├── backend/                 # NestJS API + realtime gateway
-├── desktop/                 # Electron + React client
-├── admin/                   # Admin dashboard (Vite + React, port 5174)
+├── package.json             # npm workspaces root
+├── backend/                 # NestJS API + realtime gateway (chatapp-backend)
+├── desktop/                 # Electron + React client (chatapp-desktop)
+├── admin/                   # Admin dashboard (Vite + React, port 5174, chatapp-admin)
 ├── infra/                   # Postgres init + migrations + nginx
 ├── docs/                    # Architecture + this review
 ├── docker-compose.yml       # Local dev stack

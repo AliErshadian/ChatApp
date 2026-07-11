@@ -1,12 +1,12 @@
-FROM node:20-alpine AS deps
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-
 FROM node:20-alpine AS builder
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+
+COPY package.json package-lock.json ./
+COPY backend/package.json backend/
+RUN npm ci -w chatapp-backend
+
+COPY backend ./backend
+WORKDIR /app/backend
 RUN npm run build
 
 FROM node:20-alpine AS runner
@@ -16,10 +16,11 @@ ENV NODE_ENV=production
 # Create an unprivileged user for runtime
 RUN addgroup -S nodejs && adduser -S nodeuser -G nodejs
 
-COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+COPY package.json package-lock.json ./
+COPY backend/package.json backend/
+RUN npm ci -w chatapp-backend --omit=dev && npm cache clean --force
 
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/backend/dist ./dist
 
 # If you rely on static uploads, mount a volume at /app/uploads in production
 RUN mkdir -p /app/uploads && chown -R nodeuser:nodejs /app

@@ -13,9 +13,6 @@ jobs:
   backend:
     name: Backend (lint/build)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v4
 
@@ -24,22 +21,22 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install
         run: npm ci
 
       - name: Lint
-        run: npm run lint -- --max-warnings=0
+        run: npm run lint -w chatapp-backend -- --max-warnings=0
 
       - name: Build
-        run: npm run build
+        run: npm run build -w chatapp-backend
 
       - name: Check schema drift (init.sql vs migrations)
-        run: npm run check:schema-drift
+        run: npm run check:schema-drift -w chatapp-backend
 
       - name: Check secrets are not committed
-        run: npm run check:secrets
+        run: npm run check:secrets -w chatapp-backend
 
       - name: Validate production env rules
         shell: bash
@@ -51,14 +48,11 @@ jobs:
           export JWT_REFRESH_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
           export CORS_ORIGIN=https://app.example.com
           export LOG_LEVEL=info
-          npm run validate:env
+          npm run validate:env -w chatapp-backend
 
   desktop:
     name: Desktop (typecheck/build)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: desktop
     steps:
       - uses: actions/checkout@v4
 
@@ -67,23 +61,20 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: desktop/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install
         run: npm ci
 
       - name: Lint
-        run: npm run lint -- --max-warnings=0
+        run: npm run lint -w chatapp-desktop -- --max-warnings=0
 
       - name: Build
-        run: npm run build
+        run: npm run build -w chatapp-desktop
 
   admin:
     name: Admin (lint/build)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: admin
     steps:
       - uses: actions/checkout@v4
 
@@ -92,16 +83,16 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: admin/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install
         run: npm ci
 
       - name: Lint
-        run: npm run lint -- --max-warnings=0
+        run: npm run lint -w chatapp-admin -- --max-warnings=0
 
       - name: Build
-        run: npm run build
+        run: npm run build -w chatapp-admin
 
   docker:
     name: Docker build (backend)
@@ -115,7 +106,7 @@ jobs:
       - name: Build backend image
         uses: docker/build-push-action@v6
         with:
-          context: ./backend
+          context: .
           file: ./backend/Dockerfile
           push: false
           tags: chatapp-backend:ci
