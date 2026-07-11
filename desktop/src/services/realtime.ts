@@ -13,6 +13,7 @@ export interface PresenceInfo {
 
 type ConnectHandler = () => void;
 type PresenceChangeHandler = () => void;
+type TransportMode = 'websocket' | 'sse';
 
 interface PendingPresenceQuery {
   userIds: string[];
@@ -58,6 +59,28 @@ interface PendingSend {
   timer: ReturnType<typeof setTimeout>;
 }
 
+const SSE_EVENTS = [
+  'message:receive',
+  'message:ack',
+  'message:status',
+  'message:updated',
+  'message:hidden',
+  'message:reaction',
+  'message:read',
+  'conversation:hidden',
+  'conversation:messages_deleted',
+  'conversation:updated',
+  'conversation:created',
+  'conversation:activity',
+  'session:terminated',
+  'session:created',
+  'user:typing',
+  'user:presence',
+  'presence:sync',
+] as const;
+
+const WS_CONNECT_TIMEOUT_MS = 8_000;
+
 function parseSendAck(ack: unknown): Message | null {
   if (!ack || typeof ack !== 'object') return null;
   const payload = ack as Record<string, unknown>;
@@ -78,6 +101,9 @@ function parseSendAck(ack: unknown): Message | null {
 
 class RealtimeClient {
   private socket: Socket | null = null;
+  private eventSource: EventSource | null = null;
+  private transport: TransportMode | null = null;
+  private connectPromise: Promise<void> | null = null;
   private messageHandlers = new Set<MessageHandler>();
   private typingHandlers = new Set<TypingHandler>();
   private presenceHandlers = new Set<PresenceHandler>();
@@ -103,35 +129,116 @@ class RealtimeClient {
   connect() {
     const token = api.getAccessToken();
     if (!token) throw new Error('Not authenticated');
+    if (this.isConnected()) return;
 
-    if (this.socket?.connected) return;
+    if (!this.connectPromise) {
+      this.connectPromise = this.connectWithFallback().finally(() => {
+        this.connectPromise = null;
+      });
+    }
 
-    if (!this.socket) {
-      this.socket = io(`${api.getWsUrl()}/realtime`, {
+    return this.connectPromise;
+  }
+
+  getTransport(): TransportMode | null {
+    return this.transport;
+  }
+
+  private async connectWithFallback() {
+    try {
+      await this.connectWebSocket();
+      this.transport = 'websocket';
+    } catch {
+      this.disconnectSocketOnly();
+      await this.connectSse();
+      this.transport = 'sse';
+    }
+  }
+
+  private connectWebSocket(): Promise<void> {
+    const token = api.getAccessToken();
+    if (!token) return Promise.reject(new Error('Not authenticated'));
+
+    return new Promise((resolve, reject) => {
+      const socket = io(`${api.getWsUrl()}/realtime`, {
         auth: { token },
         transports: ['websocket'],
         reconnection: true,
         reconnectionAttempts: Infinity,
         reconnectionDelay: 1000,
+        timeout: WS_CONNECT_TIMEOUT_MS,
       });
-      this.attachSocketListeners();
-    } else {
-      this.socket.auth = { token };
-      this.socket.connect();
-    }
+
+      const timer = window.setTimeout(() => {
+        socket.disconnect();
+        reject(new Error('WebSocket connection timeout'));
+      }, WS_CONNECT_TIMEOUT_MS);
+
+      const cleanup = () => {
+        window.clearTimeout(timer);
+        socket.off('connect', onConnect);
+        socket.off('connect_error', onError);
+      };
+
+      const onConnect = () => {
+        cleanup();
+        this.socket = socket;
+        this.attachSocketListeners();
+        resolve();
+      };
+
+      const onError = (error: Error) => {
+        cleanup();
+        socket.disconnect();
+        reject(error);
+      };
+
+      socket.on('connect', onConnect);
+      socket.on('connect_error', onError);
+    });
+  }
+
+  private connectSse(): Promise<void> {
+    const token = api.getAccessToken();
+    if (!token) return Promise.reject(new Error('Not authenticated'));
+
+    return new Promise((resolve, reject) => {
+      const url = `${api.getApiBase()}/realtime/stream?access_token=${encodeURIComponent(token)}`;
+      const eventSource = new EventSource(url);
+
+      const timer = window.setTimeout(() => {
+        eventSource.close();
+        reject(new Error('SSE connection timeout'));
+      }, WS_CONNECT_TIMEOUT_MS);
+
+      eventSource.onopen = () => {
+        window.clearTimeout(timer);
+        this.eventSource = eventSource;
+        this.attachSseListeners(eventSource);
+        this.startHeartbeat();
+        this.flushPendingPresenceQueries();
+        this.connectHandlers.forEach((handler) => handler());
+        resolve();
+      };
+
+      eventSource.onerror = () => {
+        if (this.eventSource) return;
+        window.clearTimeout(timer);
+        eventSource.close();
+        reject(new Error('SSE connection failed'));
+      };
+    });
   }
 
   private attachSocketListeners() {
     if (!this.socket) return;
 
     this.socket.on('message:receive', (message: Message) => {
-      this.messageHandlers.forEach((h) => h(message));
+      this.dispatchMessageReceive(message);
     });
 
     this.socket.on('message:ack', (data: { clientMessageId?: string; message?: Message }) => {
-      if (!data?.message) return;
-      this.resolvePendingSend(data.clientMessageId ?? data.message.clientMessageId, data.message);
-      this.ackHandlers.forEach((h) => h({ clientMessageId: data.clientMessageId, message: data.message! }));
+      this.dispatchMessageAck(data);
     });
 
     this.socket.on('message:status', (data: {
@@ -139,15 +246,15 @@ class RealtimeClient {
       conversationId: string;
       status: MessageStatus;
     }) => {
-      this.statusHandlers.forEach((h) => h(data));
+      this.statusHandlers.forEach((handler) => handler(data));
     });
 
     this.socket.on('message:updated', (message: Message) => {
-      this.messageUpdateHandlers.forEach((h) => h(message));
+      this.messageUpdateHandlers.forEach((handler) => handler(message));
     });
 
     this.socket.on('message:hidden', (data: { messageId: string }) => {
-      this.messageHiddenHandlers.forEach((h) => h(data));
+      this.messageHiddenHandlers.forEach((handler) => handler(data));
     });
 
     this.socket.on('message:reaction', (data: {
@@ -155,31 +262,30 @@ class RealtimeClient {
       conversationId: string;
       reactions: MessageReaction[];
     }) => {
-      this.reactionHandlers.forEach((h) => h(data));
+      this.reactionHandlers.forEach((handler) => handler(data));
     });
 
     this.socket.on('conversation:hidden', (data: { conversationId: string }) => {
-      this.conversationHiddenHandlers.forEach((h) => h(data));
+      this.conversationHiddenHandlers.forEach((handler) => handler(data));
     });
 
     this.socket.on('conversation:messages_deleted', (data: {
       conversationId: string;
       messageIds: string[];
     }) => {
-      this.conversationMessagesDeletedHandlers.forEach((h) => h(data));
+      this.conversationMessagesDeletedHandlers.forEach((handler) => handler(data));
     });
 
     this.socket.on('conversation:updated', (data: ConversationUpdatedEvent) => {
-      this.conversationUpdatedHandlers.forEach((h) => h(data));
+      this.conversationUpdatedHandlers.forEach((handler) => handler(data));
     });
 
     this.socket.on('conversation:created', (data: Conversation) => {
-      this.conversationCreatedHandlers.forEach((h) => h(data));
+      this.conversationCreatedHandlers.forEach((handler) => handler(data));
     });
 
     this.socket.on('session:terminated', (data: { sessionId: string }) => {
-      if (!data?.sessionId) return;
-      this.sessionTerminatedHandlers.forEach((h) => h(data));
+      this.dispatchSessionTerminated(data);
     });
 
     this.socket.on(
@@ -191,40 +297,179 @@ class RealtimeClient {
         platform: string | null;
         ipAddress: string | null;
       }) => {
-        if (!data?.sessionId) return;
-        this.sessionCreatedHandlers.forEach((h) => h(data));
+        this.dispatchSessionCreated(data);
       },
     );
 
     this.socket.on('user:typing', (data) => {
-      this.typingHandlers.forEach((h) => h(data));
+      this.typingHandlers.forEach((handler) => handler(data));
     });
 
     this.socket.on('user:presence', (data: PresenceInfo) => {
-      this.applyPresenceUpdate(data.userId, data.status, data.lastSeen);
-      this.presenceHandlers.forEach((h) => h(data));
+      this.dispatchPresence(data);
     });
 
     this.socket.on('presence:sync', (data: PresenceInfo[]) => {
-      if (!Array.isArray(data)) return;
-      this.applyPresenceBatch(data);
+      this.dispatchPresenceBatch(data);
     });
 
     this.socket.on('connect', () => {
-      if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = setInterval(() => {
-        this.socket?.emit('presence:heartbeat');
-      }, 25000);
+      this.startHeartbeat();
       this.flushPendingPresenceQueries();
-      this.connectHandlers.forEach((h) => h());
+      this.connectHandlers.forEach((handler) => handler());
     });
 
     this.socket.on('disconnect', () => {
-      if (this.heartbeatTimer) {
-        clearInterval(this.heartbeatTimer);
-        this.heartbeatTimer = null;
-      }
+      this.stopHeartbeat();
     });
+  }
+
+  private attachSseListeners(eventSource: EventSource) {
+    for (const eventName of SSE_EVENTS) {
+      eventSource.addEventListener(eventName, (event) => {
+        const messageEvent = event as MessageEvent<string>;
+        let data: unknown;
+        try {
+          data = JSON.parse(messageEvent.data);
+        } catch {
+          return;
+        }
+        this.dispatchSseEvent(eventName, data);
+      });
+    }
+  }
+
+  private dispatchSseEvent(eventName: string, data: unknown) {
+    switch (eventName) {
+      case 'message:receive':
+        this.dispatchMessageReceive(data as Message);
+        break;
+      case 'message:ack':
+        this.dispatchMessageAck(data as { clientMessageId?: string; message?: Message });
+        break;
+      case 'message:status':
+        this.statusHandlers.forEach((handler) =>
+          handler(data as { messageId: string; conversationId: string; status: MessageStatus }),
+        );
+        break;
+      case 'message:updated':
+        this.messageUpdateHandlers.forEach((handler) => handler(data as Message));
+        break;
+      case 'message:hidden':
+        this.messageHiddenHandlers.forEach((handler) => handler(data as { messageId: string }));
+        break;
+      case 'message:reaction':
+        this.reactionHandlers.forEach((handler) =>
+          handler(
+            data as {
+              messageId: string;
+              conversationId: string;
+              reactions: MessageReaction[];
+            },
+          ),
+        );
+        break;
+      case 'conversation:hidden':
+        this.conversationHiddenHandlers.forEach((handler) =>
+          handler(data as { conversationId: string }),
+        );
+        break;
+      case 'conversation:messages_deleted':
+        this.conversationMessagesDeletedHandlers.forEach((handler) =>
+          handler(data as { conversationId: string; messageIds: string[] }),
+        );
+        break;
+      case 'conversation:updated':
+        this.conversationUpdatedHandlers.forEach((handler) =>
+          handler(data as ConversationUpdatedEvent),
+        );
+        break;
+      case 'conversation:created':
+        this.conversationCreatedHandlers.forEach((handler) => handler(data as Conversation));
+        break;
+      case 'session:terminated':
+        this.dispatchSessionTerminated(data as { sessionId: string });
+        break;
+      case 'session:created':
+        this.dispatchSessionCreated(
+          data as {
+            sessionId: string;
+            deviceLabel: string;
+            appName: string;
+            platform: string | null;
+            ipAddress: string | null;
+          },
+        );
+        break;
+      case 'user:typing':
+        this.typingHandlers.forEach((handler) =>
+          handler(data as { conversationId: string; userId: string; isTyping: boolean }),
+        );
+        break;
+      case 'user:presence':
+        this.dispatchPresence(data as PresenceInfo);
+        break;
+      case 'presence:sync':
+        this.dispatchPresenceBatch(data as PresenceInfo[]);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private dispatchMessageReceive(message: Message) {
+    this.messageHandlers.forEach((handler) => handler(message));
+  }
+
+  private dispatchMessageAck(data: { clientMessageId?: string; message?: Message }) {
+    if (!data?.message) return;
+    this.resolvePendingSend(data.clientMessageId ?? data.message.clientMessageId, data.message);
+    this.ackHandlers.forEach((handler) =>
+      handler({ clientMessageId: data.clientMessageId, message: data.message! }),
+    );
+  }
+
+  private dispatchSessionTerminated(data: { sessionId: string }) {
+    if (!data?.sessionId) return;
+    this.sessionTerminatedHandlers.forEach((handler) => handler(data));
+  }
+
+  private dispatchSessionCreated(data: {
+    sessionId: string;
+    deviceLabel: string;
+    appName: string;
+    platform: string | null;
+    ipAddress: string | null;
+  }) {
+    if (!data?.sessionId) return;
+    this.sessionCreatedHandlers.forEach((handler) => handler(data));
+  }
+
+  private dispatchPresence(data: PresenceInfo) {
+    this.applyPresenceUpdate(data.userId, data.status, data.lastSeen);
+    this.presenceHandlers.forEach((handler) => handler(data));
+  }
+
+  private dispatchPresenceBatch(data: PresenceInfo[]) {
+    if (!Array.isArray(data)) return;
+    this.applyPresenceBatch(data);
+  }
+
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.transport === 'sse') {
+        void api.realtimeHeartbeat().catch(() => undefined);
+        return;
+      }
+      this.socket?.emit('presence:heartbeat');
+    }, 25000);
+  }
+
+  private stopHeartbeat() {
+    if (!this.heartbeatTimer) return;
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
   }
 
   private applyPresenceUpdate(userId: string, status: string, lastSeen?: string) {
@@ -240,7 +485,7 @@ class RealtimeClient {
     if (lastSeen) {
       this.lastSeenByUserId = { ...this.lastSeenByUserId, [userId]: lastSeen };
     }
-    this.presenceChangeHandlers.forEach((h) => h());
+    this.presenceChangeHandlers.forEach((handler) => handler());
   }
 
   private applyPresenceBatch(entries: PresenceInfo[]) {
@@ -263,10 +508,14 @@ class RealtimeClient {
     if (!changed) return;
     this.presenceByUserId = nextPresence;
     this.lastSeenByUserId = nextLastSeen;
-    this.presenceChangeHandlers.forEach((h) => h());
+    this.presenceChangeHandlers.forEach((handler) => handler());
   }
 
   private emitPresenceQuery(userIds: string[]) {
+    if (this.transport === 'sse') {
+      return api.queryRealtimePresence(userIds).then((result) => result.data);
+    }
+
     return new Promise<PresenceInfo[]>((resolve, reject) => {
       if (!this.socket?.connected) {
         reject(new Error('Not connected to server'));
@@ -285,7 +534,7 @@ class RealtimeClient {
   }
 
   private flushPendingPresenceQueries() {
-    if (!this.socket?.connected || this.pendingPresenceQueries.length === 0) return;
+    if (!this.isConnected() || this.pendingPresenceQueries.length === 0) return;
 
     const pending = [...this.pendingPresenceQueries];
     this.pendingPresenceQueries = [];
@@ -311,25 +560,32 @@ class RealtimeClient {
     pending.resolve(message);
   }
 
+  private disconnectSocketOnly() {
+    this.socket?.disconnect();
+    this.socket = null;
+  }
+
   disconnect() {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
-    this.pendingSends.forEach((p) => {
-      clearTimeout(p.timer);
-      p.reject(new Error('Disconnected'));
+    this.stopHeartbeat();
+    this.pendingSends.forEach((pending) => {
+      clearTimeout(pending.timer);
+      pending.reject(new Error('Disconnected'));
     });
     this.pendingSends.clear();
     this.pendingPresenceQueries.forEach((query) => {
       query.reject(new Error('Disconnected'));
     });
     this.pendingPresenceQueries = [];
-    this.socket?.disconnect();
-    this.socket = null;
+    this.disconnectSocketOnly();
+    this.eventSource?.close();
+    this.eventSource = null;
+    this.transport = null;
   }
 
   isConnected() {
+    if (this.transport === 'sse') {
+      return Boolean(this.eventSource && this.eventSource.readyState === EventSource.OPEN);
+    }
     return Boolean(this.socket?.connected);
   }
 
@@ -344,10 +600,18 @@ class RealtimeClient {
   }
 
   joinConversation(conversationId: string) {
+    if (this.transport === 'sse') {
+      void api.joinRealtimeConversation(conversationId).catch(() => undefined);
+      return;
+    }
     this.socket?.emit('conversation:join', { conversationId });
   }
 
   leaveConversation(conversationId: string) {
+    if (this.transport === 'sse') {
+      void api.leaveRealtimeConversation(conversationId).catch(() => undefined);
+      return;
+    }
     this.socket?.emit('conversation:leave', { conversationId });
   }
 
@@ -358,6 +622,12 @@ class RealtimeClient {
     replyToMessageId?: string,
   ) {
     const msgId = clientMessageId ?? createClientMessageId();
+
+    if (this.transport === 'sse') {
+      return api
+        .sendRealtimeMessage(conversationId, content, msgId, replyToMessageId)
+        .then((result) => result.message);
+    }
 
     return new Promise<Message>((resolve, reject) => {
       if (!this.socket?.connected) {
@@ -386,6 +656,10 @@ class RealtimeClient {
   }
 
   setTyping(conversationId: string, isTyping: boolean) {
+    if (this.transport === 'sse') {
+      void api.sendRealtimeTyping(conversationId, isTyping).catch(() => undefined);
+      return;
+    }
     this.socket?.emit('user:typing', { conversationId, isTyping });
   }
 
@@ -395,14 +669,14 @@ class RealtimeClient {
       return Promise.resolve<PresenceInfo[]>([]);
     }
 
-    if (this.socket?.connected) {
+    if (this.isConnected()) {
       return this.emitPresenceQuery(unique).then((data) => {
         this.applyPresenceBatch(data);
         return data;
       });
     }
 
-    if (!this.socket) {
+    if (!this.socket && !this.eventSource) {
       return Promise.reject(new Error('Not connected to server'));
     }
 
@@ -412,14 +686,26 @@ class RealtimeClient {
   }
 
   markDelivered(messageId: string) {
+    if (this.transport === 'sse') {
+      void api.markRealtimeDelivered(messageId).catch(() => undefined);
+      return;
+    }
     this.socket?.emit('message:delivered', { messageId });
   }
 
   markRead(messageId: string) {
+    if (this.transport === 'sse') {
+      void api.markRealtimeRead(messageId).catch(() => undefined);
+      return;
+    }
     this.socket?.emit('message:read', { messageId });
   }
 
   editMessage(messageId: string, content: string) {
+    if (this.transport === 'sse') {
+      return api.realtimeEditMessage(messageId, content).then((result) => result.message);
+    }
+
     return new Promise<Message>((resolve, reject) => {
       if (!this.socket?.connected) {
         reject(new Error('Not connected to server'));
@@ -437,6 +723,14 @@ class RealtimeClient {
   }
 
   deleteMessage(messageId: string, scope: 'me' | 'everyone') {
+    if (this.transport === 'sse') {
+      return api.realtimeDeleteMessage(messageId, scope).then((result) => ({
+        messageId: result.messageId,
+        scope: result.scope,
+        message: result.message,
+      }));
+    }
+
     return new Promise<{ message?: Message; messageId: string; scope: 'me' | 'everyone' }>(
       (resolve, reject) => {
         if (!this.socket?.connected) {
@@ -463,6 +757,10 @@ class RealtimeClient {
   }
 
   toggleReaction(messageId: string, emoji: string) {
+    if (this.transport === 'sse') {
+      return api.realtimeToggleReaction(messageId, emoji);
+    }
+
     return new Promise<{
       messageId: string;
       conversationId: string;
@@ -496,6 +794,10 @@ class RealtimeClient {
   }
 
   deleteConversation(conversationId: string, scope: 'me' | 'everyone') {
+    if (this.transport === 'sse') {
+      return api.realtimeDeleteConversation(conversationId, scope);
+    }
+
     return new Promise<{
       conversationId: string;
       scope: 'me' | 'everyone';
@@ -595,7 +897,7 @@ class RealtimeClient {
 
   onConnect(handler: ConnectHandler) {
     this.connectHandlers.add(handler);
-    if (this.socket?.connected) {
+    if (this.isConnected()) {
       handler();
     }
     return () => this.connectHandlers.delete(handler);

@@ -2,6 +2,8 @@
 
 Production-oriented MVP for a Slack-like internal chat system with cross-platform desktop client (Electron), browser dev client (Vite + React), **admin dashboard**, modular NestJS backend, PostgreSQL persistence, and Redis-backed real-time scaling.
 
+The repository is an **npm workspaces** monorepo (`backend`, `desktop`, `admin`) with a single root lockfile and orchestration scripts at the repo root.
+
 ## Quick Start (Docker Compose)
 
 ```bash
@@ -76,7 +78,7 @@ npm run dev:admin
 
 Open http://localhost:5174 and sign in with the admin account.
 
-**Browser-only client** (no Electron): start the API, then from `desktop/` run `npm run dev` and open `http://localhost:5173`. Auth persists in `localStorage`. The client auto-targets the API on port 3000; when opened via a LAN IP (Vite `host: true`), API/WebSocket URLs follow the same host.
+**Browser-only client** (no Electron): start the API (`npm run dev:backend`), then `npm run dev:desktop` from the repo root and open `http://localhost:5173`. Auth persists in `localStorage`. The client auto-targets the API on port 3000; when opened via a LAN IP (Vite `host: true`), API/WebSocket URLs follow the same host. If WebSocket is blocked, the client automatically falls back to SSE + REST.
 
 ## Technology Choices
 
@@ -85,7 +87,7 @@ Open http://localhost:5174 and sign in with the admin account.
 | Backend | **NestJS** | Modular DI, first-class WebSocket gateway, guards/pipes for security, TypeScript parity with client, Redis adapter for horizontal scaling |
 | Desktop | **Electron + React** | Cross-platform (Windows/Linux/macOS), native notifications, system tray, secure token storage |
 | Web client | **Vite + React** | Same UI as Electron; fast iteration without packaging |
-| Real-time | **Socket.IO + Redis adapter** | Room-based routing, Redis pub/sub for multi-instance |
+| Real-time | **Socket.IO + Redis adapter** (primary); **SSE + REST fallback** when WebSocket is blocked | Room-based routing; Redis pub/sub for multi-instance and SSE fanout |
 | Database | **PostgreSQL** | ACID guarantees, BIGINT sequences for message ordering, relational membership model |
 | Cache/Presence | **Redis** | Presence TTL, typing indicators, Socket.IO adapter |
 
@@ -111,7 +113,7 @@ ChatApp/
 │       │   ├── messages/       # Text, attachments, mentions, reactions, search
 │       │   ├── admin/          # Admin-only REST (stats, users, storage)
 │       │   ├── presence/
-│       │   └── realtime/       # WebSocket gateway
+│       │   └── realtime/       # WebSocket gateway, SSE stream, event bus, REST fallback
 │       ├── infrastructure/
 │       │   ├── redis/
 │       │   └── websocket/      # Redis Socket.IO adapter
@@ -190,7 +192,7 @@ See controllers under `backend/src/modules/` for the full surface area (invites,
 
 ### WebSocket (`/realtime` namespace)
 
-Connect with `auth: { token: <accessToken> }`. Clients join `user:{userId}` and `session:{sessionId}` rooms automatically.
+Connect with `auth: { token: <accessToken> }`. Clients join `user:{userId}` and `session:{sessionId}` rooms automatically. This is the **preferred** transport.
 
 | Event | Direction | Description |
 |-------|-----------|-------------|
@@ -207,7 +209,30 @@ Connect with `auth: { token: <accessToken> }`. Clients join `user:{userId}` and 
 | `session:terminated` | Server → Client | Force logout (session revoked) |
 | `presence:heartbeat` | Client → Server | Keep-alive |
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for payload examples, scaling strategy, and security details.
+### SSE fallback (`/realtime/*`)
+
+When WebSocket is blocked (corporate proxies, strict firewalls), the desktop/browser client automatically falls back to:
+
+- **Server → client**: `GET /realtime/stream?access_token=<JWT>` (`text/event-stream`, named events matching WebSocket event names)
+- **Client → server**: REST endpoints under `/realtime/*`
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/realtime/stream` | SSE event stream (auth via Bearer or `access_token` query) |
+| POST | `/realtime/messages/send` | Send text message |
+| POST | `/realtime/messages/delivered` | Mark delivered |
+| POST | `/realtime/messages/read` | Mark read |
+| POST | `/realtime/messages/edit` | Edit message |
+| POST | `/realtime/messages/delete` | Delete message |
+| POST | `/realtime/messages/reaction` | Toggle reaction |
+| POST | `/realtime/conversations/:id/join` | Subscribe SSE to conversation events |
+| POST | `/realtime/conversations/:id/leave` | Unsubscribe conversation |
+| DELETE | `/realtime/conversations/:id` | Delete/hide conversation |
+| POST | `/realtime/typing` | Typing indicator |
+| POST | `/realtime/presence/heartbeat` | Presence keep-alive |
+| POST | `/realtime/presence/query` | Batch presence lookup |
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for payload examples, scaling strategy, security details, and monorepo layout (§2).
 
 See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and roadmap.
 
@@ -221,12 +246,13 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 - Profile avatars, conversation pins, contact list
 - **Search**: sidebar filter (chats/groups/channels + message content); global search (`Ctrl+K` / `Cmd+K`); click result to jump and scroll to message
 - **Devices** (Profile → Devices): Telegram-style session list, terminate device, terminate all others
+- **Realtime fallback**: automatic SSE + REST when WebSocket cannot connect
 - Electron: system tray, native notifications, encrypted refresh-token store, deep links (`chatapp://`)
 
 ## Security
 
 - JWT access tokens (15m, includes `sid`) + rotating refresh tokens (7d, hashed at rest)
-- Per-device sessions in `user_sessions`; revoked sessions fail REST and WS immediately
+- Per-device sessions in `user_sessions`; revoked sessions fail REST, WebSocket, and SSE immediately
 - WebSocket auth on handshake; session validated on each access-token use
 - `class-validator` on REST DTOs; `sanitize-html` on message content
 - `@nestjs/throttler` (stricter on auth endpoints)
@@ -237,17 +263,17 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 
 1. Set strong `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` (32+ chars)
 2. Place API behind TLS-terminating load balancer
-3. Scale API horizontally — Redis adapter syncs Socket.IO across instances
+3. Scale API horizontally — Redis adapter syncs Socket.IO across instances; Redis event bus fans out SSE streams
 4. Use managed PostgreSQL with connection pooling (PgBouncer)
 5. Redis Cluster / Sentinel for HA presence + pub/sub
 6. Set `CORS_ORIGIN` to explicit client origins in production
 7. Enable structured logging (pino), Sentry (`SENTRY_DSN`), and metrics (Prometheus)
 8. Move uploads to object storage for multi-instance deployments (local disk today)
-9. Validate production env before deploy: `cd backend && npm run build && NODE_ENV=production npm run validate:env`
+9. Validate production env before deploy: `npm run build -w chatapp-backend && NODE_ENV=production npm run validate:env -w chatapp-backend`
 
 ## CI/CD
 
-- **CI**: backend lint/build, desktop lint/build, admin lint/build, Docker image build on PRs and `main`
+- **CI**: root `npm ci`; backend, desktop, and admin lint/build via workspaces; Docker image build (repo root context) on PRs and `main`
 - **CD**: publishes backend image to GHCR on `main` and version tags (`vX.Y.Z`)
   - Image: `ghcr.io/<owner>/<repo>/backend`
 

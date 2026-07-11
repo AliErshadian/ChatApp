@@ -503,6 +503,68 @@ Separate workspace: Vite + React (port 5174). Uses the same JWT auth; requires `
 
 **Desktop / Admin (Vite):** `VITE_API_URL`, `VITE_WS_URL` override defaults when not using LAN auto-detection.
 
-## 18. SSE Fallback (Optional, not implemented)
+## 18. SSE Fallback (WebSocket-blocked environments)
 
-For WebSocket-blocked environments, an SSE endpoint could mirror Redis pub/sub events. Not included in MVP.
+When WebSocket is unavailable (corporate proxies, strict firewalls), clients can fall back to **Server-Sent Events** for server → client delivery and **REST** under `/api/v1/realtime/*` for client → server actions.
+
+### Architecture
+
+```
+┌──────────────┐   WS (preferred)    ┌─────────────────────┐
+│ Desktop /    │ ───────────────────►│ RealtimeGateway     │
+│ Browser      │                     │ (Socket.IO)         │
+└──────┬───────┘                     └──────────┬──────────┘
+       │                                          │
+       │ SSE GET /realtime/stream                 │ emit + publish
+       │ REST POST /realtime/*                    ▼
+       └────────────────────────────────►┌─────────────────────┐
+                                         │ RealtimeBroadcast   │
+                                         │ + Redis event bus   │
+                                         └──────────┬──────────┘
+                                                    │
+                              rt:user:* / rt:session:* / rt:conversation:*
+                                                    ▼
+                                         ┌─────────────────────┐
+                                         │ RealtimeSseService  │
+                                         │ (text/event-stream) │
+                                         └─────────────────────┘
+```
+
+- **Event bus** (`RealtimeEventBusService`): Redis pub/sub channels (`rt:user:{id}`, `rt:session:{id}`, `rt:conversation:{id}`, `rt:global`). Falls back to in-process delivery when Redis publish fails.
+- **Broadcast layer** (`RealtimeBroadcastService`): every server → client event is emitted to Socket.IO rooms **and** published to the bus so SSE subscribers (including on other API instances) receive the same payloads.
+- **Shared actions** (`RealtimeActionsService`): message send, read receipts, typing, etc. Used by both the WebSocket gateway and REST fallback controller.
+
+### SSE stream
+
+```http
+GET /api/v1/realtime/stream?access_token=<JWT>
+Accept: text/event-stream
+```
+
+- Auth: `Authorization: Bearer` **or** `access_token` query param (required for native `EventSource`, which cannot set headers).
+- On connect: joins user/session channels, subscribes to all conversation memberships, registers presence, sends `presence:sync`.
+- Events use named SSE types matching WebSocket event names, e.g. `event: message:receive`.
+- Keepalive comments every 25s.
+
+### REST fallback endpoints (`/api/v1/realtime/*`)
+
+| Method | Endpoint | Replaces WS event |
+|--------|----------|-------------------|
+| POST | `/realtime/messages/send` | `message:send` |
+| POST | `/realtime/messages/delivered` | `message:delivered` |
+| POST | `/realtime/messages/read` | `message:read` |
+| POST | `/realtime/messages/edit` | `message:edit` |
+| POST | `/realtime/messages/delete` | `message:delete` |
+| POST | `/realtime/messages/reaction` | `message:reaction` |
+| DELETE | `/realtime/conversations/:id` | `conversation:delete` |
+| POST | `/realtime/conversations/:id/join` | `conversation:join` (SSE subscription) |
+| POST | `/realtime/conversations/:id/leave` | `conversation:leave` |
+| POST | `/realtime/typing` | `user:typing` |
+| POST | `/realtime/presence/heartbeat` | `presence:heartbeat` |
+| POST | `/realtime/presence/query` | `presence:query` |
+
+### Desktop client behavior
+
+`desktop/src/services/realtime.ts` tries **WebSocket first** (~8s timeout). On failure it connects via **EventSource** to `/realtime/stream` and routes outbound operations to the REST endpoints above (`api.sendRealtimeMessage`, etc.).
+
+SSE mode is automatic; no user configuration required.

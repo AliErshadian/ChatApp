@@ -5,8 +5,8 @@ import { ConfigService } from '@nestjs/config';
 import { verify } from 'jsonwebtoken';
 import type { Request } from 'express';
 import { AuthService } from '../auth.service';
-import { User } from '../../users/entities/user.entity';
 import { listAccessJwtSecrets } from '../../../config/jwt-secrets';
+import { AuthenticatedUser } from '../types/authenticated-user';
 
 export interface JwtPayload {
   sub: string;
@@ -23,7 +23,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const secrets = listAccessJwtSecrets(config);
 
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        (request: Request) => {
+          const token = request.query?.access_token;
+          return typeof token === 'string' ? token : null;
+        },
+      ]),
       ignoreExpiration: false,
       secretOrKeyProvider: (
         _request: Request,
@@ -44,7 +50,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: JwtPayload): Promise<User> {
-    return this.authService.validateAccessToken(payload);
+  async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
+    const user = await this.authService.validateAccessToken(payload);
+    if (!payload.sid) {
+      throw new UnauthorizedException('Session required');
+    }
+    return { ...user, sessionId: payload.sid };
   }
 }

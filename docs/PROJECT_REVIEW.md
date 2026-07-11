@@ -1,4 +1,4 @@
-# ChatApp — Project Review (2026-07-10)
+# ChatApp — Project Review (2026-07-11)
 
 This document summarizes the current codebase, highlights strengths and weaknesses, and proposes a prioritized improvement roadmap.
 
@@ -11,20 +11,22 @@ This document summarizes the current codebase, highlights strengths and weakness
   - **Browser**: same React app for development (`localStorage` auth)
   - **Admin**: separate Vite + React app (`admin/`, port 5174)
 - **Infra**: Docker Compose (Postgres/Redis/API), production-like compose with Nginx reverse proxy
+- **Repo layout**: **npm workspaces** monorepo — one root `package-lock.json`, workspaces `chatapp-backend`, `chatapp-desktop`, `chatapp-admin`
 
 ## Repository structure (high level)
 
 ```
 ChatApp/
 ├── package.json             # npm workspaces root
-├── backend/                 # NestJS API + realtime gateway (chatapp-backend)
+├── package-lock.json        # single lockfile for all workspaces
+├── backend/                 # NestJS API + realtime (chatapp-backend)
 ├── desktop/                 # Electron + React client (chatapp-desktop)
 ├── admin/                   # Admin dashboard (Vite + React, port 5174, chatapp-admin)
 ├── infra/                   # Postgres init + migrations + nginx
 ├── docs/                    # Architecture + this review
 ├── docker-compose.yml       # Local dev stack
 ├── docker-compose.prod.yml  # Prod-like stack (nginx + persistent uploads)
-└── .github/workflows/       # CI/CD (lint, build, docker publish)
+└── .github/workflows/       # CI/CD (root npm ci, workspace lint/build, Docker)
 ```
 
 ## What’s implemented today
@@ -51,8 +53,11 @@ ChatApp/
   - DMs (pair uniqueness), channels, groups
   - Invites, avatars, pins, hide/leave, member roles
 - **Realtime**:
-  - Socket.IO `/realtime`, websocket-only transport
-  - Redis adapter when Redis is available
+  - Socket.IO `/realtime`, websocket-only transport (preferred)
+  - **SSE fallback** — `GET /realtime/stream` for server → client when WebSocket is blocked; REST under `/realtime/*` for client → server actions
+  - Redis pub/sub event bus (`rt:user:`, `rt:session:`, `rt:conversation:`) fans out to SSE subscribers across instances
+  - Shared `RealtimeActionsService` + `RealtimeBroadcastService` used by WS gateway and REST fallback
+  - Redis Socket.IO adapter when Redis is available
   - Room-based fanout (`conversation:`, `user:`, `session:`)
 - **Audit** (`audit` module, global):
   - Append-only `audit_logs` table (migration `019`)
@@ -85,7 +90,7 @@ ChatApp/
 
 - **Electron**: secure refresh-token store (`safeStorage`), tray, notifications, `chatapp://` invite links
 - **Browser (Vite dev)**: `localStorage` auth persistence; LAN host auto-routes API to same IP:3000
-- REST + Socket.IO; optimistic sends with `clientMessageId`
+- REST + Socket.IO (with automatic SSE + REST fallback when WebSocket fails)
 - **UI features**:
   - Chat list with pins, unread badges, last-message preview
   - Mentions autocomplete + highlighted mention text
@@ -102,13 +107,13 @@ ChatApp/
 ## Pros (what’s good)
 
 - **Clear modular boundaries** — good foundation for team scaling and service extraction
-- **Realtime scaling pattern** — Socket.IO + Redis adapter, websocket-only
+- **Realtime scaling pattern** — Socket.IO + Redis adapter, websocket-only; SSE + REST fallback for restricted networks
 - **Security baseline beyond typical MVP**:
   - bcrypt passwords, hashed refresh tokens, session revocation
   - WS auth on connect; session checked on each API use
   - DTO validation, throttling on auth, message sanitization
 - **Thoughtful schema** — message ordering, dedup indexes, membership constraints, session tables
-- **Dev ergonomics** — root `npm run dev`, `dev:all` (backend + desktop + admin), compose stack, CI/CD
+- **Dev ergonomics** — npm workspaces monorepo, root `npm run dev` / `dev:all`, compose stack, CI/CD from single lockfile
 - **Admin & audit** — separate admin app, storage visibility, append-only audit trail
 - **Search UX** — unified conversation + message content search with jump-to-message
 - **Session management** — practical Telegram-style device list with push logout
@@ -130,6 +135,8 @@ ChatApp/
 
 ## Recently addressed (2026-07)
 
+- **npm workspaces monorepo** — root `package.json` + single `package-lock.json`; `npm install` / `npm ci` at repo root; CI and Docker builds use workspace-aware layout
+- **SSE realtime fallback** — `GET /realtime/stream` + `/realtime/*` REST actions; desktop client auto-falls back when WebSocket cannot connect
 - **Admin dashboard** — separate `admin/` app; user management, stats, storage panel
 - **Audit log** — `audit_logs` table, global `AuditModule`, admin audit page with filters
 - **Message content search** — `GET /messages/search`; sidebar split search + global search; jump-to-message with history pagination
@@ -163,18 +170,17 @@ ChatApp/
 
 ### P2 (polish and scale)
 
-- Redis token-bucket rate limits for hot WS events
 - Room-only fanout audit in gateway (remove remaining per-member loops)
 - Session presence cache to reduce DB reads
-- SSE fallback for WebSocket-restricted networks
 
 ## Suggested “definition of done” for production readiness
 
 - [ ] CI runs lint + build + **tests** (backend + desktop + admin)
-- [x] CI runs lint + build today (backend + desktop + admin)
+- [x] CI runs lint + build today (backend + desktop + admin; root `npm ci`)
 - [x] Production env validation (JWT secrets, CORS, Redis, DB password, log level)
 - [x] CD publishes backend Docker image
 - [x] WebSocket: CORS allowlist, websocket-only transport
+- [x] SSE fallback for WebSocket-restricted networks
 - [x] Secure token storage (Electron) + session revocation
 - [x] Basic observability (structured logs, Sentry, health check)
 - [x] Database migrations applied automatically in deploy (Compose `migrate` job)

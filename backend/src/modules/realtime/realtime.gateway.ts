@@ -4,6 +4,7 @@ import {
   SubscribeMessage,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   ConnectedSocket,
   MessageBody,
 } from '@nestjs/websockets';
@@ -11,23 +12,23 @@ import { Server, Socket } from 'socket.io';
 import { Logger, UseGuards, OnModuleInit } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { MessagesService } from '../messages/messages.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ConversationRealtimePublisher } from '../conversations/conversation-realtime.publisher';
 import { MessageRealtimePublisher } from '../messages/message-realtime.publisher';
 import { SessionRealtimePublisher } from '../auth/session-realtime.publisher';
 import { AuthService } from '../auth/auth.service';
 import { listAccessJwtSecrets, verifyAccessJwtPayload } from '../../config/jwt-secrets';
-import { PresenceService, PresenceStatus } from '../presence/presence.service';
+import { PresenceService } from '../presence/presence.service';
 import { PresenceConnectionRegistry } from '../presence/presence-connection.registry';
 import { WsJwtGuard } from './guards/ws-jwt.guard';
 import {
   wsConnectionsGauge,
-  wsMessageBroadcastCounter,
   wsMessageSendCounter,
 } from '../../observability/metrics';
 import { WsRateLimit } from '../../observability/ws-rate-limit.decorator';
 import { WsRateLimitGuard } from '../../observability/ws-rate-limit.guard';
+import { RealtimeBroadcastService } from './realtime-broadcast.service';
+import { RealtimeActionsService } from './realtime-actions.service';
 
 interface AuthenticatedSocket extends Socket {
   data: { userId: string; email: string; sessionId: string };
@@ -35,11 +36,11 @@ interface AuthenticatedSocket extends Socket {
 
 @WebSocketGateway({
   namespace: '/realtime',
-  // Internal/controlled environments: websocket-only avoids HTTP long-polling
-  // load and removes sticky-session requirements at the load balancer.
   transports: ['websocket'],
 })
-export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit {
+export class RealtimeGateway
+  implements OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit, OnModuleInit
+{
   @WebSocketServer()
   server!: Server;
 
@@ -48,7 +49,6 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   constructor(
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
-    private readonly messagesService: MessagesService,
     private readonly conversationsService: ConversationsService,
     private readonly presenceService: PresenceService,
     private readonly presenceConnections: PresenceConnectionRegistry,
@@ -56,51 +56,33 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly messagePublisher: MessageRealtimePublisher,
     private readonly sessionPublisher: SessionRealtimePublisher,
     private readonly authService: AuthService,
+    private readonly broadcast: RealtimeBroadcastService,
+    private readonly actions: RealtimeActionsService,
   ) {}
 
   onModuleInit() {
     this.conversationPublisher.setEmitter((conversationId) =>
-      this.broadcastConversationUpdated(conversationId),
+      this.broadcast.broadcastConversationUpdated(conversationId),
     );
     this.conversationPublisher.setCreatedEmitter((conversationId) =>
-      this.broadcastConversationCreated(conversationId),
+      this.broadcast.broadcastConversationCreated(conversationId),
     );
     this.conversationPublisher.setMemberRemovedEmitter((conversationId, removedUserId) =>
-      this.broadcastMemberRemoved(conversationId, removedUserId),
+      this.broadcast.broadcastMemberRemoved(conversationId, removedUserId),
     );
     this.messagePublisher.setNewMessageEmitter((message, senderId) =>
-      this.broadcastNewMessage(message, senderId),
+      this.broadcast.broadcastNewMessage(message, senderId),
     );
     this.sessionPublisher.setTerminatedEmitter((sessionId) =>
-      this.broadcastSessionTerminated(sessionId),
+      this.broadcast.broadcastSessionTerminated(sessionId),
     );
     this.sessionPublisher.setCreatedEmitter((userId, payload, exceptSessionId) =>
-      this.broadcastSessionCreated(userId, payload, exceptSessionId),
+      this.broadcast.broadcastSessionCreated(userId, payload, exceptSessionId),
     );
   }
 
-  private broadcastSessionCreated(
-    userId: string,
-    payload: {
-      sessionId: string;
-      deviceLabel: string;
-      appName: string;
-      platform: string | null;
-      ipAddress: string | null;
-    },
-    exceptSessionId: string,
-  ): Promise<void> {
-    this.server
-      .to(`user:${userId}`)
-      .except(`session:${exceptSessionId}`)
-      .emit('session:created', payload);
-    return Promise.resolve();
-  }
-
-  private async broadcastSessionTerminated(sessionId: string) {
-    const room = `session:${sessionId}`;
-    this.server.to(room).emit('session:terminated', { sessionId });
-    await this.server.in(room).disconnectSockets(true);
+  afterInit() {
+    this.broadcast.setServer(this.server);
   }
 
   async handleConnection(client: AuthenticatedSocket) {
@@ -140,10 +122,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       await this.presenceService.setOnline(payload.sub, client.id);
 
       if (connectionCount === 1) {
-        await this.broadcastPresenceUpdate(payload.sub, 'online');
+        await this.broadcast.broadcastPresenceUpdate(payload.sub, 'online');
       }
 
-      await this.sendPresenceSnapshot(client, payload.sub);
+      await this.broadcast.sendPresenceSnapshot(payload.sub, (event, data) => {
+        client.emit(event, data);
+      });
 
       wsConnectionsGauge.inc(1);
       this.logger.log(`Client connected: ${client.id} (user: ${payload.sub})`);
@@ -160,7 +144,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const remainingConnections = this.presenceConnections.unregister(userId);
     if (remainingConnections === 0) {
       await this.presenceService.setOffline(userId);
-      await this.broadcastPresenceUpdate(userId, 'offline');
+      await this.broadcast.broadcastPresenceUpdate(userId, 'offline');
     }
     this.logger.log(`Client disconnected: ${client.id}`);
   }
@@ -190,7 +174,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   @WsRateLimit({
     action: 'message_send',
     capacity: 15,
-    refillPerSec: 0.5, // ~30/min
+    refillPerSec: 0.5,
   })
   @SubscribeMessage('message:send')
   async handleMessageSend(
@@ -204,71 +188,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     },
   ) {
     wsMessageSendCounter.inc(1);
-    const message = await this.messagesService.send(client.data.userId, {
-      conversationId: data.conversationId,
-      content: data.content,
-      clientMessageId: data.clientMessageId,
-      replyToMessageId: data.replyToMessageId,
-    });
-
-    const ackPayload = {
-      clientMessageId: data.clientMessageId,
-      message: { ...message, status: 'sent' as const },
-    };
-
-    // Direct ack to sender (callback + event for reliability)
-    client.emit('message:ack', ackPayload);
-
-    await this.broadcastNewMessage(message, client.data.userId);
-
-    return { success: true, ...ackPayload };
-  }
-
-  private async broadcastNewMessage(
-    message: {
-      id: string;
-      conversationId: string;
-      senderId: string;
-      content: string;
-      contentType: string;
-      fileName?: string;
-      fileSize?: string;
-      caption?: string;
-      clientMessageId?: string;
-      sequence: string;
-      createdAt: Date;
-      editedAt?: Date;
-      deletedForEveryone?: boolean;
-      status?: string;
-      reactions?: unknown[];
-      replyTo?: unknown;
-      sender?: unknown;
-    },
-    senderId: string,
-  ) {
-    
-    // 1) Primary delivery: one room emit for all active viewers.
-    this.server.to(`conversation:${message.conversationId}`).emit('message:receive', message);
-    wsMessageBroadcastCounter.inc(1);
-    // 2) Minimal per-user side effects (no full message fanout).
-    // - unhide conversation for members (single query)
-    // - optional "activity" ping to update conversation lists / badges for users
-    await this.conversationsService.unhideConversationForConversation(message.conversationId);
-    const memberIds = await this.conversationsService.getMemberUserIds(message.conversationId);
-    const recipientRooms = memberIds
-      .filter((id) => id !== senderId)
-      .map((id) => `user:${id}`);
-    if (recipientRooms.length > 0) {
-      this.server.to(recipientRooms).emit('message:receive', message);
-      wsMessageBroadcastCounter.inc(recipientRooms.length);
-      this.server.to(recipientRooms).emit('conversation:activity', {
-        conversationId: message.conversationId,
-        messageId: message.id,
-        senderId: message.senderId,
-        sequence: message.sequence,
-        createdAt: message.createdAt,
-      });
-    }
+    return this.actions.sendMessage(client.data.userId, client.data.sessionId, data);
   }
 
   @UseGuards(WsJwtGuard)
@@ -277,16 +197,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { messageId: string },
   ) {
-    const result = await this.messagesService.markDelivered(client.data.userId, data.messageId);
-    this.server.to(`user:${result.senderId}`).emit('message:status', result);
-    return { success: true };
+    return this.actions.markDelivered(client.data.userId, data.messageId);
   }
 
   @UseGuards(WsJwtGuard, WsRateLimitGuard)
   @WsRateLimit({
     action: 'typing',
     capacity: 6,
-    refillPerSec: 1.5, // bursty but capped
+    refillPerSec: 1.5,
     keySuffixFromBody: (body) => body?.conversationId,
   })
   @SubscribeMessage('user:typing')
@@ -306,6 +224,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       userId: client.data.userId,
       isTyping: data.isTyping,
     });
+
+    await this.broadcast.emitToConversation(data.conversationId, 'user:typing', {
+      conversationId: data.conversationId,
+      userId: client.data.userId,
+      isTyping: data.isTyping,
+    });
+
+    return { success: true };
   }
 
   @UseGuards(WsJwtGuard)
@@ -314,12 +240,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { messageId: string },
   ) {
-    const receipt = await this.messagesService.markRead(client.data.userId, data.messageId);
-    this.server.to(`user:${receipt.senderId}`).emit('message:status', receipt);
-    this.server
-      .to(`conversation:${receipt.conversationId}`)
-      .emit('message:read', receipt);
-    return { success: true };
+    return this.actions.markRead(client.data.userId, data.messageId);
   }
 
   @UseGuards(WsJwtGuard)
@@ -328,13 +249,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { messageId: string; content: string },
   ) {
-    const message = await this.messagesService.edit(
-      client.data.userId,
-      data.messageId,
-      data.content,
-    );
-    await this.broadcastMessageUpdate(message);
-    return { success: true, message };
+    return this.actions.editMessage(client.data.userId, data.messageId, data.content);
   }
 
   @UseGuards(WsJwtGuard)
@@ -343,21 +258,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { messageId: string; scope: 'me' | 'everyone' },
   ) {
-    const result = await this.messagesService.delete(
+    return this.actions.deleteMessage(
       client.data.userId,
+      client.data.sessionId,
       data.messageId,
       data.scope,
     );
-
-    if (result.scope === 'me') {
-      client.emit('message:hidden', { messageId: result.messageId });
-      return { success: true, ...result };
-    }
-
-    if (result.message) {
-      await this.broadcastMessageUpdate(result.message);
-    }
-    return { success: true, ...result };
   }
 
   @UseGuards(WsJwtGuard)
@@ -366,77 +272,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { messageId: string; emoji: string },
   ) {
-    const result = await this.messagesService.toggleReaction(
-      client.data.userId,
-      data.messageId,
-      data.emoji,
-    );
-    await this.broadcastReactionUpdate(result);
-    return { success: true, ...result };
-  }
-
-  private async broadcastReactionUpdate(result: {
-    messageId: string;
-    conversationId: string;
-    reactions: unknown[];
-  }) {
-    const memberIds = await this.conversationsService.getMemberUserIds(
-      result.conversationId,
-    );
-
-    this.server
-      .to(`conversation:${result.conversationId}`)
-      .emit('message:reaction', result);
-
-    const rooms = memberIds.map((id) => `user:${id}`);
-    if (rooms.length > 0) this.server.to(rooms).emit('message:reaction', result);
-  }
-
-  private async broadcastConversationUpdated(conversationId: string) {
-    const data = await this.conversationsService.getConversationUpdatePayload(conversationId);
-    if (!data) return;
-
-    const { memberUserIds, ...payload } = data;
-
-    this.server
-      .to(`conversation:${conversationId}`)
-      .emit('conversation:updated', payload);
-
-    const rooms = memberUserIds.map((id) => `user:${id}`);
-    if (rooms.length > 0) this.server.to(rooms).emit('conversation:updated', payload);
-  }
-
-  private async broadcastConversationCreated(conversationId: string) {
-    const memberIds = await this.conversationsService.getMemberUserIds(conversationId);
-
-    for (const memberId of memberIds) {
-      const summary = await this.conversationsService.getById(conversationId, memberId);
-      this.server.to(`user:${memberId}`).emit('conversation:created', summary);
-    }
-  }
-
-  private async broadcastMemberRemoved(conversationId: string, removedUserId: string) {
-    this.server
-      .to(`user:${removedUserId}`)
-      .emit('conversation:hidden', { conversationId });
-    await this.broadcastConversationUpdated(conversationId);
-  }
-
-  private async broadcastMessageUpdate(message: {
-    id: string;
-    conversationId: string;
-    senderId: string;
-  }) {
-    const memberIds = await this.conversationsService.getMemberUserIds(
-      message.conversationId,
-    );
-
-    this.server
-      .to(`conversation:${message.conversationId}`)
-      .emit('message:updated', message);
-
-    const rooms = memberIds.map((id) => `user:${id}`);
-    if (rooms.length > 0) this.server.to(rooms).emit('message:updated', message);
+    return this.actions.toggleReaction(client.data.userId, data.messageId, data.emoji);
   }
 
   @UseGuards(WsJwtGuard)
@@ -445,79 +281,23 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { conversationId: string; scope: 'me' | 'everyone' },
   ) {
-    const result = await this.conversationsService.delete(
+    return this.actions.deleteConversation(
       client.data.userId,
+      client.data.sessionId,
       data.conversationId,
       data.scope,
     );
-
-    client.emit('conversation:hidden', { conversationId: result.conversationId });
-
-    if (result.scope === 'everyone' && result.deletedMessageIds.length > 0) {
-      const payload = {
-        conversationId: result.conversationId,
-        messageIds: result.deletedMessageIds,
-      };
-      const memberIds = await this.conversationsService.getMemberUserIds(
-        result.conversationId,
-      );
-
-      this.server
-        .to(`conversation:${result.conversationId}`)
-        .emit('conversation:messages_deleted', payload);
-
-      const rooms = memberIds
-        .filter((id) => id !== client.data.userId)
-        .map((id) => `user:${id}`);
-      if (rooms.length > 0) this.server.to(rooms).emit('conversation:messages_deleted', payload);
-    }
-
-    return { success: true, ...result };
-  }
-
-  private async sendPresenceSnapshot(client: AuthenticatedSocket, userId: string) {
-    const relatedUserIds = await this.conversationsService.getRelatedUserIds(userId);
-    const onlineUserIds = this.presenceConnections.getOnlineUserIds(relatedUserIds);
-    if (onlineUserIds.length === 0) return;
-
-    client.emit(
-      'presence:sync',
-      onlineUserIds.map((id) => ({
-        userId: id,
-        status: 'online' as PresenceStatus,
-        lastSeen: new Date().toISOString(),
-      })),
-    );
-  }
-
-  private async broadcastPresenceUpdate(userId: string, status: PresenceStatus) {
-    const payload = {
-      userId,
-      status,
-      lastSeen: new Date().toISOString(),
-    };
-
-    this.server.emit('user:presence', payload);
-
-    const relatedUserIds = await this.conversationsService.getRelatedUserIds(userId);
-    for (const relatedUserId of relatedUserIds) {
-      this.server.to(`user:${relatedUserId}`).emit('user:presence', payload);
-    }
   }
 
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('presence:heartbeat')
   async heartbeat(@ConnectedSocket() client: AuthenticatedSocket) {
-    await this.presenceService.heartbeat(client.data.userId);
-    return { success: true };
+    return this.actions.heartbeat(client.data.userId);
   }
 
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('presence:query')
-  async queryPresence(
-    @MessageBody() data: { userIds: string[] },
-  ) {
-    const presence = await this.presenceService.getPresence(data.userIds);
-    return { event: 'presence:batch', data: presence };
+  async queryPresence(@MessageBody() data: { userIds: string[] }) {
+    return this.actions.queryPresence(data.userIds);
   }
 }

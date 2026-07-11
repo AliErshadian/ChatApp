@@ -425,6 +425,113 @@ class ApiClient {
     return getServiceUrls().wsBase;
   }
 
+  getApiBase() {
+    return this.apiBase();
+  }
+
+  sendRealtimeMessage(
+    conversationId: string,
+    content: string,
+    clientMessageId?: string,
+    replyToMessageId?: string,
+  ) {
+    return this.request<{ message: Message; clientMessageId?: string }>('/realtime/messages/send', {
+      method: 'POST',
+      body: JSON.stringify({
+        conversationId,
+        content,
+        clientMessageId,
+        replyToMessageId,
+      }),
+    });
+  }
+
+  markRealtimeDelivered(messageId: string) {
+    return this.request('/realtime/messages/delivered', {
+      method: 'POST',
+      body: JSON.stringify({ messageId }),
+    });
+  }
+
+  markRealtimeRead(messageId: string) {
+    return this.request('/realtime/messages/read', {
+      method: 'POST',
+      body: JSON.stringify({ messageId }),
+    });
+  }
+
+  sendRealtimeTyping(conversationId: string, isTyping: boolean) {
+    return this.request('/realtime/typing', {
+      method: 'POST',
+      body: JSON.stringify({ conversationId, isTyping }),
+    });
+  }
+
+  joinRealtimeConversation(conversationId: string) {
+    return this.request(`/realtime/conversations/${conversationId}/join`, {
+      method: 'POST',
+    });
+  }
+
+  leaveRealtimeConversation(conversationId: string) {
+    return this.request(`/realtime/conversations/${conversationId}/leave`, {
+      method: 'POST',
+    });
+  }
+
+  realtimeHeartbeat() {
+    return this.request('/realtime/presence/heartbeat', { method: 'POST' });
+  }
+
+  queryRealtimePresence(userIds: string[]) {
+    return this.request<{ event: string; data: Array<{ userId: string; status: string; lastSeen: string }> }>(
+      '/realtime/presence/query',
+      {
+        method: 'POST',
+        body: JSON.stringify({ userIds }),
+      },
+    );
+  }
+
+  realtimeEditMessage(messageId: string, content: string) {
+    return this.request<{ message: Message }>('/realtime/messages/edit', {
+      method: 'POST',
+      body: JSON.stringify({ messageId, content }),
+    });
+  }
+
+  realtimeDeleteMessage(messageId: string, scope: 'me' | 'everyone') {
+    return this.request<{ message?: Message; messageId: string; scope: 'me' | 'everyone' }>(
+      '/realtime/messages/delete',
+      {
+        method: 'POST',
+        body: JSON.stringify({ messageId, scope }),
+      },
+    );
+  }
+
+  realtimeToggleReaction(messageId: string, emoji: string) {
+    return this.request<{
+      messageId: string;
+      conversationId: string;
+      reactions: MessageReaction[];
+    }>('/realtime/messages/reaction', {
+      method: 'POST',
+      body: JSON.stringify({ messageId, emoji }),
+    });
+  }
+
+  realtimeDeleteConversation(conversationId: string, scope: 'me' | 'everyone') {
+    return this.request<{
+      conversationId: string;
+      scope: 'me' | 'everyone';
+      deletedMessageIds: string[];
+    }>(`/realtime/conversations/${conversationId}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ scope }),
+    });
+  }
+
   private apiBase() {
     return getServiceUrls().apiBase;
   }

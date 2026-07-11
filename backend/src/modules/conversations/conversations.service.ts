@@ -791,6 +791,14 @@ export class ConversationsService {
     return members.map((m) => m.userId);
   }
 
+  async getConversationIdsForUser(userId: string): Promise<string[]> {
+    const memberships = await this.memberRepo.find({
+      where: { userId },
+      select: ['conversationId'],
+    });
+    return memberships.map((membership) => membership.conversationId);
+  }
+
   async getRelatedUserIds(userId: string): Promise<string[]> {
     const memberships = await this.memberRepo.find({
       where: { userId },
