@@ -116,7 +116,6 @@ ChatApp/
 
 ### Security & configuration
 
-- **Secrets**: production validated at startup (Zod + `npm run validate:env`); still rotate JWT secrets and avoid committing `.env`
 - **CORS**: configurable allowlist; dev allows private LAN origins — tighten for production
 - **Dependency audit**: routine `npm audit` / Dependabot recommended
 
@@ -138,6 +137,7 @@ ChatApp/
 - **Migration runner** — `npm run migrate` (loads `backend/.env`), skip-already-applied for legacy DBs, Compose `migrate` → `api`
 - **Schema drift guard** — `init.sql` seeds `schema_migrations` with migration checksums; `npm run check:schema-drift` runs in CI
 - **Session-bound access tokens** — JWTs require `sid`; every REST/WS request checks `user_sessions`; revoke terminates tokens immediately
+- **Secrets hygiene** — Zod production validation, `validate:env`, `generate:secrets`, `check:secrets` in CI, `.env` gitignored; access JWT rotation via `JWT_ACCESS_SECRET_PREVIOUS`
 - **Admin CI** — lint/build job in GitHub Actions workflow
 - Device session management (`user_sessions`, JWT `sid`, terminate + remote logout)
 - In-app notifications (mentions, new chats, group adds, new device login)

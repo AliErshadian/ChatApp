@@ -85,6 +85,7 @@ const EnvSchema = z
     DATABASE_URL: nonEmpty('DATABASE_URL'),
     REDIS_URL: z.string().trim().optional(),
     JWT_ACCESS_SECRET: requiredSecret('JWT_ACCESS_SECRET'),
+    JWT_ACCESS_SECRET_PREVIOUS: z.string().trim().optional(),
     JWT_REFRESH_SECRET: requiredSecret('JWT_REFRESH_SECRET'),
     JWT_ACCESS_EXPIRES_IN: nonEmpty('JWT_ACCESS_EXPIRES_IN').default('15m'),
     JWT_REFRESH_EXPIRES_IN: nonEmpty('JWT_REFRESH_EXPIRES_IN').default('7d'),
@@ -173,6 +174,31 @@ const EnvSchema = z
         path: ['JWT_REFRESH_SECRET'],
         message: 'JWT_REFRESH_SECRET must differ from JWT_ACCESS_SECRET in production',
       });
+    }
+
+    const previousAccess = env.JWT_ACCESS_SECRET_PREVIOUS?.trim();
+    if (previousAccess) {
+      if (previousAccess === env.JWT_ACCESS_SECRET) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['JWT_ACCESS_SECRET_PREVIOUS'],
+          message: 'JWT_ACCESS_SECRET_PREVIOUS must differ from JWT_ACCESS_SECRET',
+        });
+      }
+      if (previousAccess.length < 32) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['JWT_ACCESS_SECRET_PREVIOUS'],
+          message: 'JWT_ACCESS_SECRET_PREVIOUS must be at least 32 characters in production',
+        });
+      }
+      if (isPlaceholderSecret(previousAccess) || hasLowEntropySecret(previousAccess)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['JWT_ACCESS_SECRET_PREVIOUS'],
+          message: 'JWT_ACCESS_SECRET_PREVIOUS must be a strong random secret in production',
+        });
+      }
     }
 
     if (env.CORS_ORIGIN === '*' || env.CORS_ORIGIN.trim() === '') {

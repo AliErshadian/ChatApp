@@ -17,6 +17,7 @@ import { ConversationRealtimePublisher } from '../conversations/conversation-rea
 import { MessageRealtimePublisher } from '../messages/message-realtime.publisher';
 import { SessionRealtimePublisher } from '../auth/session-realtime.publisher';
 import { AuthService } from '../auth/auth.service';
+import { listAccessJwtSecrets, verifyAccessJwtPayload } from '../../config/jwt-secrets';
 import { PresenceService, PresenceStatus } from '../presence/presence.service';
 import { PresenceConnectionRegistry } from '../presence/presence-connection.registry';
 import { WsJwtGuard } from './guards/ws-jwt.guard';
@@ -113,9 +114,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         return;
       }
 
-      const payload = await this.jwtService.verifyAsync<{ sub: string; email: string; sid?: string }>(
+      const payload = await verifyAccessJwtPayload(
+        this.jwtService,
         token,
-        { secret: this.config.get<string>('JWT_ACCESS_SECRET') },
+        listAccessJwtSecrets(this.config),
       );
 
       await this.authService.validateAccessToken(payload);

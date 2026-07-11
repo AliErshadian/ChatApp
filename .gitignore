@@ -3,6 +3,11 @@ dist/
 dist-electron/
 release/
 .env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 *.log
 uploads/
 backend/uploads/

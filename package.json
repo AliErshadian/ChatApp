@@ -14,6 +14,8 @@
     "dev:infra": "docker compose up -d postgres redis",
     "migrate": "npm run migrate --prefix backend",
     "check:schema-drift": "npm run check:schema-drift --prefix backend",
+    "check:secrets": "npm run check:secrets --prefix backend",
+    "generate:secrets": "npm run generate:secrets --prefix backend",
     "docker:up": "docker compose up --build -d",
     "docker:down": "docker compose down",
     "build:backend": "npm run build --prefix backend",

@@ -38,6 +38,21 @@ jobs:
       - name: Check schema drift (init.sql vs migrations)
         run: npm run check:schema-drift
 
+      - name: Check secrets are not committed
+        run: npm run check:secrets
+
+      - name: Validate production env rules
+        shell: bash
+        run: |
+          export NODE_ENV=production
+          export DATABASE_URL=postgresql://chatapp:ci-strong-db-password-32chars@localhost:5432/chatapp
+          export REDIS_URL=redis://localhost:6379
+          export JWT_ACCESS_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+          export JWT_REFRESH_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+          export CORS_ORIGIN=https://app.example.com
+          export LOG_LEVEL=info
+          npm run validate:env
+
   desktop:
     name: Desktop (typecheck/build)
     runs-on: ubuntu-latest

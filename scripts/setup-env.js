@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const root = path.join(__dirname, '..');
 
@@ -9,6 +10,25 @@ const copies = [
   ['desktop/.env.example', 'desktop/.env'],
   ['admin/.env.example', 'admin/.env'],
 ];
+
+function randomSecret() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+function seedBackendSecrets(content) {
+  const access = randomSecret();
+  const refresh = randomSecret();
+
+  return content
+    .replace(
+      /^JWT_ACCESS_SECRET=.*$/m,
+      `JWT_ACCESS_SECRET=${access}`,
+    )
+    .replace(
+      /^JWT_REFRESH_SECRET=.*$/m,
+      `JWT_REFRESH_SECRET=${refresh}`,
+    );
+}
 
 for (const [fromRel, toRel] of copies) {
   const from = path.join(root, fromRel);
@@ -21,6 +41,12 @@ for (const [fromRel, toRel] of copies) {
     console.log(`keep: ${toRel} (already exists)`);
     continue;
   }
-  fs.copyFileSync(from, to);
-  console.log(`created: ${toRel}`);
+
+  let content = fs.readFileSync(from, 'utf8');
+  if (toRel === 'backend/.env') {
+    content = seedBackendSecrets(content);
+  }
+
+  fs.writeFileSync(to, content, 'utf8');
+  console.log(`created: ${toRel}${toRel === 'backend/.env' ? ' (random JWT secrets)' : ''}`);
 }
