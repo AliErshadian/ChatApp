@@ -43,7 +43,66 @@
 └─────────────────┘  └─────────────────┘  └─────────────────┘
 ```
 
-## 2. Service Boundaries (Modular Monolith → Microservices Path)
+## 2. Repository & Monorepo Layout
+
+The codebase is an **npm workspaces** monorepo: one Git repository, one root `package-lock.json`, and three workspace packages. Dependencies are installed and locked at the repository root; root scripts delegate to workspaces with `-w <package-name>`.
+
+```
+ChatApp/
+├── package.json              # workspaces root + dev/build/lint orchestration
+├── package-lock.json         # single lockfile for all workspaces
+├── scripts/
+│   └── setup-env.js          # copies .env.example → .env (root + each workspace)
+├── backend/                  # workspace: chatapp-backend (NestJS API)
+├── desktop/                  # workspace: chatapp-desktop (Electron + React)
+├── admin/                    # workspace: chatapp-admin (Vite + React admin UI)
+├── infra/
+│   ├── postgres/             # init.sql, migrations/
+│   └── docker/
+│       └── migrate.Dockerfile
+├── docs/
+├── docker-compose.yml
+└── docker-compose.prod.yml
+```
+
+### Workspace packages
+
+| Directory | Package name | Role |
+|-----------|--------------|------|
+| `backend/` | `chatapp-backend` | NestJS REST API, WebSocket gateway, migrations |
+| `desktop/` | `chatapp-desktop` | Electron shell + React chat client (browser dev via Vite) |
+| `admin/` | `chatapp-admin` | Admin dashboard (port 5174) |
+
+There is no `apps/` or `packages/` split today — top-level workspace folders are sufficient for three deployable apps with no shared library package yet.
+
+### Root scripts (from repository root)
+
+| Script | Workspace | Purpose |
+|--------|-----------|---------|
+| `npm install` / `npm ci` | all | Install or reproduce all workspace dependencies |
+| `npm run setup` | all | Copy env templates + `npm install` |
+| `npm run dev:backend` | `chatapp-backend` | Nest watch mode |
+| `npm run dev:desktop` | `chatapp-desktop` | Electron + Vite dev |
+| `npm run dev:admin` | `chatapp-admin` | Admin Vite dev server |
+| `npm run dev` / `dev:all` | multiple | Concurrent dev processes |
+| `npm run build` | all | Production builds |
+| `npm run lint` | all | ESLint in every workspace |
+| `npm run migrate` | `chatapp-backend` | Apply SQL migrations |
+| `npm run check:schema-drift` | `chatapp-backend` | CI guard: `init.sql` vs migrations |
+
+Per-workspace commands also work, e.g. `npm run build -w chatapp-backend`.
+
+### CI/CD and Docker (monorepo-aware)
+
+- **CI** (`.github/workflows/ci.yml`): `npm ci` at repo root; lint/build/checks run with `-w chatapp-*`. Docker image build uses **repository root** as context (`backend/Dockerfile`).
+- **CD** (`.github/workflows/cd.yml`): publishes the backend image from the same root context.
+- **API image** (`backend/Dockerfile`): copies root `package.json` + `package-lock.json` and `backend/package.json`, then `npm ci -w chatapp-backend` (prod deps only in the runtime stage).
+- **Migrate image** (`infra/docker/migrate.Dockerfile`): same workspace install pattern; runs `backend/scripts/migrate.mjs` against `infra/postgres/migrations/`.
+- **Compose** (`docker-compose.yml`, `docker-compose.prod.yml`): `api` service `build.context` is `.` (repo root), `dockerfile: backend/Dockerfile`.
+
+Backend and admin modules inside NestJS (`backend/src/modules/admin/`) are unrelated to the `admin/` frontend workspace — the table in §3 uses Nest module names; the `admin/` folder is the separate admin web client.
+
+## 3. Service Boundaries (Modular Monolith → Microservices Path)
 
 The MVP ships as a **modular monolith** with clean boundaries:
 
@@ -61,7 +120,7 @@ The MVP ships as a **modular monolith** with clean boundaries:
 
 Extraction path: each module owns its entities and services; split by deploying separate NestJS apps with shared contracts.
 
-## 3. Message Delivery Event Flow
+## 4. Message Delivery Event Flow
 
 ```
 Client A                    API Gateway              PostgreSQL        Redis           Client B
@@ -85,7 +144,7 @@ Client A                    API Gateway              PostgreSQL        Redis    
 - Client deduplication via `clientMessageId` (idempotent sends on reconnect)
 - Cross-conversation ordering is not guaranteed
 
-## 4. Session & Auth Architecture
+## 5. Session & Auth Architecture
 
 Telegram-style **device sessions** tie refresh tokens and access tokens to a logical device.
 
@@ -119,7 +178,7 @@ Telegram-style **device sessions** tie refresh tokens and access tokens to a log
 | Electron | Renderer memory | Main process encrypted file | Stored with session |
 | Browser | Memory + short-lived in memory | `localStorage` | `localStorage` + JWT `sid` |
 
-## 5. WebSocket Scaling (Multi-Instance)
+## 6. WebSocket Scaling (Multi-Instance)
 
 ```
                     ┌─────────────┐
@@ -140,7 +199,7 @@ Telegram-style **device sessions** tie refresh tokens and access tokens to a log
 - `transports: ['websocket']` only — no sticky sessions required
 - Presence: Redis keys + in-memory per-instance connection counts
 
-## 6. Horizontal Scaling Strategy
+## 7. Horizontal Scaling Strategy
 
 | Component | Scale Method | Notes |
 |-----------|-------------|-------|
@@ -149,7 +208,7 @@ Telegram-style **device sessions** tie refresh tokens and access tokens to a log
 | Redis | Cluster / Sentinel | Presence + Socket.IO pub/sub |
 | File uploads | Not horizontally safe yet | Local disk; move to S3/MinIO |
 
-## 7. Trade-offs
+## 8. Trade-offs
 
 | Decision | Pros | Cons |
 |----------|------|------|
@@ -158,8 +217,9 @@ Telegram-style **device sessions** tie refresh tokens and access tokens to a log
 | Session in JWT (`sid`) | Fast revocation check | DB lookup per request (acceptable for MVP) |
 | Electron + browser client | One React codebase | Two auth storage paths to maintain |
 | SQL migration files | Simple, reviewable | Not auto-applied by ORM yet |
+| npm workspaces monorepo | One install/lockfile, root orchestration scripts | No shared `packages/*` library yet; clients duplicate types |
 
-## 8. REST API Payload Examples
+## 9. REST API Payload Examples
 
 ### Register / Login
 
@@ -231,7 +291,7 @@ Authorization: Bearer eyJhbG...
 - Uses `simple` text config (language-neutral) with prefix matching (`term:*`)
 - Maintained by DB trigger on insert/update; apply migration `020_message_search_fts.sql` on existing databases
 
-## 9. WebSocket Event Payloads
+## 10. WebSocket Event Payloads
 
 ### `message:send` (Client → Server)
 
@@ -270,7 +330,7 @@ Sent to other devices when a new session is created:
 
 Client clears local auth and returns to login.
 
-## 10. Database Schema Summary
+## 11. Database Schema Summary
 
 ```
 users ─────────────┬──── conversation_members ──── conversations
@@ -293,8 +353,8 @@ audit_logs ── users (user_id, actor_user_id)
 **Schema delivery:**
 
 - `infra/postgres/init.sql` — full schema for new databases; seeds `schema_migrations` with checksums
-- `infra/postgres/migrations/*.sql` — incremental changes; applied by `backend/scripts/migrate.mjs`
-- `npm run check:schema-drift` — CI guard that `init.sql` matches all migration files
+- `infra/postgres/migrations/*.sql` — incremental changes; applied by `backend/scripts/migrate.mjs` (`npm run migrate` from repo root)
+- `npm run check:schema-drift` — CI guard that `init.sql` matches all migration files (root script → `chatapp-backend`)
 
 Key indexes:
 
@@ -305,7 +365,7 @@ Key indexes:
 - `user_sessions(user_id)` partial where not revoked
 - `refresh_tokens(user_id, session_family_id)` — session token lookup
 
-## 11. Security Architecture
+## 12. Security Architecture
 
 ### JWT Auth Flow
 
@@ -337,9 +397,11 @@ Key indexes:
 
 Message content passes through `sanitize-html` (escape mode) to prevent stored XSS. Mentions parsed server-side and stored in `message_mentions`.
 
-## 12. Client Architecture (Desktop / Browser / Admin)
+## 13. Client Architecture (Desktop / Browser / Admin)
 
-### Chat client (desktop / browser)
+Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboard). Both are Vite + React; the chat client also ships as Electron (`desktop/electron/`).
+
+### Chat client (`desktop/` — `chatapp-desktop`)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -364,9 +426,9 @@ Message content passes through `sanitize-html` (escape mode) to prevent stored X
 3. Bottom: message hits from `GET /messages/search`
 4. Click message → open conversation, load older pages if needed, scroll to `msg-{id}` with highlight
 
-### Admin client (`admin/`)
+### Admin client (`admin/` — `chatapp-admin`)
 
-Separate Vite + React app (port 5174). Uses the same JWT auth; requires `users.is_admin = TRUE`.
+Separate workspace: Vite + React (port 5174). Uses the same JWT auth; requires `users.is_admin = TRUE`. Dev: `npm run dev:admin` from repo root.
 
 - **Dashboard**: user/message/conversation counts, recent activity, storage breakdown
 - **Users**: list with role/status filters; detail with session count, message stats
@@ -374,7 +436,7 @@ Separate Vite + React app (port 5174). Uses the same JWT auth; requires `users.i
 
 **Service URL resolution** (`endpoints.ts`): on LAN hosts, API/WS target the same hostname on port 3000 instead of hardcoded `localhost`.
 
-## 13. Admin & Audit Architecture
+## 14. Admin & Audit Architecture
 
 ```
 ┌──────────────┐     JWT + is_admin     ┌─────────────────┐
@@ -398,13 +460,13 @@ Separate Vite + React app (port 5174). Uses the same JWT auth; requires `users.i
 - Upload folder sizes (`avatars`, `channel-avatars`, `message-attachments`)
 - Message counts by media kind (text, image, video, etc.)
 
-## 14. File Upload Architecture (Current)
+## 15. File Upload Architecture (Current)
 
 - Multipart upload to API → stored under `uploads/` on disk
 - Served at `/uploads/...` with cross-origin resource policy for avatars/attachments
 - **Production gap**: not safe across multiple API instances without shared/object storage
 
-## 15. Observability
+## 16. Observability
 
 | Component | Implementation |
 |-----------|----------------|
@@ -413,7 +475,7 @@ Separate Vite + React app (port 5174). Uses the same JWT auth; requires `users.i
 | Metrics | Prometheus gauges/counters (e.g. WS connections, message sends) |
 | Health | `GET /api/v1/health` |
 
-## 16. Environment Variables
+## 17. Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -430,8 +492,17 @@ Separate Vite + React app (port 5174). Uses the same JWT auth; requires `users.i
 | `RATE_LIMIT_TTL` / `RATE_LIMIT_MAX` | Global rate limit | `60` / `100` |
 | `PORT` | API listen port | `3000` |
 
+**Per-workspace env files** (created by `npm run setup` from `*.env.example`):
+
+| File | Workspace | Notes |
+|------|-----------|-------|
+| `.env` | root / Compose | Postgres, Redis, shared Compose vars |
+| `backend/.env` | `chatapp-backend` | `DATABASE_URL`, JWT secrets, `PORT`, etc. |
+| `desktop/.env` | `chatapp-desktop` | optional `VITE_API_URL`, `VITE_WS_URL` |
+| `admin/.env` | `chatapp-admin` | optional `VITE_API_URL` |
+
 **Desktop / Admin (Vite):** `VITE_API_URL`, `VITE_WS_URL` override defaults when not using LAN auto-detection.
 
-## 17. SSE Fallback (Optional, not implemented)
+## 18. SSE Fallback (Optional, not implemented)
 
 For WebSocket-blocked environments, an SSE endpoint could mirror Redis pub/sub events. Not included in MVP.
