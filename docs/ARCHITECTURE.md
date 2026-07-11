@@ -167,9 +167,10 @@ Telegram-style **device sessions** tie refresh tokens and access tokens to a log
 
 1. **Login/register** sends `clientInfo` (`deviceLabel`, `platform`, `clientType`, `appName`). Same device reuses an existing session row when possible.
 2. **Refresh** rotates the opaque refresh token but keeps the same `sessionId`.
-3. **Access token** carries required `sid`; every REST request and WebSocket message validates the session is not revoked.
-4. **Terminate session** revokes DB row + all refresh tokens for that family, emits `session:terminated` to `session:{id}` room, and disconnects sockets.
+3. **Access token** carries required `sid`; every REST request and WebSocket message validates the session is not revoked (Redis cache first, PostgreSQL on miss).
+4. **Terminate session** revokes DB row + refresh tokens, invalidates Redis session cache, emits `session:terminated`, and disconnects sockets.
 5. **New login** on another device emits `session:created` to other sessions (excluding the new one).
+6. **Session cache** (`SessionCacheService`): `session:valid:{sid}` (TTL = access token lifetime), `session:revoked:{sid}` (short negative cache); `last_active_at` DB writes debounced to ~60s per session.
 
 **Client storage:**
 
@@ -214,7 +215,7 @@ Telegram-style **device sessions** tie refresh tokens and access tokens to a log
 |----------|------|------|
 | Modular monolith | Fast iteration, shared transactions | Requires discipline at module edges |
 | Socket.IO | Rooms, Redis adapter | Heavier than raw WebSocket |
-| Session in JWT (`sid`) | Fast revocation check | DB lookup per request (acceptable for MVP) |
+| Session in JWT (`sid`) | Fast revocation check; Redis cache avoids per-request session DB reads | User active check still hits DB; cache invalidated immediately on revoke |
 | Electron + browser client | One React codebase | Two auth storage paths to maintain |
 | SQL migration files | Simple, reviewable | Not auto-applied by ORM yet |
 | npm workspaces monorepo | One install/lockfile, root orchestration scripts | No shared `packages/*` library yet; clients duplicate types |
@@ -375,7 +376,7 @@ Key indexes:
 3. REST: Authorization: Bearer; WS: auth.token on handshake
 4. On 401 → POST /auth/refresh (rotates refresh token, same sessionId)
 5. Logout / terminate → revoke session + refresh tokens; push session:terminated
-6. validateAccessToken checks user active + session not revoked
+6. validateAccessToken checks user active + session not revoked (Redis session cache → DB fallback)
 ```
 
 ### Secure WebSocket Handshake

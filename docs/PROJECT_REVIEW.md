@@ -130,13 +130,13 @@ ChatApp/
 - **No automated tests** — auth, ACL, messaging, and session flows are untested in CI
 - **Uploads on local disk** — breaks horizontal scaling; architecture assumes S3/MinIO later
 - **Some gateway paths** still use per-member emits where room broadcast would suffice — watch fanout cost in large channels
-- **Session DB check per request** — fine for MVP; consider Redis session cache at scale
 
 
 ## Recently addressed (2026-07)
 
 - **npm workspaces monorepo** — root `package.json` + single `package-lock.json`; `npm install` / `npm ci` at repo root; CI and Docker builds use workspace-aware layout
 - **SSE realtime fallback** — `GET /realtime/stream` + `/realtime/*` REST actions; desktop client auto-falls back when WebSocket cannot connect
+- **Redis session cache** — active/revoked session state cached in Redis; `last_active_at` DB writes debounced (~60s) on hot paths
 - **Admin dashboard** — separate `admin/` app; user management, stats, storage panel
 - **Audit log** — `audit_logs` table, global `AuditModule`, admin audit page with filters
 - **Message content search** — `GET /messages/search`; sidebar split search + global search; jump-to-message with history pagination
@@ -171,7 +171,6 @@ ChatApp/
 ### P2 (polish and scale)
 
 - Room-only fanout audit in gateway (remove remaining per-member loops)
-- Session presence cache to reduce DB reads
 
 ## Suggested “definition of done” for production readiness
 

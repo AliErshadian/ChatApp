@@ -9,3 +9,9 @@ export const REALTIME_SESSION_CHANNEL = (sessionId: string) => `rt:session:${ses
 export const REALTIME_CONVERSATION_CHANNEL = (conversationId: string) =>
   `rt:conversation:${conversationId}`;
 export const REALTIME_GLOBAL_CHANNEL = 'rt:global';
+
+export const SESSION_VALID_KEY = (sessionId: string) => `session:valid:${sessionId}`;
+export const SESSION_REVOKED_KEY = (sessionId: string) => `session:revoked:${sessionId}`;
+export const SESSION_TOUCH_KEY = (sessionId: string) => `session:touch:${sessionId}`;
+export const SESSION_REVOKED_TTL_SECONDS = 60;
+export const SESSION_TOUCH_DEBOUNCE_SECONDS = 60;

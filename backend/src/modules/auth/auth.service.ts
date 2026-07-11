@@ -14,6 +14,7 @@ import { UsersService } from '../users/users.service';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { UserSession } from './entities/user-session.entity';
 import { SessionRealtimePublisher } from './session-realtime.publisher';
+import { SessionCacheService } from './session-cache.service';
 import { LoginDto, RegisterDto, SessionClientInfoDto } from './dto/auth.dto';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit-action';
@@ -62,6 +63,7 @@ export class AuthService {
     @InjectRepository(UserSession)
     private readonly sessionRepo: Repository<UserSession>,
     private readonly sessionRealtime: SessionRealtimePublisher,
+    private readonly sessionCache: SessionCacheService,
     private readonly audit: AuditService,
   ) {}
 
@@ -155,13 +157,10 @@ export class AuthService {
       throw new UnauthorizedException(AUTH_SESSION_TERMINATED_MESSAGE);
     }
 
-    const sessionActive = await this.sessionRepo.exist({
-      where: {
-        id: stored.sessionFamilyId,
-        userId: user.id,
-        revokedAt: IsNull(),
-      },
-    });
+    const sessionActive = await this.isSessionActive(
+      stored.sessionFamilyId,
+      user.id,
+    );
     if (!sessionActive) {
       throw new UnauthorizedException(AUTH_SESSION_TERMINATED_MESSAGE);
     }
@@ -293,10 +292,8 @@ export class AuthService {
       throw new UnauthorizedException(AUTH_SESSION_TERMINATED_MESSAGE);
     }
 
-    const active = await this.sessionRepo.exist({
-      where: { id: sessionId, userId: payload.sub, revokedAt: IsNull() },
-    });
-    if (!active) {
+    const sessionValid = await this.isSessionActive(sessionId, payload.sub);
+    if (!sessionValid) {
       throw new UnauthorizedException(AUTH_SESSION_TERMINATED_MESSAGE);
     }
 
@@ -305,7 +302,31 @@ export class AuthService {
     return user;
   }
 
+  private async isSessionActive(sessionId: string, userId: string): Promise<boolean> {
+    const cached = await this.sessionCache.getCachedUserId(sessionId);
+    if (cached === 'revoked') return false;
+    if (cached === userId) return true;
+    if (cached !== null) {
+      await this.sessionCache.markSessionRevoked(sessionId);
+    }
+
+    const active = await this.sessionRepo.exist({
+      where: { id: sessionId, userId, revokedAt: IsNull() },
+    });
+
+    if (active) {
+      await this.sessionCache.cacheValidSession(sessionId, userId);
+      return true;
+    }
+
+    await this.sessionCache.markSessionRevoked(sessionId);
+    return false;
+  }
+
   private async touchSession(sessionId: string) {
+    const shouldWrite = await this.sessionCache.shouldTouchSession(sessionId);
+    if (!shouldWrite) return;
+
     await this.sessionRepo.update(
       { id: sessionId, revokedAt: IsNull() },
       { lastActiveAt: new Date() },
@@ -322,6 +343,7 @@ export class AuthService {
       { userId, sessionFamilyId: sessionId, revokedAt: IsNull() },
       { revokedAt: now, lastUsedAt: now },
     );
+    await this.sessionCache.markSessionRevoked(sessionId);
     await this.sessionRealtime.publishTerminated(sessionId);
   }
 
@@ -369,6 +391,8 @@ export class AuthService {
         }),
       );
     }
+
+    await this.sessionCache.cacheValidSession(sessionId, userId);
 
     const accessToken = await this.jwtService.signAsync(
       { sub: userId, email, sid: sessionId },
