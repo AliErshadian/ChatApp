@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * Ensures infra/postgres/init.sql stays aligned with incremental migrations.
+ * File-only check (no database). Checksums normalize CRLF to LF for cross-platform CI.
  * Run after editing init.sql or any file in infra/postgres/migrations/.
  */
 import { readFile } from 'node:fs/promises';

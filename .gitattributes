@@ -1,0 +1,2 @@
+# Keep SQL migrations LF-normalized so checksums match on Windows and Linux CI.
+*.sql text eol=lf

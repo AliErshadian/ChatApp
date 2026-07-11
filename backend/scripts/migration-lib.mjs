@@ -19,8 +19,12 @@ export function resolveInitSqlPath() {
   return path.resolve(__dirname, '../../infra/postgres/init.sql');
 }
 
+export function normalizeMigrationContent(content) {
+  return content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
 export function sha256(content) {
-  return createHash('sha256').update(content).digest('hex');
+  return createHash('sha256').update(normalizeMigrationContent(content)).digest('hex');
 }
 
 export function migrationVersion(filename) {

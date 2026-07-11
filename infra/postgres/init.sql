@@ -278,25 +278,25 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 );
 
 INSERT INTO schema_migrations (version, checksum) VALUES
-    ('002_message_deliveries', '812f44c132cb7a7525e9cd3319b7f6460307eb353344306bad7e270bc18f4970'),
-    ('003_user_contacts', '348852a142847a6f2e0dbeae974f44e5c19e7fc7cdab3059ecf3096d6461a2a1'),
-    ('004_message_user_hidden', '7ebe0eae6af137b0698dd49978c505408337502d4e9f59ddc5434c9d722bb7d9'),
-    ('005_message_reactions', '682b44d57a7b0cbabc4ab4015ba0b1fc52ec0ae77c69bca9bd9683630117cf2c'),
-    ('006_conversation_user_hidden', '642082701b3d7866fb0b30c55564e0c6c73f51c8749475260e09d500b3243ef9'),
-    ('007_channel_invites', '4a71210027bafd3232861900ca5bf0291b416b9050d319dc9774b5af56b034a9'),
-    ('008_channel_pending_owner', '0dbcc59f83841ea88fa1feb3a5d0486509f44d33f9345aa3c0f095c9510c4e90'),
-    ('009_channel_avatar', 'e8c8db5640e862cb96023b3ed1ee8f6b1c926c7104ac470f5ec7b6f492735e06'),
-    ('010_message_reply', '2396e838b89cb28af284f7dbb0f669314d963e5864e94357dd6cc6878bee33e5'),
-    ('011_groups', '156187a720f932e9dd555a1826c3f9360027fa7e0cb12bb405b7324d8eeb3812'),
-    ('012_message_attachments', '27d2ac61882c1c0cf41c30cd5a1c636e9810cdbe4b863bd80a612ca3dd2a23b7'),
-    ('013_conversation_pin', 'ae79ca732f28fa16936624bd4c78333a3493a8be6b0595a1f21f67ab779a3370'),
-    ('014_message_forward', 'a55637b03817ec8cc45693d30f2477948164806904270dc2c7dd1faa748913c1'),
-    ('015_message_mentions', '910b2e00292cd44a66e6796f396c760515f499e7c8bd6edf9ad00339c15eded0'),
-    ('016_auth_sessions', '37059a25b60e137052edf9e62430f6a6a1ec2c67ec8f5bcff1d88de5acd0575b'),
-    ('017_user_sessions', 'fa940dc5c7e69af9a88e9be87f9109397c8879060a6a16d4c1f2733be3ea6ec8'),
-    ('018_admin_users', '93672caca7921903b51eda39d173aaaff5efc1d5761a88824e8de334e635ab99'),
-    ('019_audit_logs', '899647e5c1d547d7226a40941577477b4a8e87d01c4f5b4f46cc5d2a68f10ef5'),
-    ('020_message_search_fts', '6c1c7345747dfcd01c815aee97bc4a43114927fa8a93ddad7c819d69daa5a6c1')
+    ('002_message_deliveries', '717412c9702a36da4e4b7be220a610c3c90b98247b29e27e97bee2e7a371d774'),
+    ('003_user_contacts', '79881c9764b689a33155239a4d267353e9897ae9df4c5f4a43c44da579f3fb47'),
+    ('004_message_user_hidden', '49f34e6056ebbb46dab86034f79adb627b9bd94ecd6651db93d73f6ea86bf20d'),
+    ('005_message_reactions', '874ddd95c4340cd769b5efb003293fc175df211c31b17a5584590487df1b9812'),
+    ('006_conversation_user_hidden', 'a7078cc0bb1b788192cc60dbae56d37f769a745f1b66ccc9f262e037fdcdb90b'),
+    ('007_channel_invites', '8004af1cffb3f2764b760c965ad37ed03cb68a431d4b90937e267d451585caaa'),
+    ('008_channel_pending_owner', '05f3675ea75953e9615ffc91608e77976c656cf8f1e2c3b8350b6f696823b886'),
+    ('009_channel_avatar', 'bd1df68520319937e0e21e5881745796dc723da2e2207c903ffecc06f1e13cff'),
+    ('010_message_reply', '682a1e6af9a267c5fe09536dacdb6ab6170591f9c8fc2a518481e57e763f07b9'),
+    ('011_groups', '1b33cf1728e009786d2d61e7938cd4f8194a422866ac87d3cbb8edbed85d7b23'),
+    ('012_message_attachments', 'c87ea973e538b39bcb05a2d62e4564febd4862342e7ac4cb5cea61fab4a49e07'),
+    ('013_conversation_pin', '97537c8c4812839faab077bace9fd5802daa773e2da7ded87d3b9d926f9e69cb'),
+    ('014_message_forward', '08f0c804a2b0e133d32ace4c4b0130856262e7b7440c1072eabbb2037075a14e'),
+    ('015_message_mentions', 'c1c7b52bac565dd697a9ebc6dbc6f761fd766780a017e478dc637192573a4895'),
+    ('016_auth_sessions', '7f4ee7915e7337bc788957296d785ea791bf8bacf84432c7835411a0613e36ea'),
+    ('017_user_sessions', '2881b88ac0684d5794be7e74524593677432ed23ed03df9e1009c0dafd63bfcc'),
+    ('018_admin_users', '10e5ca126e794c6ff1ba3baf63fbada86cd3555795a6a17ffc5591acb9a966c2'),
+    ('019_audit_logs', 'e34adae3bcc2378a0340c325c951d6325bbd400433ced38dc4ead174187f0fd0'),
+    ('020_message_search_fts', '6030984121e3713524e6cee3ba9f46d93645fc55aec323a0f83d9702192c39b7')
 ON CONFLICT (version) DO NOTHING;
 
 -- Grant app user access (required when schema is created by postgres superuser)
