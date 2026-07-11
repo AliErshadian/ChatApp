@@ -293,7 +293,7 @@ audit_logs ── users (user_id, actor_user_id)
 **Schema delivery:**
 
 - `infra/postgres/init.sql` — full schema for new databases
-- `infra/postgres/migrations/*.sql` — incremental changes (apply to existing DBs)
+- `infra/postgres/migrations/*.sql` — incremental changes; applied by `backend/scripts/migrate.mjs`
 
 Key indexes:
 

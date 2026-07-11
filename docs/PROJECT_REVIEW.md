@@ -69,7 +69,7 @@ ChatApp/
 - **DB**:
   - `infra/postgres/init.sql` for new databases
   - Incremental SQL migrations in `infra/postgres/migrations/` (001–020+)
-  - **Gap**: migrations are manual SQL files, not applied automatically by the app
+  - **Auto-applied** via `npm run migrate` / Compose `migrate` → `api` (`schema_migrations` table)
 
 ### Admin client (`admin/`)
 
@@ -140,6 +140,7 @@ ChatApp/
 - **Message content search** — `GET /messages/search`; sidebar split search + global search; jump-to-message with history pagination
 - **Postgres FTS for messages** — `search_vector` column, GIN index, trigger (migration `020`)
 - **Production env validation** — Zod checks for secrets, CORS, Redis, DB password, log level at startup
+- **Migration runner** — `npm run migrate` + Compose `migrate` → `api` (`schema_migrations`)
 - **Admin CI** — lint/build job in GitHub Actions workflow
 - Device session management (`user_sessions`, JWT `sid`, terminate + remote logout)
 - In-app notifications (mentions, new chats, group adds, new device login)
@@ -155,7 +156,6 @@ ChatApp/
 ### P0 (before real production)
 
 - **Automated tests**: auth + refresh rotation, membership ACL, message send/edit/delete, session revoke
-- **Migration runner**: apply `infra/postgres/migrations` automatically (Flyway, TypeORM migrations, or startup script)
 
 ### P1 (high value next)
 
@@ -179,7 +179,7 @@ ChatApp/
 - [x] WebSocket: CORS allowlist, websocket-only transport
 - [x] Secure token storage (Electron) + session revocation
 - [x] Basic observability (structured logs, Sentry, health check)
-- [ ] Database migrations applied automatically in deploy
+- [x] Database migrations applied automatically in deploy (Compose `migrate` job)
 - [ ] Object storage for uploads
 - [ ] Explicit production CORS origins (no `*`)
 

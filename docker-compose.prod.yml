@@ -26,6 +26,17 @@ services:
       retries: 10
     restart: unless-stopped
 
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/docker/migrate.Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://chatapp:chatapp_secret@postgres:5432/chatapp}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   api:
     build:
       context: ./backend
@@ -43,6 +54,8 @@ services:
       RATE_LIMIT_TTL: ${RATE_LIMIT_TTL:-60}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:

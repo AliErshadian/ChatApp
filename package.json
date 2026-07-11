@@ -12,6 +12,7 @@
     "dev": "concurrently -n backend,desktop -c blue,magenta \"npm run dev:backend\" \"npm run dev:desktop\"",
     "dev:all": "concurrently -n backend,desktop,admin -c blue,magenta,cyan \"npm run dev:backend\" \"npm run dev:desktop\" \"npm run dev:admin\"",
     "dev:infra": "docker compose up -d postgres redis",
+    "migrate": "npm run migrate --prefix backend",
     "docker:up": "docker compose up --build -d",
     "docker:down": "docker compose down",
     "build:backend": "npm run build --prefix backend",

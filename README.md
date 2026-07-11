@@ -29,7 +29,7 @@ curl http://localhost/api/v1/health
 ### Notes
 
 - **Database schema**: initialized from `infra/postgres/init.sql` when the `postgres` container is first created.
-- **Incremental migrations**: SQL files in `infra/postgres/migrations/` (e.g. sessions, mentions, groups, FTS). Apply to existing databases manually or via your migration process.
+- **Incremental migrations**: SQL files in `infra/postgres/migrations/` are applied automatically by `npm run migrate` (or the Compose `migrate` service before `api`).
 - **Uploads**: in Docker, files are served from `/app/uploads`; `docker-compose.prod.yml` mounts a named volume there.
 
 ### Local Development (from repo root)
@@ -55,10 +55,12 @@ npm run dev:all        # Backend + desktop + admin together
 
 Separate web app in `admin/` (port **5174**). Uses the same API with admin-only routes under `/api/v1/admin/*`.
 
-1. Apply migrations if your DB already exists:
-   - `infra/postgres/migrations/018_admin_users.sql`
-   - `infra/postgres/migrations/019_audit_logs.sql`
-   - `infra/postgres/migrations/020_message_search_fts.sql`
+1. Run migrations (existing databases or after pulling new SQL files):
+
+```bash
+npm run migrate
+```
+
 2. Promote an admin user in Postgres:
 
 ```sql
