@@ -1,26 +1,17 @@
 #!/usr/bin/env node
-import { createHash } from 'node:crypto';
-import { readdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { loadBackendEnv } from './load-env.mjs';
+import {
+  listMigrationFiles,
+  resolveMigrationsDir,
+  sha256,
+} from './migration-lib.mjs';
 
 loadBackendEnv();
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ADVISORY_LOCK_KEY = 748204029;
-
-function resolveMigrationsDir() {
-  if (process.env.MIGRATIONS_DIR?.trim()) {
-    return path.resolve(process.env.MIGRATIONS_DIR.trim());
-  }
-  return path.resolve(__dirname, '../../infra/postgres/migrations');
-}
-
-function sha256(content) {
-  return createHash('sha256').update(content).digest('hex');
-}
 
 async function ensureMigrationsTable(client) {
   await client.query(`
@@ -30,13 +21,6 @@ async function ensureMigrationsTable(client) {
       applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
-}
-
-async function listMigrationFiles(dir) {
-  const entries = await readdir(dir);
-  return entries
-    .filter((name) => /^\d+_.+\.sql$/i.test(name))
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
 
 async function loadAppliedMigrations(client) {

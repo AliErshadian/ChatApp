@@ -29,7 +29,7 @@ curl http://localhost/api/v1/health
 ### Notes
 
 - **Database schema**: initialized from `infra/postgres/init.sql` when the `postgres` container is first created.
-- **Incremental migrations**: SQL files in `infra/postgres/migrations/` are applied automatically by `npm run migrate` (or the Compose `migrate` service before `api`).
+- **Incremental migrations**: SQL files in `infra/postgres/migrations/` are applied automatically by `npm run migrate` (or the Compose `migrate` service before `api`). Fresh Compose databases also seed `schema_migrations` from `init.sql`; run `npm run check:schema-drift` after editing either file.
 - **Uploads**: in Docker, files are served from `/app/uploads`; `docker-compose.prod.yml` mounts a named volume there.
 
 ### Local Development (from repo root)

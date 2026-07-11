@@ -292,8 +292,9 @@ audit_logs ── users (user_id, actor_user_id)
 
 **Schema delivery:**
 
-- `infra/postgres/init.sql` — full schema for new databases
+- `infra/postgres/init.sql` — full schema for new databases; seeds `schema_migrations` with checksums
 - `infra/postgres/migrations/*.sql` — incremental changes; applied by `backend/scripts/migrate.mjs`
+- `npm run check:schema-drift` — CI guard that `init.sql` matches all migration files
 
 Key indexes:
 

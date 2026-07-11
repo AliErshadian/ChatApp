@@ -8,6 +8,7 @@
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
     "migrate": "node scripts/migrate.mjs",
+    "check:schema-drift": "node scripts/check-schema-drift.mjs",
     "validate:env": "node scripts/validate-env.mjs",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
     "lint:fix": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix"

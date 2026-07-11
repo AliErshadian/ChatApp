@@ -67,9 +67,10 @@ ChatApp/
   - Prometheus metrics (WS connections, message counters)
   - `GET /api/v1/health`
 - **DB**:
-  - `infra/postgres/init.sql` for new databases
-  - Incremental SQL migrations in `infra/postgres/migrations/` (001–020+)
-  - **Auto-applied** via `npm run migrate` / Compose `migrate` → `api` (`schema_migrations` table)
+  - `infra/postgres/init.sql` for new databases (includes `schema_migrations` seed)
+  - Incremental SQL migrations in `infra/postgres/migrations/` (002–020)
+  - **Auto-applied** via `npm run migrate` / Compose `migrate` → `api`
+  - **Drift check**: `npm run check:schema-drift` (CI) keeps `init.sql` aligned with migrations
 
 ### Admin client (`admin/`)
 
@@ -115,7 +116,7 @@ ChatApp/
 
 ### Security & configuration
 
-- **Secrets**: production must use strong JWT secrets; no centralized env schema validation yet
+- **Secrets**: production validated at startup (Zod + `npm run validate:env`); still rotate JWT secrets and avoid committing `.env`
 - **CORS**: configurable allowlist; dev allows private LAN origins — tighten for production
 - **JWT access tokens** cannot be revoked mid-TTL except via session invalidation (mitigated by short TTL + `sid` check)
 - **Dependency audit**: routine `npm audit` / Dependabot recommended
@@ -124,14 +125,9 @@ ChatApp/
 
 - **No automated tests** — auth, ACL, messaging, and session flows are untested in CI
 - **Uploads on local disk** — breaks horizontal scaling; architecture assumes S3/MinIO later
-- **Message search at scale** — Postgres FTS with GIN index; consider Meilisearch/Elasticsearch only if cross-service search is required
 - **Some gateway paths** still use per-member emits where room broadcast would suffice — watch fanout cost in large channels
 - **Session DB check per request** — fine for MVP; consider Redis session cache at scale
 
-### Operations
-
-- **Migrations**: SQL files exist but require manual application on existing DBs; easy to drift from `init.sql`
-- **Sentry filter** must delegate to Nest’s base handler (fixed) so API errors return JSON instead of hanging clients
 
 ## Recently addressed (2026-07)
 
@@ -140,7 +136,8 @@ ChatApp/
 - **Message content search** — `GET /messages/search`; sidebar split search + global search; jump-to-message with history pagination
 - **Postgres FTS for messages** — `search_vector` column, GIN index, trigger (migration `020`)
 - **Production env validation** — Zod checks for secrets, CORS, Redis, DB password, log level at startup
-- **Migration runner** — `npm run migrate` + Compose `migrate` → `api` (`schema_migrations`)
+- **Migration runner** — `npm run migrate` (loads `backend/.env`), skip-already-applied for legacy DBs, Compose `migrate` → `api`
+- **Schema drift guard** — `init.sql` seeds `schema_migrations` with migration checksums; `npm run check:schema-drift` runs in CI
 - **Admin CI** — lint/build job in GitHub Actions workflow
 - Device session management (`user_sessions`, JWT `sid`, terminate + remote logout)
 - In-app notifications (mentions, new chats, group adds, new device login)

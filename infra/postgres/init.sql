@@ -47,6 +47,10 @@ CREATE TABLE conversation_members (
     UNIQUE (conversation_id, user_id)
 );
 
+CREATE INDEX idx_conversation_members_pinned
+    ON conversation_members (user_id, pinned_at DESC NULLS LAST)
+    WHERE pinned_at IS NOT NULL;
+
 CREATE TABLE messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -80,6 +84,14 @@ CREATE INDEX idx_messages_conversation_sequence
 
 CREATE INDEX idx_messages_conversation_created
     ON messages (conversation_id, created_at DESC);
+
+CREATE INDEX idx_messages_reply_to
+    ON messages (reply_to_message_id)
+    WHERE reply_to_message_id IS NOT NULL;
+
+CREATE INDEX idx_messages_forwarded_from
+    ON messages (forwarded_from_message_id)
+    WHERE forwarded_from_message_id IS NOT NULL;
 
 CREATE TABLE message_read_receipts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -256,6 +268,36 @@ CREATE TRIGGER messages_search_vector_trigger
     ON messages
     FOR EACH ROW
     EXECUTE FUNCTION messages_search_vector_update();
+
+-- Fresh databases from init.sql are marked up-to-date for incremental migrations.
+-- Checksums are verified in CI via: npm run check:schema-drift
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version TEXT PRIMARY KEY,
+    checksum TEXT NOT NULL,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO schema_migrations (version, checksum) VALUES
+    ('002_message_deliveries', '812f44c132cb7a7525e9cd3319b7f6460307eb353344306bad7e270bc18f4970'),
+    ('003_user_contacts', '348852a142847a6f2e0dbeae974f44e5c19e7fc7cdab3059ecf3096d6461a2a1'),
+    ('004_message_user_hidden', '7ebe0eae6af137b0698dd49978c505408337502d4e9f59ddc5434c9d722bb7d9'),
+    ('005_message_reactions', '682b44d57a7b0cbabc4ab4015ba0b1fc52ec0ae77c69bca9bd9683630117cf2c'),
+    ('006_conversation_user_hidden', '642082701b3d7866fb0b30c55564e0c6c73f51c8749475260e09d500b3243ef9'),
+    ('007_channel_invites', '4a71210027bafd3232861900ca5bf0291b416b9050d319dc9774b5af56b034a9'),
+    ('008_channel_pending_owner', '0dbcc59f83841ea88fa1feb3a5d0486509f44d33f9345aa3c0f095c9510c4e90'),
+    ('009_channel_avatar', 'e8c8db5640e862cb96023b3ed1ee8f6b1c926c7104ac470f5ec7b6f492735e06'),
+    ('010_message_reply', '2396e838b89cb28af284f7dbb0f669314d963e5864e94357dd6cc6878bee33e5'),
+    ('011_groups', '156187a720f932e9dd555a1826c3f9360027fa7e0cb12bb405b7324d8eeb3812'),
+    ('012_message_attachments', '27d2ac61882c1c0cf41c30cd5a1c636e9810cdbe4b863bd80a612ca3dd2a23b7'),
+    ('013_conversation_pin', 'ae79ca732f28fa16936624bd4c78333a3493a8be6b0595a1f21f67ab779a3370'),
+    ('014_message_forward', 'a55637b03817ec8cc45693d30f2477948164806904270dc2c7dd1faa748913c1'),
+    ('015_message_mentions', '910b2e00292cd44a66e6796f396c760515f499e7c8bd6edf9ad00339c15eded0'),
+    ('016_auth_sessions', '37059a25b60e137052edf9e62430f6a6a1ec2c67ec8f5bcff1d88de5acd0575b'),
+    ('017_user_sessions', 'fa940dc5c7e69af9a88e9be87f9109397c8879060a6a16d4c1f2733be3ea6ec8'),
+    ('018_admin_users', '93672caca7921903b51eda39d173aaaff5efc1d5761a88824e8de334e635ab99'),
+    ('019_audit_logs', '899647e5c1d547d7226a40941577477b4a8e87d01c4f5b4f46cc5d2a68f10ef5'),
+    ('020_message_search_fts', '6c1c7345747dfcd01c815aee97bc4a43114927fa8a93ddad7c819d69daa5a6c1')
+ON CONFLICT (version) DO NOTHING;
 
 -- Grant app user access (required when schema is created by postgres superuser)
 GRANT USAGE ON SCHEMA public TO chatapp;
