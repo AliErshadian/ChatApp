@@ -25,3 +25,8 @@ export function extractApiErrorMessage(body: unknown, status: number): string {
   }
   return `Request failed (${status})`;
 }
+
+export function isSessionAuthFailure(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return normalized === 'session terminated' || normalized === 'session required';
+}

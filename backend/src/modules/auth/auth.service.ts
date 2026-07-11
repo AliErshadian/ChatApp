@@ -17,6 +17,10 @@ import { SessionRealtimePublisher } from './session-realtime.publisher';
 import { LoginDto, RegisterDto, SessionClientInfoDto } from './dto/auth.dto';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit-action';
+import {
+  AUTH_SESSION_REQUIRED_MESSAGE,
+  AUTH_SESSION_TERMINATED_MESSAGE,
+} from './auth-session.constants';
 
 export interface TokenPair {
   accessToken: string;
@@ -147,6 +151,21 @@ export class AuthService {
     await this.refreshTokenRepo.save(stored);
 
     const user = stored.user;
+    if (!user.isActive) {
+      throw new UnauthorizedException(AUTH_SESSION_TERMINATED_MESSAGE);
+    }
+
+    const sessionActive = await this.sessionRepo.exist({
+      where: {
+        id: stored.sessionFamilyId,
+        userId: user.id,
+        revokedAt: IsNull(),
+      },
+    });
+    if (!sessionActive) {
+      throw new UnauthorizedException(AUTH_SESSION_TERMINATED_MESSAGE);
+    }
+
     return this.issueTokens(user.id, user.email, {
       sessionId: stored.sessionFamilyId,
       clientType: clientInfo?.clientType ?? stored.clientType,
@@ -251,19 +270,37 @@ export class AuthService {
     return { success: true, revoked };
   }
 
-  async validateAccessToken(payload: { sub: string; email: string; sid?: string }) {
-    const user = await this.usersService.findById(payload.sub);
-    if (!user || !user.isActive) throw new UnauthorizedException();
+  async revokeAllSessions(userId: string) {
+    const sessions = await this.sessionRepo.find({
+      where: { userId, revokedAt: IsNull() },
+    });
 
-    if (payload.sid) {
-      const active = await this.sessionRepo.exist({
-        where: { id: payload.sid, userId: payload.sub, revokedAt: IsNull() },
-      });
-      if (!active) {
-        throw new UnauthorizedException('Session terminated');
-      }
-      void this.touchSession(payload.sid);
+    for (const session of sessions) {
+      await this.revokeSessionById(userId, session.id);
     }
+
+    return { success: true, revoked: sessions.length };
+  }
+
+  async validateAccessToken(payload: { sub: string; email: string; sid?: string }) {
+    const sessionId = payload.sid?.trim();
+    if (!sessionId) {
+      throw new UnauthorizedException(AUTH_SESSION_REQUIRED_MESSAGE);
+    }
+
+    const user = await this.usersService.findById(payload.sub);
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException(AUTH_SESSION_TERMINATED_MESSAGE);
+    }
+
+    const active = await this.sessionRepo.exist({
+      where: { id: sessionId, userId: payload.sub, revokedAt: IsNull() },
+    });
+    if (!active) {
+      throw new UnauthorizedException(AUTH_SESSION_TERMINATED_MESSAGE);
+    }
+
+    void this.touchSession(sessionId);
 
     return user;
   }

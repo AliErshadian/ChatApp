@@ -1,6 +1,6 @@
 import { getServiceUrls } from '../config/endpoints';
 import { getClientSessionInfo } from '../utils/clientSession';
-import { extractApiErrorMessage } from '../utils/authError';
+import { extractApiErrorMessage, isSessionAuthFailure } from '../utils/authError';
 import { getSessionIdFromToken, isAccessTokenUsable } from '../utils/jwt';
 
 export { getAssetBase, resolveAvatarUrl } from '../utils/avatar';
@@ -476,6 +476,15 @@ class ApiClient {
     }
 
     if (res.status === 401 && refreshOnUnauthorized) {
+      const errBody = await res.clone().json().catch(() => ({}));
+      const sessionMessage = extractApiErrorMessage(errBody, res.status);
+      if (isSessionAuthFailure(sessionMessage)) {
+        await this.clearTokens();
+        const error = new Error(sessionMessage) as Error & { status?: number };
+        error.status = 401;
+        throw error;
+      }
+
       const refreshed = await this.refresh();
       if (refreshed) {
         headers.Authorization = `Bearer ${this.accessToken}`;

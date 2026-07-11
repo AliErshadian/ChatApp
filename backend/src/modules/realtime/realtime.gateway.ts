@@ -29,7 +29,7 @@ import { WsRateLimit } from '../../observability/ws-rate-limit.decorator';
 import { WsRateLimitGuard } from '../../observability/ws-rate-limit.guard';
 
 interface AuthenticatedSocket extends Socket {
-  data: { userId: string; email: string; sessionId?: string };
+  data: { userId: string; email: string; sessionId: string };
 }
 
 @WebSocketGateway({
@@ -120,6 +120,11 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
       await this.authService.validateAccessToken(payload);
 
+      if (!payload.sid) {
+        client.disconnect(true);
+        return;
+      }
+
       client.data = {
         userId: payload.sub,
         email: payload.email,
@@ -129,9 +134,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       const connectionCount = this.presenceConnections.register(payload.sub);
 
       await client.join(`user:${payload.sub}`);
-      if (payload.sid) {
-        await client.join(`session:${payload.sid}`);
-      }
+      await client.join(`session:${payload.sid}`);
       await this.presenceService.setOnline(payload.sub, client.id);
 
       if (connectionCount === 1) {

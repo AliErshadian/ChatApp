@@ -32,7 +32,7 @@ ChatApp/
 
 - **Modules**: `auth`, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`, `audit`, `admin`
 - **Auth & sessions**:
-  - JWT access tokens (15m) with `sid` session claim
+  - JWT access tokens (15m) with required `sid` claim; validated against `user_sessions` on every REST and WebSocket request
   - Rotating refresh tokens (SHA-256 hashed, grouped by `session_family_id`)
   - `user_sessions` table — device label, platform, IP, last active
   - `GET /auth/sessions`, terminate one / terminate all others
@@ -118,7 +118,6 @@ ChatApp/
 
 - **Secrets**: production validated at startup (Zod + `npm run validate:env`); still rotate JWT secrets and avoid committing `.env`
 - **CORS**: configurable allowlist; dev allows private LAN origins — tighten for production
-- **JWT access tokens** cannot be revoked mid-TTL except via session invalidation (mitigated by short TTL + `sid` check)
 - **Dependency audit**: routine `npm audit` / Dependabot recommended
 
 ### Correctness & performance
@@ -138,6 +137,7 @@ ChatApp/
 - **Production env validation** — Zod checks for secrets, CORS, Redis, DB password, log level at startup
 - **Migration runner** — `npm run migrate` (loads `backend/.env`), skip-already-applied for legacy DBs, Compose `migrate` → `api`
 - **Schema drift guard** — `init.sql` seeds `schema_migrations` with migration checksums; `npm run check:schema-drift` runs in CI
+- **Session-bound access tokens** — JWTs require `sid`; every REST/WS request checks `user_sessions`; revoke terminates tokens immediately
 - **Admin CI** — lint/build job in GitHub Actions workflow
 - Device session management (`user_sessions`, JWT `sid`, terminate + remote logout)
 - In-app notifications (mentions, new chats, group adds, new device login)

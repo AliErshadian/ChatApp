@@ -29,6 +29,8 @@ export function isAccessTokenUsable(token: string | null | undefined, skewSecond
   const payload = decodeJwtPayload(token);
   if (!payload) return false;
 
+  if (!payload.sid?.trim()) return false;
+
   if (typeof payload.exp !== 'number') return true;
   return payload.exp * 1000 > Date.now() + skewSeconds * 1000;
 }

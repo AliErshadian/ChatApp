@@ -108,7 +108,7 @@ Telegram-style **device sessions** tie refresh tokens and access tokens to a log
 
 1. **Login/register** sends `clientInfo` (`deviceLabel`, `platform`, `clientType`, `appName`). Same device reuses an existing session row when possible.
 2. **Refresh** rotates the opaque refresh token but keeps the same `sessionId`.
-3. **Access token** carries `sid`; every authenticated request checks the session is not revoked.
+3. **Access token** carries required `sid`; every REST request and WebSocket message validates the session is not revoked.
 4. **Terminate session** revokes DB row + all refresh tokens for that family, emits `session:terminated` to `session:{id}` room, and disconnects sockets.
 5. **New login** on another device emits `session:created` to other sessions (excluding the new one).
 

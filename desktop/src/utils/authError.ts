@@ -1,5 +1,3 @@
-type AuthMode = 'login' | 'register';
-
 export function extractApiErrorMessage(body: unknown, status: number): string {
   if (!body || typeof body !== 'object') {
     return `Request failed (${status})`;
@@ -19,6 +17,13 @@ export function extractApiErrorMessage(body: unknown, status: number): string {
 
   return `Request failed (${status})`;
 }
+
+export function isSessionAuthFailure(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return normalized === 'session terminated' || normalized === 'session required';
+}
+
+type AuthMode = 'login' | 'register';
 
 const LOGIN_MESSAGES: Record<string, string> = {
   'Invalid credentials': 'Incorrect email or password. Please try again.',

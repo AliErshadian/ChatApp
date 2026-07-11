@@ -1,5 +1,5 @@
 import { getApiBase } from '../config/endpoints';
-import { extractApiErrorMessage } from '../utils/authError';
+import { extractApiErrorMessage, isSessionAuthFailure } from '../utils/authError';
 
 export interface AuthTokens {
   accessToken: string;
@@ -162,6 +162,15 @@ class AdminApiClient {
     }
 
     if (res.status === 401 && allowRefresh) {
+      const errBody = await res.clone().json().catch(() => ({}));
+      const sessionMessage = extractApiErrorMessage(errBody, res.status);
+      if (isSessionAuthFailure(sessionMessage)) {
+        this.clearTokens();
+        const error = new Error(sessionMessage) as Error & { status?: number };
+        error.status = 401;
+        throw error;
+      }
+
       const refreshed = await this.refresh();
       if (refreshed) {
         headers.Authorization = `Bearer ${this.accessToken}`;

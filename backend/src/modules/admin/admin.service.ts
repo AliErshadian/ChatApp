@@ -262,6 +262,10 @@ export class AdminService {
 
     await this.userRepo.save(user);
 
+    if (dto.isActive === false) {
+      await this.authService.revokeAllSessions(userId);
+    }
+
     this.audit.record({
       action: AuditAction.ADMIN_USER_UPDATE,
       userId,
