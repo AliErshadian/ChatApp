@@ -130,6 +130,16 @@ class AdminApiClient {
     localStorage.removeItem('adminRefreshToken');
   }
 
+  getAccessToken() {
+    return this.accessToken;
+  }
+
+  getAttachmentDownloadUrl(attachmentId: string) {
+    return this.request<{ url: string; expiresInSeconds: number; expiresAt: string }>(
+      `/attachments/${attachmentId}/download`,
+    );
+  }
+
   private async fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 10_000) {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), timeoutMs);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { CollapsibleSection } from '../components/CollapsibleSection';
 import { api, AdminStats } from '../services/api';
-import { formatNumber, formatPercent, formatRelative } from '../utils/format';
+import { formatBytes, formatNumber, formatPercent, formatRelative } from '../utils/format';
 import { formatAuditAction, formatAuditDetails } from '../utils/auditLabels';
 import { StoragePanel } from '../components/StoragePanel';
 
@@ -33,81 +34,54 @@ export function DashboardPage({ onSelectUser, onOpenAudit }: Props) {
     };
   }, []);
 
-  if (loading) return <div className="page-loading">Loading dashboard...</div>;
+  if (loading) return <div className="page-loading-inline">Loading dashboard…</div>;
   if (error) return <div className="page-error">{error}</div>;
   if (!stats) return null;
 
   const conv = stats.conversations;
+  const storageTotal = Math.max(
+    stats.storage.totalBytes,
+    stats.storage.database.totalBytes + stats.storage.files.totalBytes,
+  );
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <h1>Dashboard</h1>
-        <p>Overview of your ChatApp instance</p>
-      </header>
-
-      <section className="stat-grid stat-grid-wide">
-        <article className="stat-card">
-          <span className="stat-label">Total users</span>
+    <div className="page page-compact">
+      <section className="stat-grid stat-grid-compact">
+        <article className="stat-card stat-card-compact">
+          <span className="stat-label">Users</span>
           <strong className="stat-value">{formatNumber(stats.users.total)}</strong>
           <span className="stat-meta">
-            {formatNumber(stats.users.active)} active · {formatNumber(stats.users.inactive)} inactive
+            {formatNumber(stats.users.active)} active · +{formatNumber(stats.users.newLast7d)} / 7d
           </span>
         </article>
-        <article className="stat-card">
-          <span className="stat-label">New users (7d)</span>
-          <strong className="stat-value">{formatNumber(stats.users.newLast7d)}</strong>
-          <span className="stat-meta">
-            {formatPercent(stats.users.newLast7d, stats.users.total)} of total
-          </span>
-        </article>
-        <article className="stat-card">
-          <span className="stat-label">Administrators</span>
-          <strong className="stat-value">{formatNumber(stats.users.admins)}</strong>
-        </article>
-        <article className="stat-card">
-          <span className="stat-label">Active sessions</span>
-          <strong className="stat-value">{formatNumber(stats.sessions.active)}</strong>
-        </article>
-        <article className="stat-card">
-          <span className="stat-label">Messages (24h)</span>
+        <article className="stat-card stat-card-compact">
+          <span className="stat-label">Messages</span>
           <strong className="stat-value">{formatNumber(stats.messages.last24h)}</strong>
-          <span className="stat-meta">{formatNumber(stats.messages.last7d)} in 7 days</span>
+          <span className="stat-meta">
+            24h · {formatNumber(stats.messages.last7d)} / 7d · {formatNumber(stats.messages.total)} total
+          </span>
         </article>
-        <article className="stat-card">
-          <span className="stat-label">Audit events (24h)</span>
-          <strong className="stat-value">{formatNumber(stats.audit.last24h)}</strong>
-          {onOpenAudit && (
-            <button type="button" className="stat-link" onClick={onOpenAudit}>
-              View audit log →
-            </button>
-          )}
+        <article className="stat-card stat-card-compact">
+          <span className="stat-label">Conversations</span>
+          <strong className="stat-value">{formatNumber(conv.total)}</strong>
+          <span className="stat-meta">
+            {formatNumber(conv.direct)} direct · {formatNumber(conv.channel)} channels ·{' '}
+            {formatNumber(conv.group)} groups
+          </span>
+        </article>
+        <article className="stat-card stat-card-compact">
+          <span className="stat-label">Sessions</span>
+          <strong className="stat-value">{formatNumber(stats.sessions.active)}</strong>
+          <span className="stat-meta">
+            {formatNumber(stats.users.admins)} admins · {formatNumber(stats.audit.last24h)} audit / 24h
+          </span>
         </article>
       </section>
 
-      <div className="dashboard-panels">
-        <section className="panel">
-          <h2>Conversations</h2>
-          <div className="inline-stats">
-            <div>
-              <span>Total</span>
-              <strong>{formatNumber(conv.total)}</strong>
-            </div>
-            <div>
-              <span>Direct</span>
-              <strong>{formatNumber(conv.direct)}</strong>
-              <small>{formatPercent(conv.direct, conv.total)}</small>
-            </div>
-            <div>
-              <span>Channels</span>
-              <strong>{formatNumber(conv.channel)}</strong>
-              <small>{formatPercent(conv.channel, conv.total)}</small>
-            </div>
-            <div>
-              <span>Groups</span>
-              <strong>{formatNumber(conv.group)}</strong>
-              <small>{formatPercent(conv.group, conv.total)}</small>
-            </div>
+      <div className="dashboard-panels dashboard-panels-compact">
+        <section className="panel panel-compact">
+          <div className="panel-header-row">
+            <h2>Conversation mix</h2>
           </div>
           <div className="bar-chart">
             <div
@@ -127,13 +101,13 @@ export function DashboardPage({ onSelectUser, onOpenAudit }: Props) {
             />
           </div>
           <div className="bar-legend">
-            <span><i className="dot dot-direct" /> Direct</span>
-            <span><i className="dot dot-channel" /> Channels</span>
-            <span><i className="dot dot-group" /> Groups</span>
+            <span><i className="dot dot-direct" /> Direct {formatPercent(conv.direct, conv.total)}</span>
+            <span><i className="dot dot-channel" /> Channels {formatPercent(conv.channel, conv.total)}</span>
+            <span><i className="dot dot-group" /> Groups {formatPercent(conv.group, conv.total)}</span>
           </div>
         </section>
 
-        <section className="panel">
+        <section className="panel panel-compact">
           <div className="panel-header-row">
             <h2>Recent activity</h2>
             {onOpenAudit && (
@@ -145,7 +119,7 @@ export function DashboardPage({ onSelectUser, onOpenAudit }: Props) {
           {stats.recentActivity.length === 0 ? (
             <p className="muted">No activity recorded yet.</p>
           ) : (
-            <ul className="activity-feed">
+            <ul className="activity-feed activity-feed-dense">
               {stats.recentActivity.map((item) => (
                 <li key={item.id}>
                   <div className="activity-main">
@@ -161,11 +135,9 @@ export function DashboardPage({ onSelectUser, onOpenAudit }: Props) {
                     ) : (
                       <span className="text-muted">Unknown user</span>
                     )}
+                    <span className="activity-inline-detail">{formatAuditDetails(item.metadata)}</span>
                   </div>
-                  <div className="activity-meta">
-                    <span>{formatAuditDetails(item.metadata)}</span>
-                    <span>{formatRelative(item.createdAt)}</span>
-                  </div>
+                  <span className="activity-time">{formatRelative(item.createdAt)}</span>
                 </li>
               ))}
             </ul>
@@ -173,25 +145,22 @@ export function DashboardPage({ onSelectUser, onOpenAudit }: Props) {
         </section>
       </div>
 
-      <section className="panel">
-        <h2>Message volume</h2>
-        <div className="inline-stats">
-          <div>
-            <span>All time</span>
-            <strong>{formatNumber(stats.messages.total)}</strong>
-          </div>
-          <div>
-            <span>Last 24 hours</span>
-            <strong>{formatNumber(stats.messages.last24h)}</strong>
-          </div>
-          <div>
-            <span>Last 7 days</span>
-            <strong>{formatNumber(stats.messages.last7d)}</strong>
-          </div>
-        </div>
-      </section>
-
-      <StoragePanel storage={stats.storage} />
+      <CollapsibleSection
+        title="Storage"
+        defaultOpen={false}
+        summary={
+          <>
+            <strong>{formatBytes(storageTotal)}</strong>
+            <span className="muted">
+              {' '}
+              · DB {formatBytes(stats.storage.database.totalBytes)} · MinIO{' '}
+              {formatBytes(stats.storage.files.totalBytes)}
+            </span>
+          </>
+        }
+      >
+        <StoragePanel storage={stats.storage} embedded />
+      </CollapsibleSection>
     </div>
   );
 }

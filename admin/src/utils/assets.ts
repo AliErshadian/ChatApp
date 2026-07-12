@@ -1,9 +1,6 @@
-import { getApiBase } from '../config/endpoints';
+import { resolveLegacyAssetUrl } from './storageUrl';
 
+/** @deprecated Prefer useStorageUrl or UserAvatar for MinIO-backed assets */
 export function getAssetUrl(path?: string) {
-  if (!path) return undefined;
-  if (path.startsWith('http://') || path.startsWith('https://')) return path;
-  const apiBase = getApiBase();
-  const origin = apiBase.replace(/\/api\/v1\/?$/, '');
-  return `${origin}${path.startsWith('/') ? path : `/${path}`}`;
+  return resolveLegacyAssetUrl(path);
 }

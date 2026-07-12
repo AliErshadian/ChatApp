@@ -5,6 +5,7 @@ import {
   CreateBucketCommand,
   DeleteObjectCommand,
   HeadBucketCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -12,6 +13,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import {
   IStorageProvider,
+  StorageBucketStats,
   StorageCopyInput,
   StorageUploadInput,
   StorageUploadResult,
@@ -177,5 +179,31 @@ export class S3StorageProvider implements IStorageProvider, OnModuleInit {
       Key: objectKey,
     });
     return getSignedUrl(this.client, command, { expiresIn: options.expiresInSeconds });
+  }
+
+  async getBucketStats(bucket: string): Promise<StorageBucketStats> {
+    await this.waitUntilReady(bucket);
+
+    let bytes = 0;
+    let objectCount = 0;
+    let continuationToken: string | undefined;
+
+    do {
+      const response = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          ContinuationToken: continuationToken,
+        }),
+      );
+
+      for (const object of response.Contents ?? []) {
+        objectCount += 1;
+        bytes += object.Size ?? 0;
+      }
+
+      continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+    } while (continuationToken);
+
+    return { bucket, bytes, objectCount };
   }
 }

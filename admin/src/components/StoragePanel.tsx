@@ -3,6 +3,7 @@ import { formatBytes, formatNumber, formatPercent } from '../utils/format';
 
 interface Props {
   storage: AdminStorageStats;
+  embedded?: boolean;
 }
 
 const KIND_COLORS: Record<string, string> = {
@@ -15,26 +16,29 @@ const KIND_COLORS: Record<string, string> = {
 
 const FILE_COLORS: Record<string, string> = {
   avatars: '#3b82f6',
-  channel_avatars: '#8b5cf6',
-  message_attachments: '#22c55e',
-  other: '#64748b',
+  attachments: '#22c55e',
+  videos: '#8b5cf6',
+  voice: '#f59e0b',
+  documents: '#64748b',
+  backups: '#94a3b8',
 };
 
-export function StoragePanel({ storage }: Props) {
+export function StoragePanel({ storage, embedded = false }: Props) {
   const dbBytes = storage.database.totalBytes;
   const fileBytes = storage.files.totalBytes;
   const total = Math.max(storage.totalBytes, dbBytes + fileBytes);
 
-  return (
-    <section className="panel storage-panel">
-      <h2>Storage</h2>
-      <p className="panel-intro">
-        Total estimated usage: <strong>{formatBytes(total)}</strong>
-        <span className="muted">
-          {' '}
-          · Database {formatBytes(dbBytes)} · Files {formatBytes(fileBytes)}
-        </span>
-      </p>
+  const content = (
+    <>
+      {!embedded && (
+        <p className="panel-intro">
+          Total estimated usage: <strong>{formatBytes(total)}</strong>
+          <span className="muted">
+            {' '}
+            · Database {formatBytes(dbBytes)} · Object storage {formatBytes(fileBytes)}
+          </span>
+        </p>
+      )}
 
       <div className="storage-overview">
         <div className="bar-chart storage-bar">
@@ -46,26 +50,26 @@ export function StoragePanel({ storage }: Props) {
           <div
             className="bar-segment bar-files"
             style={{ width: `${total ? (fileBytes / total) * 100 : 0}%` }}
-            title={`Files: ${formatBytes(fileBytes)}`}
+            title={`Object storage: ${formatBytes(fileBytes)}`}
           />
         </div>
         <div className="bar-legend">
           <span><i className="dot dot-db" /> Database</span>
-          <span><i className="dot dot-files" /> Upload files</span>
+          <span><i className="dot dot-files" /> Object storage (MinIO)</span>
         </div>
       </div>
 
       <div className="storage-grid">
         <div className="storage-block">
-          <h3>Upload files</h3>
+          <h3>Object storage (MinIO)</h3>
           {storage.files.categories.length === 0 ? (
-            <p className="muted">No uploaded files yet.</p>
+            <p className="muted">No objects stored yet.</p>
           ) : (
             <table className="mini-table">
               <thead>
                 <tr>
-                  <th>Type</th>
-                  <th>Files</th>
+                  <th>Bucket</th>
+                  <th>Objects</th>
                   <th>Size</th>
                   <th>Share</th>
                 </tr>
@@ -173,6 +177,17 @@ export function StoragePanel({ storage }: Props) {
           )}
         </div>
       </div>
+    </>
+  );
+
+  if (embedded) {
+    return <div className="storage-panel storage-panel-embedded">{content}</div>;
+  }
+
+  return (
+    <section className="panel storage-panel">
+      <h2>Storage</h2>
+      {content}
     </section>
   );
 }

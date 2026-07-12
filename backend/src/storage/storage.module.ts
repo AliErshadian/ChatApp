@@ -20,6 +20,6 @@ import { StorageService } from './storage.service';
       useExisting: S3StorageProvider,
     },
   ],
-  exports: [StorageService],
+  exports: [StorageService, STORAGE_PROVIDER],
 })
 export class StorageModule {}

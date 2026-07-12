@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { StorageModule } from '../../storage/storage.module';
 import { AdminStorageService } from './admin-storage.service';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
@@ -15,6 +16,7 @@ import { Message } from '../messages/entities/message.entity';
 @Module({
   imports: [
     AuthModule,
+    StorageModule,
     TypeOrmModule.forFeature([
       User,
       UserSession,

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, AdminSession, AdminUser } from '../services/api';
 import { CopyButton } from '../components/CopyButton';
+import { UserAvatar } from '../components/UserAvatar';
 import { formatDate, formatRelative } from '../utils/format';
-import { getAssetUrl } from '../utils/assets';
 import { formatAuditAction, formatAuditDetails } from '../utils/auditLabels';
 
 interface Props {
@@ -86,174 +86,156 @@ export function UserDetailPage({ userId, onBack, onViewAudit }: Props) {
     }
   };
 
-  if (loading) return <div className="page-loading">Loading user...</div>;
+  if (loading) return <div className="page-loading-inline">Loading user…</div>;
   if (!user) return <div className="page-error">{error || 'User not found'}</div>;
 
-  const avatarUrl = getAssetUrl(user.avatarUrl);
-
   return (
-    <div className="page">
-      <header className="page-header row user-detail-header">
-        <div className="user-detail-title">
-          <button type="button" className="btn btn-ghost back-btn" onClick={onBack}>
-            ← Users
-          </button>
-          <div className="user-detail-identity">
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="" className="user-avatar" />
-            ) : (
-              <div className="user-avatar user-avatar-fallback">
-                {user.displayName.slice(0, 1).toUpperCase()}
-              </div>
-            )}
-            <div>
-              <h1>{user.displayName}</h1>
-              <p>
-                @{user.username} · {user.email}
-              </p>
+    <div className="page page-compact">
+      <header className="page-header page-header-compact user-detail-header">
+        <button type="button" className="btn btn-ghost back-btn" onClick={onBack}>
+          ← Back to users
+        </button>
+        <div className="user-detail-identity">
+          <UserAvatar name={user.displayName} avatarUrl={user.avatarUrl} />
+          <div className="user-detail-meta">
+            <h2 className="user-detail-name">{user.displayName}</h2>
+            <p className="user-detail-subtitle">
+              @{user.username} · {user.email}
+            </p>
+            <div className="stat-chips">
+              <span className="stat-chip">
+                Status
+                <strong>{user.isActive ? 'Active' : 'Inactive'}</strong>
+              </span>
+              <span className="stat-chip">
+                Role
+                <strong>{user.isAdmin ? 'Admin' : 'User'}</strong>
+              </span>
+              <span className="stat-chip">
+                Sessions
+                <strong>{user.activeSessionCount ?? sessions.length}</strong>
+              </span>
+              <span className="stat-chip">
+                Messages
+                <strong>{user.messageCount ?? 0}</strong>
+              </span>
+              <span className="stat-chip">
+                Last seen
+                <strong>{user.lastSeenAt ? formatRelative(user.lastSeenAt) : '—'}</strong>
+              </span>
             </div>
+          </div>
+          <div className="user-detail-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={busy}
+              onClick={() => updateUser({ isActive: !user.isActive })}
+            >
+              {user.isActive ? 'Deactivate' : 'Activate'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={busy}
+              onClick={() => updateUser({ isAdmin: !user.isAdmin })}
+            >
+              {user.isAdmin ? 'Remove admin' : 'Make admin'}
+            </button>
+            {onViewAudit && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => onViewAudit(userId)}>
+                Audit log
+              </button>
+            )}
           </div>
         </div>
       </header>
 
       {error && <div className="page-error">{error}</div>}
 
-      <section className="panel">
-        <h2>Account</h2>
-        <dl className="detail-grid detail-grid-wide">
-          <div>
-            <dt>User ID</dt>
-            <dd className="id-row">
-              <code>{user.id}</code>
-              <CopyButton value={user.id} />
-            </dd>
-          </div>
-          <div>
-            <dt>Status</dt>
-            <dd>
-              <span className={user.isActive ? 'badge badge-success' : 'badge badge-muted'}>
-                {user.isActive ? 'Active' : 'Inactive'}
-              </span>
-            </dd>
-          </div>
-          <div>
-            <dt>Role</dt>
-            <dd>{user.isAdmin ? 'Administrator' : 'User'}</dd>
-          </div>
-          <div>
-            <dt>Joined</dt>
-            <dd>{formatDate(user.createdAt)}</dd>
-          </div>
-          <div>
-            <dt>Last updated</dt>
-            <dd>{formatDate(user.updatedAt)}</dd>
-          </div>
-          <div>
-            <dt>Last seen</dt>
-            <dd>{user.lastSeenAt ? formatRelative(user.lastSeenAt) : '—'}</dd>
-          </div>
-          <div>
-            <dt>Messages sent</dt>
-            <dd>{user.messageCount ?? 0}</dd>
-          </div>
-          <div>
-            <dt>Conversations</dt>
-            <dd>{user.conversationCount ?? 0}</dd>
-          </div>
-          <div>
-            <dt>Active sessions</dt>
-            <dd>{user.activeSessionCount ?? sessions.length}</dd>
-          </div>
-        </dl>
-        <div className="action-row">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            disabled={busy}
-            onClick={() => updateUser({ isActive: !user.isActive })}
-          >
-            {user.isActive ? 'Deactivate user' : 'Activate user'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            disabled={busy}
-            onClick={() => updateUser({ isAdmin: !user.isAdmin })}
-          >
-            {user.isAdmin ? 'Remove admin' : 'Make admin'}
-          </button>
-          {onViewAudit && (
-            <button type="button" className="btn btn-ghost" onClick={() => onViewAudit(userId)}>
-              View audit log
-            </button>
-          )}
-        </div>
-      </section>
+      <div className="detail-layout">
+        <section className="panel panel-compact">
+          <h2>Account</h2>
+          <dl className="detail-grid detail-grid-compact">
+            <div>
+              <dt>User ID</dt>
+              <dd className="id-row">
+                <code>{user.id}</code>
+                <CopyButton value={user.id} />
+              </dd>
+            </div>
+            <div>
+              <dt>Joined</dt>
+              <dd>{formatDate(user.createdAt)}</dd>
+            </div>
+            <div>
+              <dt>Updated</dt>
+              <dd>{formatDate(user.updatedAt)}</dd>
+            </div>
+            <div>
+              <dt>Conversations</dt>
+              <dd>{user.conversationCount ?? 0}</dd>
+            </div>
+          </dl>
+        </section>
 
-      <section className="panel">
-        <div className="panel-header-row">
-          <h2>Devices & sessions</h2>
-          {sessions.length > 0 && (
-            <button type="button" className="btn btn-danger" disabled={busy} onClick={revokeAll}>
-              Terminate all
-            </button>
-          )}
-        </div>
-        {sessions.length === 0 ? (
-          <p className="muted">No active sessions</p>
-        ) : (
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Device</th>
-                  <th>Client</th>
-                  <th>IP</th>
-                  <th>Started</th>
-                  <th>Last active</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {sessions.map((session) => (
-                  <tr key={session.sessionId}>
-                    <td>
-                      <strong>{session.deviceLabel}</strong>
-                      <div className="muted">{session.appName}</div>
-                    </td>
-                    <td>
-                      {session.platform ?? '—'}
-                      {session.clientType && (
-                        <div className="muted">{session.clientType}</div>
-                      )}
-                    </td>
-                    <td className="mono-cell">{session.ipAddress ?? '—'}</td>
-                    <td title={formatDate(session.createdAt)}>
-                      {formatRelative(session.createdAt)}
-                    </td>
-                    <td title={formatDate(session.lastActiveAt)}>
-                      {formatRelative(session.lastActiveAt)}
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="btn btn-danger btn-sm"
-                        disabled={busy}
-                        onClick={() => revokeSession(session.sessionId)}
-                      >
-                        Terminate
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <section className="panel panel-compact">
+          <div className="panel-header-row">
+            <h2>Sessions ({sessions.length})</h2>
+            {sessions.length > 0 && (
+              <button type="button" className="btn btn-danger btn-sm" disabled={busy} onClick={revokeAll}>
+                Terminate all
+              </button>
+            )}
           </div>
-        )}
-      </section>
+          {sessions.length === 0 ? (
+            <p className="muted">No active sessions</p>
+          ) : (
+            <div className="table-wrap table-scroll table-scroll-short">
+              <table className="data-table data-table-compact">
+                <thead>
+                  <tr>
+                    <th>Device</th>
+                    <th>IP</th>
+                    <th>Last active</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessions.map((session) => (
+                    <tr key={session.sessionId}>
+                      <td>
+                        <strong>{session.deviceLabel}</strong>
+                        <div className="muted cell-sub">
+                          {session.appName}
+                          {session.platform ? ` · ${session.platform}` : ''}
+                        </div>
+                      </td>
+                      <td className="mono-cell">{session.ipAddress ?? '—'}</td>
+                      <td className="cell-muted" title={formatDate(session.lastActiveAt)}>
+                        {formatRelative(session.lastActiveAt)}
+                      </td>
+                      <td className="cell-actions">
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          disabled={busy}
+                          onClick={() => revokeSession(session.sessionId)}
+                        >
+                          End
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </div>
 
       {user.recentActivity && user.recentActivity.length > 0 && (
-        <section className="panel">
+        <section className="panel panel-compact">
           <div className="panel-header-row">
             <h2>Recent activity</h2>
             {onViewAudit && (
@@ -262,12 +244,12 @@ export function UserDetailPage({ userId, onBack, onViewAudit }: Props) {
               </button>
             )}
           </div>
-          <ul className="activity-feed compact">
+          <ul className="activity-feed activity-feed-dense compact">
             {user.recentActivity.map((item) => (
               <li key={item.id}>
                 <div className="activity-main">
                   <span className="badge badge-muted">{formatAuditAction(item.action)}</span>
-                  <span className="activity-meta">{formatAuditDetails(item.metadata)}</span>
+                  <span className="activity-inline-detail">{formatAuditDetails(item.metadata)}</span>
                 </div>
                 <span className="activity-time">{formatRelative(item.createdAt)}</span>
               </li>

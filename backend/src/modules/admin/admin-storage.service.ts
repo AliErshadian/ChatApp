@@ -1,8 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { existsSync, readdirSync, statSync } from 'fs';
-import { join } from 'path';
+import { buildStorageConfig } from '../../storage/config/storage.config';
+import {
+  IStorageProvider,
+  STORAGE_PROVIDER,
+} from '../../storage/interfaces/storage-provider.interface';
+import { StorageCategory } from '../../storage/utils/mime.util';
 import { Message } from '../messages/entities/message.entity';
 import { getMessageMediaKind } from '../messages/message-media.util';
 
@@ -44,11 +49,14 @@ export interface AdminStorageStats {
   };
 }
 
-const FILE_CATEGORIES: Array<{ id: string; label: string; relativePath: string }> = [
-  { id: 'avatars', label: 'User avatars', relativePath: 'avatars' },
-  { id: 'channel_avatars', label: 'Channel & group photos', relativePath: 'channel-avatars' },
-  { id: 'message_attachments', label: 'Message attachments', relativePath: 'message-attachments' },
-];
+const BUCKET_LABELS: Record<StorageCategory | 'backups', string> = {
+  avatar: 'User avatars',
+  image: 'Images',
+  video: 'Videos',
+  audio: 'Audio',
+  document: 'Documents',
+  backups: 'Backups',
+};
 
 const KIND_LABELS: Record<string, string> = {
   text: 'Text messages',
@@ -60,19 +68,22 @@ const KIND_LABELS: Record<string, string> = {
 
 @Injectable()
 export class AdminStorageService {
-  private readonly uploadsRoot = join(process.cwd(), 'uploads');
+  private readonly logger = new Logger(AdminStorageService.name);
 
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
     @InjectRepository(Message)
     private readonly messageRepo: Repository<Message>,
+    @Inject(STORAGE_PROVIDER)
+    private readonly storageProvider: IStorageProvider,
+    private readonly configService: ConfigService,
   ) {}
 
   async getStorageStats(): Promise<AdminStorageStats> {
     const [database, files, messages] = await Promise.all([
       this.getDatabaseStats(),
-      Promise.resolve(this.getFileStats()),
+      this.getObjectStorageStats(),
       this.getMessageStats(),
     ]);
 
@@ -113,72 +124,41 @@ export class AdminStorageService {
     };
   }
 
-  private getFileStats(): AdminStorageStats['files'] {
+  private async getObjectStorageStats(): Promise<AdminStorageStats['files']> {
+    const storageConfig = buildStorageConfig(this.configService);
+    const bucketCategories = new Map<string, { id: string; label: string }>();
+
+    for (const [category, bucket] of Object.entries(storageConfig.buckets)) {
+      const label = BUCKET_LABELS[category as StorageCategory | 'backups'] ?? bucket;
+      bucketCategories.set(bucket, { id: bucket, label });
+    }
+
     const categories: StorageFileCategory[] = [];
     let totalBytes = 0;
 
-    for (const category of FILE_CATEGORIES) {
-      const dir = join(this.uploadsRoot, category.relativePath);
-      const stats = this.scanDirectory(dir);
-      categories.push({
-        id: category.id,
-        label: category.label,
-        bytes: stats.bytes,
-        fileCount: stats.fileCount,
-      });
-      totalBytes += stats.bytes;
+    for (const [bucket, meta] of bucketCategories) {
+      try {
+        const stats = await this.storageProvider.getBucketStats(bucket);
+        if (stats.objectCount === 0 && stats.bytes === 0) continue;
+
+        categories.push({
+          id: meta.id,
+          label: meta.label,
+          bytes: stats.bytes,
+          fileCount: stats.objectCount,
+        });
+        totalBytes += stats.bytes;
+      } catch (error) {
+        this.logger.warn(
+          `Failed to read MinIO stats for bucket "${bucket}"`,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
     }
 
-    const otherDir = this.uploadsRoot;
-    if (existsSync(otherDir)) {
-      let otherBytes = 0;
-      let otherFiles = 0;
-      for (const entry of readdirSync(otherDir, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        if (FILE_CATEGORIES.some((c) => c.relativePath === entry.name)) continue;
-        const nested = this.scanDirectory(join(otherDir, entry.name));
-        otherBytes += nested.bytes;
-        otherFiles += nested.fileCount;
-      }
-      if (otherBytes > 0 || otherFiles > 0) {
-        categories.push({
-          id: 'other',
-          label: 'Other uploads',
-          bytes: otherBytes,
-          fileCount: otherFiles,
-        });
-        totalBytes += otherBytes;
-      }
-    }
+    categories.sort((a, b) => b.bytes - a.bytes);
 
     return { totalBytes, categories };
-  }
-
-  private scanDirectory(dir: string): { bytes: number; fileCount: number } {
-    if (!existsSync(dir)) return { bytes: 0, fileCount: 0 };
-
-    let bytes = 0;
-    let fileCount = 0;
-
-    const walk = (current: string) => {
-      for (const entry of readdirSync(current, { withFileTypes: true })) {
-        const fullPath = join(current, entry.name);
-        if (entry.isDirectory()) {
-          walk(fullPath);
-          continue;
-        }
-        if (!entry.isFile()) continue;
-        try {
-          bytes += statSync(fullPath).size;
-          fileCount += 1;
-        } catch {
-          // ignore unreadable files
-        }
-      }
-    };
-
-    walk(dir);
-    return { bytes, fileCount };
   }
 
   private async getMessageStats(): Promise<AdminStorageStats['messages']> {

@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { UserAvatar } from '../components/UserAvatar';
+import { TableSkeleton } from '../components/TableSkeleton';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { api, AdminUser } from '../services/api';
 import { formatDate, formatRelative } from '../utils/format';
 
@@ -10,19 +13,42 @@ type StatusFilter = 'all' | 'active' | 'inactive';
 type RoleFilter = 'all' | 'admin' | 'user';
 type SortBy = 'createdAt' | 'displayName' | 'email' | 'updatedAt';
 
+const SORT_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'createdAt:desc', label: 'Joined (newest)' },
+  { value: 'createdAt:asc', label: 'Joined (oldest)' },
+  { value: 'updatedAt:desc', label: 'Updated (newest)' },
+  { value: 'updatedAt:asc', label: 'Updated (oldest)' },
+  { value: 'displayName:asc', label: 'Name (A–Z)' },
+  { value: 'displayName:desc', label: 'Name (Z–A)' },
+  { value: 'email:asc', label: 'Email (A–Z)' },
+  { value: 'email:desc', label: 'Email (Z–A)' },
+];
+
+function parseSort(value: string): { sortBy: SortBy; sortDir: 'asc' | 'desc' } {
+  const [sortBy, sortDir] = value.split(':') as [SortBy, 'asc' | 'desc'];
+  return { sortBy, sortDir };
+}
+
 export function UsersPage({ onSelectUser }: Props) {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(25);
   const [q, setQ] = useState('');
+  const debouncedQ = useDebouncedValue(q, 300);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
-  const [sortBy, setSortBy] = useState<SortBy>('createdAt');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [sort, setSort] = useState('createdAt:desc');
+  const { sortBy, sortDir } = parseSort(sort);
   const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    setPage(1);
+    setSearch(debouncedQ.trim());
+  }, [debouncedQ]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -32,8 +58,7 @@ export function UsersPage({ onSelectUser }: Props) {
         page,
         limit: pageSize,
         q: search || undefined,
-        isActive:
-          statusFilter === 'all' ? undefined : statusFilter === 'active',
+        isActive: statusFilter === 'all' ? undefined : statusFilter === 'active',
         isAdmin: roleFilter === 'all' ? undefined : roleFilter === 'admin',
         sortBy,
         sortDir,
@@ -44,6 +69,7 @@ export function UsersPage({ onSelectUser }: Props) {
       setError(err instanceof Error ? err.message : 'Failed to load users');
     } finally {
       setLoading(false);
+      setInitialLoad(false);
     }
   }, [page, pageSize, search, statusFilter, roleFilter, sortBy, sortDir]);
 
@@ -52,96 +78,99 @@ export function UsersPage({ onSelectUser }: Props) {
   }, [load]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const hasFilters =
+    search.length > 0 || statusFilter !== 'all' || roleFilter !== 'all' || sort !== 'createdAt:desc';
+
+  const clearFilters = () => {
+    setQ('');
+    setSearch('');
+    setStatusFilter('all');
+    setRoleFilter('all');
+    setSort('createdAt:desc');
+    setPage(1);
+  };
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <h1>Users</h1>
-        <p>{total} accounts</p>
+    <div className="page page-compact">
+      <header className="page-header page-header-compact">
+        <p className="page-meta">{total.toLocaleString()} accounts</p>
       </header>
 
-      <div className="toolbar toolbar-wrap">
-        <form
-          className="search-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setPage(1);
-            setSearch(q.trim());
-          }}
-        >
-          <input
-            type="search"
-            placeholder="Search email, username, name..."
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-          <button type="submit" className="btn btn-secondary">
-            Search
-          </button>
-        </form>
-        <select
-          value={statusFilter}
-          onChange={(e) => {
-            setStatusFilter(e.target.value as StatusFilter);
-            setPage(1);
-          }}
-        >
-          <option value="all">All statuses</option>
-          <option value="active">Active only</option>
-          <option value="inactive">Inactive only</option>
-        </select>
-        <select
-          value={roleFilter}
-          onChange={(e) => {
-            setRoleFilter(e.target.value as RoleFilter);
-            setPage(1);
-          }}
-        >
-          <option value="all">All roles</option>
-          <option value="admin">Admins only</option>
-          <option value="user">Non-admins</option>
-        </select>
-        <select
-          value={sortBy}
-          onChange={(e) => {
-            setSortBy(e.target.value as SortBy);
-            setPage(1);
-          }}
-        >
-          <option value="createdAt">Sort: joined</option>
-          <option value="updatedAt">Sort: updated</option>
-          <option value="displayName">Sort: name</option>
-          <option value="email">Sort: email</option>
-        </select>
-        <select
-          value={sortDir}
-          onChange={(e) => {
-            setSortDir(e.target.value as 'asc' | 'desc');
-            setPage(1);
-          }}
-        >
-          <option value="desc">Descending</option>
-          <option value="asc">Ascending</option>
-        </select>
-        <select
-          value={pageSize}
-          onChange={(e) => {
-            setPageSize(Number(e.target.value));
-            setPage(1);
-          }}
-        >
-          <option value={10}>10 / page</option>
-          <option value={20}>20 / page</option>
-          <option value={50}>50 / page</option>
-        </select>
+      <div className="toolbar toolbar-sticky">
+        <input
+          type="search"
+          className="search-input"
+          placeholder="Search name, email, username…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          autoFocus
+        />
+        <div className="toolbar-filters">
+          <select
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value as StatusFilter);
+              setPage(1);
+            }}
+            aria-label="Status filter"
+          >
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+          <select
+            value={roleFilter}
+            onChange={(e) => {
+              setRoleFilter(e.target.value as RoleFilter);
+              setPage(1);
+            }}
+            aria-label="Role filter"
+          >
+            <option value="all">All roles</option>
+            <option value="admin">Admins</option>
+            <option value="user">Users</option>
+          </select>
+          <select
+            value={sort}
+            onChange={(e) => {
+              setSort(e.target.value);
+              setPage(1);
+            }}
+            aria-label="Sort"
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setPage(1);
+            }}
+            aria-label="Page size"
+          >
+            <option value={25}>25 rows</option>
+            <option value={50}>50 rows</option>
+            <option value={100}>100 rows</option>
+          </select>
+          {hasFilters && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <div className="page-error">{error}</div>}
-      {loading ? (
-        <div className="page-loading">Loading users...</div>
-      ) : (
-        <div className="table-wrap">
-          <table className="data-table">
+
+      <div className={`table-wrap table-scroll ${loading ? 'is-loading' : ''}`}>
+        {initialLoad ? (
+          <TableSkeleton rows={8} cols={6} />
+        ) : (
+          <table className="data-table data-table-compact">
             <thead>
               <tr>
                 <th>User</th>
@@ -150,13 +179,12 @@ export function UsersPage({ onSelectUser }: Props) {
                 <th>Role</th>
                 <th>Sessions</th>
                 <th>Joined</th>
-                <th>Updated</th>
               </tr>
             </thead>
             <tbody>
               {users.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="empty-cell">
+                  <td colSpan={6} className="empty-cell">
                     No users match your filters.
                   </td>
                 </tr>
@@ -164,12 +192,21 @@ export function UsersPage({ onSelectUser }: Props) {
                 users.map((user) => (
                   <tr key={user.id} onClick={() => onSelectUser(user.id)} className="clickable-row">
                     <td>
-                      <div className="user-cell">
-                        <strong>{user.displayName}</strong>
-                        <span>@{user.username}</span>
+                      <div className="user-cell user-cell-with-avatar">
+                        <UserAvatar
+                          name={user.displayName}
+                          avatarUrl={user.avatarUrl}
+                          size="sm"
+                        />
+                        <div>
+                          <strong>{user.displayName}</strong>
+                          <span>@{user.username}</span>
+                        </div>
                       </div>
                     </td>
-                    <td>{user.email}</td>
+                    <td className="cell-truncate" title={user.email}>
+                      {user.email}
+                    </td>
                     <td>
                       <span className={user.isActive ? 'badge badge-success' : 'badge badge-muted'}>
                         {user.isActive ? 'Active' : 'Inactive'}
@@ -182,33 +219,34 @@ export function UsersPage({ onSelectUser }: Props) {
                         <span className="badge badge-muted">User</span>
                       )}
                     </td>
-                    <td>{user.activeSessionCount ?? 0}</td>
-                    <td title={formatDate(user.createdAt)}>{formatRelative(user.createdAt)}</td>
-                    <td title={formatDate(user.updatedAt)}>{formatRelative(user.updatedAt)}</td>
+                    <td className="cell-numeric">{user.activeSessionCount ?? 0}</td>
+                    <td className="cell-muted" title={formatDate(user.createdAt)}>
+                      {formatRelative(user.createdAt)}
+                    </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
-        </div>
-      )}
+        )}
+      </div>
 
-      <div className="pagination">
+      <div className="pagination pagination-sticky">
         <button
           type="button"
-          className="btn btn-secondary"
-          disabled={page <= 1}
+          className="btn btn-secondary btn-sm"
+          disabled={page <= 1 || loading}
           onClick={() => setPage((p) => p - 1)}
         >
           Previous
         </button>
         <span>
-          Page {page} of {totalPages} · {total} total
+          {page} / {totalPages} · {total.toLocaleString()} total
         </span>
         <button
           type="button"
-          className="btn btn-secondary"
-          disabled={page >= totalPages}
+          className="btn btn-secondary btn-sm"
+          disabled={page >= totalPages || loading}
           onClick={() => setPage((p) => p + 1)}
         >
           Next

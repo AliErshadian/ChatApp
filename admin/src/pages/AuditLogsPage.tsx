@@ -1,6 +1,8 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
+import { TableSkeleton } from '../components/TableSkeleton';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { api, AuditLogEntry } from '../services/api';
-import { formatDate } from '../utils/format';
+import { formatDate, formatRelative } from '../utils/format';
 import { CopyButton } from '../components/CopyButton';
 import {
   AUDIT_ACTIONS,
@@ -21,20 +23,28 @@ export function AuditLogsPage({ initialUserId, onSelectUser }: Props) {
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(30);
+  const [pageSize, setPageSize] = useState(50);
   const [q, setQ] = useState('');
+  const debouncedQ = useDebouncedValue(q, 300);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [action, setAction] = useState('');
   const [datePreset, setDatePreset] = useState('');
-  const [userId, setUserId] = useState(initialUserId ?? '');
+  const [userIdInput, setUserIdInput] = useState(initialUserId ?? '');
+  const debouncedUserId = useDebouncedValue(userIdInput, 400);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (initialUserId) setUserId(initialUserId);
+    if (initialUserId) setUserIdInput(initialUserId);
   }, [initialUserId]);
+
+  useEffect(() => {
+    setPage(1);
+    setSearch(debouncedQ.trim());
+  }, [debouncedQ]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -47,7 +57,7 @@ export function AuditLogsPage({ initialUserId, onSelectUser }: Props) {
         q: search || undefined,
         category: action ? undefined : category || undefined,
         action: action || undefined,
-        userId: userId.trim() || undefined,
+        userId: debouncedUserId.trim() || undefined,
         from: range.from,
         to: range.to,
       });
@@ -57,8 +67,9 @@ export function AuditLogsPage({ initialUserId, onSelectUser }: Props) {
       setError(err instanceof Error ? err.message : 'Failed to load audit logs');
     } finally {
       setLoading(false);
+      setInitialLoad(false);
     }
-  }, [page, pageSize, search, category, action, userId, datePreset]);
+  }, [page, pageSize, search, category, action, debouncedUserId, datePreset]);
 
   useEffect(() => {
     void load();
@@ -72,116 +83,117 @@ export function AuditLogsPage({ initialUserId, onSelectUser }: Props) {
     setCategory('');
     setAction('');
     setDatePreset('');
-    if (!initialUserId) setUserId('');
+    if (!initialUserId) setUserIdInput('');
     setPage(1);
   };
 
+  const hasFilters =
+    search.length > 0 ||
+    category.length > 0 ||
+    action.length > 0 ||
+    datePreset.length > 0 ||
+    (debouncedUserId.trim().length > 0 && !initialUserId);
+
   return (
-    <div className="page">
-      <header className="page-header row">
-        <div>
-          <h1>Audit log</h1>
-          <p>{total} events recorded</p>
-        </div>
-        <button type="button" className="btn btn-secondary" onClick={() => void load()}>
+    <div className="page page-compact">
+      <header className="page-header page-header-compact row">
+        <p className="page-meta">{total.toLocaleString()} events</p>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => void load()}>
           Refresh
         </button>
       </header>
 
-      <div className="toolbar toolbar-wrap">
-        <form
-          className="search-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setPage(1);
-            setSearch(q.trim());
-          }}
-        >
-          <input
-            type="search"
-            placeholder="Search user, action, resource id..."
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-          <button type="submit" className="btn btn-secondary">
-            Search
-          </button>
-        </form>
-        <select
-          value={category}
-          onChange={(e) => {
-            setCategory(e.target.value);
-            setAction('');
-            setPage(1);
-          }}
-        >
-          {AUDIT_CATEGORIES.map((item) => (
-            <option key={item.value || 'all'} value={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={action}
-          onChange={(e) => {
-            setAction(e.target.value);
-            if (e.target.value) setCategory('');
-            setPage(1);
-          }}
-        >
-          <option value="">All actions</option>
-          {AUDIT_ACTIONS.map((item) => (
-            <option key={item.value} value={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={datePreset}
-          onChange={(e) => {
-            setDatePreset(e.target.value);
-            setPage(1);
-          }}
-        >
-          {AUDIT_DATE_PRESETS.map((item) => (
-            <option key={item.value || 'all'} value={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </select>
+      <div className="toolbar toolbar-sticky">
         <input
-          className="filter-user-id"
-          type="text"
-          placeholder="Filter by user ID"
-          value={userId}
-          onChange={(e) => {
-            setUserId(e.target.value);
-            setPage(1);
-          }}
+          type="search"
+          className="search-input"
+          placeholder="Search user, action, resource…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
         />
-        <select
-          value={pageSize}
-          onChange={(e) => {
-            setPageSize(Number(e.target.value));
-            setPage(1);
-          }}
-        >
-          <option value={20}>20 / page</option>
-          <option value={30}>30 / page</option>
-          <option value={50}>50 / page</option>
-          <option value={100}>100 / page</option>
-        </select>
-        <button type="button" className="btn btn-ghost" onClick={clearFilters}>
-          Clear filters
-        </button>
+        <div className="toolbar-filters">
+          <select
+            value={category}
+            onChange={(e) => {
+              setCategory(e.target.value);
+              setAction('');
+              setPage(1);
+            }}
+            aria-label="Category"
+          >
+            {AUDIT_CATEGORIES.map((item) => (
+              <option key={item.value || 'all'} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={action}
+            onChange={(e) => {
+              setAction(e.target.value);
+              if (e.target.value) setCategory('');
+              setPage(1);
+            }}
+            aria-label="Action"
+          >
+            <option value="">All actions</option>
+            {AUDIT_ACTIONS.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={datePreset}
+            onChange={(e) => {
+              setDatePreset(e.target.value);
+              setPage(1);
+            }}
+            aria-label="Date range"
+          >
+            {AUDIT_DATE_PRESETS.map((item) => (
+              <option key={item.value || 'all'} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+          <input
+            className="filter-user-id"
+            type="text"
+            placeholder="User ID"
+            value={userIdInput}
+            onChange={(e) => {
+              setUserIdInput(e.target.value);
+              setPage(1);
+            }}
+          />
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setPage(1);
+            }}
+            aria-label="Page size"
+          >
+            <option value={30}>30 rows</option>
+            <option value={50}>50 rows</option>
+            <option value={100}>100 rows</option>
+          </select>
+          {hasFilters && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <div className="page-error">{error}</div>}
-      {loading ? (
-        <div className="page-loading">Loading audit log...</div>
-      ) : (
-        <div className="table-wrap">
-          <table className="data-table audit-table">
+
+      <div className={`table-wrap table-scroll ${loading ? 'is-loading' : ''}`}>
+        {initialLoad ? (
+          <TableSkeleton rows={10} cols={6} />
+        ) : (
+          <table className="data-table data-table-compact audit-table">
             <thead>
               <tr>
                 <th />
@@ -189,14 +201,13 @@ export function AuditLogsPage({ initialUserId, onSelectUser }: Props) {
                 <th>User</th>
                 <th>Action</th>
                 <th>Details</th>
-                <th>Resource</th>
                 <th>IP</th>
               </tr>
             </thead>
             <tbody>
               {logs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="empty-cell">
+                  <td colSpan={6} className="empty-cell">
                     No audit events match your filters.
                   </td>
                 </tr>
@@ -205,7 +216,7 @@ export function AuditLogsPage({ initialUserId, onSelectUser }: Props) {
                   const expanded = expandedId === log.id;
                   return (
                     <Fragment key={log.id}>
-                      <tr key={log.id} className={expanded ? 'expanded-row' : undefined}>
+                      <tr className={expanded ? 'expanded-row' : undefined}>
                         <td>
                           <button
                             type="button"
@@ -216,7 +227,9 @@ export function AuditLogsPage({ initialUserId, onSelectUser }: Props) {
                             {expanded ? '−' : '+'}
                           </button>
                         </td>
-                        <td className="nowrap">{formatDate(log.createdAt)}</td>
+                        <td className="nowrap cell-muted" title={formatDate(log.createdAt)}>
+                          {formatRelative(log.createdAt)}
+                        </td>
                         <td>
                           {log.userId ? (
                             <button
@@ -241,22 +254,12 @@ export function AuditLogsPage({ initialUserId, onSelectUser }: Props) {
                             {formatAuditAction(log.action)}
                           </span>
                         </td>
-                        <td className="audit-details">{formatAuditDetails(log.metadata)}</td>
-                        <td className="mono-cell">
-                          {log.resourceType ? (
-                            <span title={log.resourceId ?? undefined}>
-                              {log.resourceType}
-                              {log.resourceId ? ` · ${log.resourceId.slice(0, 8)}…` : ''}
-                            </span>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
+                        <td className="audit-details cell-truncate">{formatAuditDetails(log.metadata)}</td>
                         <td className="mono-cell">{log.ipAddress ?? '—'}</td>
                       </tr>
                       {expanded && (
                         <tr className="audit-detail-row">
-                          <td colSpan={7}>
+                          <td colSpan={6}>
                             <div className="audit-expanded">
                               <div className="audit-expanded-grid">
                                 <div>
@@ -270,11 +273,14 @@ export function AuditLogsPage({ initialUserId, onSelectUser }: Props) {
                                     <span>{log.userEmail}</span>
                                   </div>
                                 )}
-                                {log.resourceId && (
+                                {log.resourceType && (
                                   <div>
-                                    <span className="detail-label">Resource ID</span>
-                                    <code>{log.resourceId}</code>
-                                    <CopyButton value={log.resourceId} label="Copy" />
+                                    <span className="detail-label">Resource</span>
+                                    <span>
+                                      {log.resourceType}
+                                      {log.resourceId ? ` · ${log.resourceId}` : ''}
+                                    </span>
+                                    {log.resourceId && <CopyButton value={log.resourceId} label="Copy" />}
                                   </div>
                                 )}
                                 {log.actorEmail && (
@@ -298,25 +304,25 @@ export function AuditLogsPage({ initialUserId, onSelectUser }: Props) {
               )}
             </tbody>
           </table>
-        </div>
-      )}
+        )}
+      </div>
 
-      <div className="pagination">
+      <div className="pagination pagination-sticky">
         <button
           type="button"
-          className="btn btn-secondary"
-          disabled={page <= 1}
+          className="btn btn-secondary btn-sm"
+          disabled={page <= 1 || loading}
           onClick={() => setPage((p) => p - 1)}
         >
           Previous
         </button>
         <span>
-          Page {page} of {totalPages} · {total} total
+          {page} / {totalPages} · {total.toLocaleString()} total
         </span>
         <button
           type="button"
-          className="btn btn-secondary"
-          disabled={page >= totalPages}
+          className="btn btn-secondary btn-sm"
+          disabled={page >= totalPages || loading}
           onClick={() => setPage((p) => p + 1)}
         >
           Next

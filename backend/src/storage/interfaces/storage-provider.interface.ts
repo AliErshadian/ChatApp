@@ -24,6 +24,12 @@ export interface PresignedUrlOptions {
   expiresInSeconds: number;
 }
 
+export interface StorageBucketStats {
+  bucket: string;
+  bytes: number;
+  objectCount: number;
+}
+
 export interface IStorageProvider {
   ensureBuckets(bucketNames: string[]): Promise<void>;
   upload(input: StorageUploadInput): Promise<StorageUploadResult>;
@@ -34,6 +40,7 @@ export interface IStorageProvider {
     objectKey: string,
     options: PresignedUrlOptions,
   ): Promise<string>;
+  getBucketStats(bucket: string): Promise<StorageBucketStats>;
 }
 
 export const STORAGE_PROVIDER = Symbol('STORAGE_PROVIDER');
