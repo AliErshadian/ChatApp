@@ -1,4 +1,4 @@
-# ChatApp — Project Review (2026-07-12)
+# ChatApp — Project Review (2026-07-13)
 
 This document summarizes the current codebase, highlights strengths and weaknesses, and proposes a prioritized improvement roadmap.
 
@@ -73,6 +73,7 @@ ChatApp/
   - `StorageService` + `S3StorageProvider` (AWS SDK v3, `forcePathStyle` for MinIO)
   - Buckets: `avatars`, `attachments`, `voice`, `videos`, `documents`, `backups`
   - REST: `POST/GET/DELETE /attachments/*`, streamed `GET /attachments/:id/content`, presigned `GET /attachments/:id/download`
+  - **`GET /conversations/:id/attachments`** — list files shared in a chat (filter by kind, cursor pagination; respects hidden/deleted messages)
   - Integrated with message attachments, user avatars, conversation avatars
   - Audit actions: `attachment.upload`, `attachment.download`, `attachment.delete`
   - Extension hooks designed for virus scan, thumbnails (not implemented)
@@ -105,6 +106,7 @@ ChatApp/
   - Mentions autocomplete + highlighted mention text
   - In-app toast notifications (mentions, new DM, added to group/channel, new device login)
   - Profile, contacts, conversation info, forward modal, attachment viewers (API content proxy + IndexedDB cache via `storageUrl.ts` / `mediaCache.ts`)
+  - **File management** (per DM/group/channel): header 📁 button or conversation info → filter tabs (All, My uploads, Shared, Images, Videos, Documents, Audio, Voice); jump to message, preview, download
   - **Search**:
     - Sidebar: split panel (conversations on top, message content hits below)
     - Global: `Ctrl+K` / `Cmd+K` modal (chats, channels, people, messages)
@@ -127,6 +129,7 @@ ChatApp/
 - **Object storage** — MinIO/S3; clients download through API proxy (LAN/mobile friendly); presigned URLs optional
 - **Admin & audit** — separate admin app, storage visibility, append-only audit trail
 - **Search UX** — unified conversation + message content search with jump-to-message
+- **File management** — per-conversation shared files browser with media-type filters and jump-to-message
 - **Session management** — practical Telegram-style device list with push logout
 
 ## Cons / risks (what can bite you in production)
@@ -144,6 +147,7 @@ ChatApp/
 
 ## Recently addressed (2026-07)
 
+- **Per-chat file management** — `GET /conversations/:id/attachments` with kind filters (`mine`, `shared`, `image`, `video`, etc.) and cursor pagination; `FileManagementPanel` in desktop client (header + conversation info entry points)
 - **API-proxied media downloads** — `GET /attachments/:id/content` streams from MinIO through the API; clients use JWT + same host as chat (works on LAN/mobile without MinIO port exposure)
 - **Client offline cache** — IndexedDB blob cache (`mediaCache.ts`); Profile → Offline cache (size + clear)
 - **Admin storage panel** — MinIO bucket metrics via `ListObjectsV2`; compact UI with debounced search and mobile bottom nav

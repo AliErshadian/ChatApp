@@ -282,6 +282,38 @@ GET /api/v1/conversations/{id}/messages?cursor=1042
 Authorization: Bearer eyJhbG...
 ```
 
+### List Conversation Attachments (file management)
+
+```http
+GET /api/v1/conversations/{id}/attachments?kind=image&cursor=2026-07-12T10:00:00.000Z&limit=50
+Authorization: Bearer eyJhbG...
+```
+
+- Scoped to conversation members; excludes deleted and user-hidden messages
+- **Filters** (`kind`): `all` (default), `mine`, `shared`, `image`, `video`, `document`, `audio`, `voice`
+- **Pagination**: cursor = ISO `createdAt` of last item; `nextCursor` in response
+- Returns metadata + uploader display name; clients fetch bytes via `GET /attachments/:id/content`
+
+```json
+{
+  "items": [
+    {
+      "id": "...",
+      "originalName": "report.pdf",
+      "mimeType": "application/pdf",
+      "size": "1048576",
+      "url": "/api/v1/attachments/.../content",
+      "uploadedBy": "...",
+      "messageId": "...",
+      "caption": "Q2 numbers",
+      "createdAt": "2026-07-12T10:30:00.000Z",
+      "uploader": { "id": "...", "displayName": "Alice", "username": "alice" }
+    }
+  ],
+  "nextCursor": null
+}
+```
+
 ### Search Messages (full-text)
 
 ```http
@@ -367,6 +399,7 @@ Key indexes:
 - `messages(conversation_id, sequence DESC)` — feed pagination
 - `messages(search_vector)` GIN — full-text message search
 - `messages(conversation_id, sender_id, client_message_id)` — idempotent sends
+- `attachments(conversation_id, created_at DESC)` — per-chat file listing
 - `audit_logs(created_at DESC)`, `audit_logs(action)` — admin audit queries
 - `user_sessions(user_id)` partial where not revoked
 - `refresh_tokens(user_id, session_family_id)` — session token lookup
@@ -419,6 +452,8 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 │ storageUrl.ts   API content proxy fetch + blob URL resolution │
 │ mediaCache.ts   IndexedDB LRU cache for offline media         │
 │ realtime.ts     Socket.IO event handlers                │
+│ FileManagementPanel  per-chat files (filter tabs, preview)    │
+│ ConversationInfoPanel  details + link to shared files           │
 │ SidebarSearchPanel / GlobalSearchModal                  │
 │   → filter conversations + GET /messages/search         │
 │   → jump to message (paginate history, scroll + glow)   │
@@ -434,6 +469,13 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 2. Top: matching chats, groups, channels (name, members, last message preview)
 3. Bottom: message hits from `GET /messages/search`
 4. Click message → open conversation, load older pages if needed, scroll to `msg-{id}` with highlight
+
+**File management flow:**
+
+1. Open from chat header (📁) or conversation info → **Open shared files**
+2. Filter tabs: All files, My uploads, Shared, Images, Videos, Documents, Audio, Voice
+3. `GET /conversations/:id/attachments` with `kind` + cursor pagination
+4. Thumbnails for images/videos; preview modals; **Jump** scrolls to source message; **Save** downloads via cached blob URL
 
 ### Admin client (`admin/` — `chatapp-admin`)
 
@@ -520,6 +562,7 @@ Buckets are auto-created by `S3StorageProvider` on startup (with retries in deve
 
 | Route | Used by |
 |-------|---------|
+| `GET /conversations/:id/attachments` | Per-chat file browser (filter + pagination) |
 | `POST /attachments/upload` | Direct upload API |
 | `POST /conversations/:id/messages/attachment` | Chat message attachments |
 | `POST /users/me/avatar` | Profile avatar |

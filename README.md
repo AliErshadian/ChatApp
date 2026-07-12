@@ -131,6 +131,7 @@ ChatApp/
 │       ├── storage/            # S3-compatible object storage (MinIO provider)
 │       │   ├── storage.service.ts
 │       │   ├── storage.controller.ts
+│       │   ├── storage.repository.ts   # attachments list queries
 │       │   ├── providers/s3-storage.provider.ts
 │       │   └── entities/attachment.entity.ts
 │       ├── infrastructure/
@@ -140,6 +141,8 @@ ChatApp/
 ├── desktop/                    # Electron + React client
 │   ├── electron/               # Main process, tray, secure auth store
 │   └── src/
+│       └── components/
+│           └── FileManagementPanel.tsx  # Per-chat shared files UI
 ├── admin/                      # Admin dashboard (Vite + React, port 5174)
 │   └── src/
 │       ├── pages/              # Dashboard, users, user detail, audit log
@@ -200,6 +203,7 @@ Access tokens include a `sid` claim (session id). Refresh tokens are SHA-256 has
 | POST | `/conversations/groups` | Create group |
 | POST | `/conversations/direct` | Create/get DM |
 | GET/POST | `/conversations/:id/messages` | History + send (REST); realtime preferred for send |
+| GET | `/conversations/:id/attachments` | List shared files (`kind`, `cursor`, `limit`; filter: all/mine/shared/image/video/document/audio/voice) |
 | POST | `/conversations/:id/messages/attachment` | Upload file attachment (stored in MinIO) |
 | PATCH/DELETE | `/conversations/:id/messages/:messageId` | Edit / delete message |
 | GET | `/messages/search` | Full-text search (`q`, `limit`; min 2 chars; Postgres FTS + GIN index) |
@@ -276,6 +280,7 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 - Read/delivered ticks, typing indicators, presence
 - Profile avatars, conversation pins, contact list
 - **Search**: sidebar filter (chats/groups/channels + message content); global search (`Ctrl+K` / `Cmd+K`); click result to jump and scroll to message
+- **File management**: per-chat shared files panel (📁 in header or conversation info); tabs for All, My uploads, Shared, Images, Videos, Documents, Audio, Voice; preview, download, jump to message
 - **Devices** (Profile → Devices): Telegram-style session list, terminate device, terminate all others
 - **Offline cache** (Profile → Offline cache): IndexedDB blob cache for avatars/attachments; view size and clear cache
 - **Realtime fallback**: automatic SSE + REST when WebSocket cannot connect
