@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react';
 import { getAssetBase } from './avatar';
 import { api } from '../services/api';
+import {
+  buildMediaCacheKey,
+  getCachedMedia,
+  getCachedObjectUrl,
+  putCachedMedia,
+} from './mediaCache';
 
 const presignedCache = new Map<string, { url: string; expiresAt: number }>();
+const inflightDownloads = new Map<string, Promise<string | undefined>>();
 
 export function parseAttachmentId(reference?: string): string | undefined {
   if (!reference) return undefined;
@@ -54,6 +61,42 @@ export async function fetchPresignedUrl(
   return payload.url;
 }
 
+async function downloadBlob(url: string, accessToken: string | null): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  if (accessToken && url.includes('/api/v1/')) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  const response = await fetch(url, { headers });
+  if (!response.ok) {
+    throw new Error('Failed to download media');
+  }
+  return response.blob();
+}
+
+async function resolveCachedOrDownload(
+  reference: string,
+  apiBase: string,
+  accessToken: string | null,
+): Promise<string | undefined> {
+  const cacheKey = buildMediaCacheKey(reference);
+  if (!cacheKey) return undefined;
+
+  const cached = await getCachedMedia(cacheKey);
+  if (cached) {
+    return getCachedObjectUrl(cacheKey, cached.blob);
+  }
+
+  const legacy = resolveLegacyAssetUrl(reference);
+  const downloadUrl = legacy
+    ? legacy
+    : await fetchPresignedUrl(apiBase, parseAttachmentId(reference)!, accessToken);
+
+  const blob = await downloadBlob(downloadUrl, accessToken);
+  await putCachedMedia(cacheKey, blob);
+  return getCachedObjectUrl(cacheKey, blob);
+}
+
 export function useStorageUrl(reference?: string): string | undefined {
   const [resolved, setResolved] = useState<string | undefined>(() =>
     resolveLegacyAssetUrl(reference),
@@ -61,27 +104,36 @@ export function useStorageUrl(reference?: string): string | undefined {
 
   useEffect(() => {
     let cancelled = false;
-    const legacy = resolveLegacyAssetUrl(reference);
-    if (legacy) {
-      setResolved(legacy);
-      return;
-    }
 
-    if (!reference) {
-      setResolved(undefined);
-      return;
-    }
+    const reload = () => {
+      if (!reference) {
+        setResolved(undefined);
+        return;
+      }
 
-    resolveStorageReference(reference, api.getApiBase(), api.getAccessToken())
-      .then((url) => {
-        if (!cancelled) setResolved(url);
-      })
-      .catch(() => {
-        if (!cancelled) setResolved(undefined);
-      });
+      if (reference.startsWith('blob:')) {
+        setResolved(reference);
+        return;
+      }
+
+      resolveStorageReference(reference, api.getApiBase(), api.getAccessToken())
+        .then((url) => {
+          if (!cancelled) setResolved(url);
+        })
+        .catch(() => {
+          const legacy = resolveLegacyAssetUrl(reference);
+          if (!cancelled) setResolved(legacy);
+        });
+    };
+
+    reload();
+
+    const onCacheCleared = () => reload();
+    window.addEventListener('chatapp-media-cache-cleared', onCacheCleared);
 
     return () => {
       cancelled = true;
+      window.removeEventListener('chatapp-media-cache-cleared', onCacheCleared);
     };
   }, [reference]);
 
@@ -95,11 +147,18 @@ export async function resolveStorageReference(
 ): Promise<string | undefined> {
   if (!reference) return undefined;
 
-  const legacy = resolveLegacyAssetUrl(reference);
-  if (legacy) return legacy;
+  if (reference.startsWith('blob:')) return reference;
 
-  const attachmentId = parseAttachmentId(reference);
-  if (!attachmentId) return undefined;
+  const legacyDirect = resolveLegacyAssetUrl(reference);
+  const cacheKey = buildMediaCacheKey(reference);
+  if (!cacheKey) return legacyDirect;
 
-  return fetchPresignedUrl(apiBase, attachmentId, accessToken);
+  const existing = inflightDownloads.get(cacheKey);
+  if (existing) return existing;
+
+  const promise = resolveCachedOrDownload(reference, apiBase, accessToken).finally(() => {
+    inflightDownloads.delete(cacheKey);
+  });
+  inflightDownloads.set(cacheKey, promise);
+  return promise;
 }

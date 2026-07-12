@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Avatar } from './Avatar';
 import { ConfirmModal } from './ConfirmModal';
 import { SessionsPanel } from './SessionsPanel';
+import { CacheManagementPanel } from './CacheManagementPanel';
 import { getLogoutConfirm } from '../utils/deleteChatConfirm';
 
 interface Props {
@@ -158,6 +159,8 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
           <h4>Devices</h4>
           <SessionsPanel />
         </section>
+
+        <CacheManagementPanel />
 
         <div className="profile-actions">
           <button className="profile-logout-btn" onClick={() => setLogoutConfirmOpen(true)}>

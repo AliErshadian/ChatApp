@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react';
 import { getApiBase } from '../config/endpoints';
 import { api } from '../services/api';
+import {
+  buildMediaCacheKey,
+  getCachedMedia,
+  getCachedObjectUrl,
+  putCachedMedia,
+} from './mediaCache';
 
-const presignedCache = new Map<string, { url: string; expiresAt: number }>();
+const inflightDownloads = new Map<string, Promise<string | undefined>>();
 
 export function getAssetBase() {
   return getApiBase().replace(/\/api\/v1\/?$/, '');
@@ -27,33 +33,61 @@ export function resolveLegacyAssetUrl(reference?: string): string | undefined {
   return `${getAssetBase()}${reference.startsWith('/') ? reference : `/${reference}`}`;
 }
 
-async function fetchPresignedUrl(attachmentId: string): Promise<string> {
-  const cached = presignedCache.get(attachmentId);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.url;
+async function downloadBlob(url: string): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  const token = api.getAccessToken();
+  if (token && url.includes('/api/v1/')) {
+    headers.Authorization = `Bearer ${token}`;
   }
 
-  const payload = await api.getAttachmentDownloadUrl(attachmentId);
-  presignedCache.set(attachmentId, {
-    url: payload.url,
-    expiresAt: Date.now() + Math.max(0, payload.expiresInSeconds - 15) * 1000,
-  });
+  const response = await fetch(url, { headers });
+  if (!response.ok) {
+    throw new Error('Failed to download media');
+  }
+  return response.blob();
+}
 
-  return payload.url;
+async function resolveCachedOrDownload(reference: string): Promise<string | undefined> {
+  const cacheKey = buildMediaCacheKey(reference);
+  if (!cacheKey) return undefined;
+
+  const cached = await getCachedMedia(cacheKey);
+  if (cached) {
+    return getCachedObjectUrl(cacheKey, cached.blob);
+  }
+
+  const legacy = resolveLegacyAssetUrl(reference);
+  let downloadUrl = legacy;
+  if (!downloadUrl) {
+    const attachmentId = parseAttachmentId(reference);
+    if (!attachmentId) return undefined;
+    const payload = await api.getAttachmentDownloadUrl(attachmentId);
+    downloadUrl = payload.url;
+  }
+
+  const blob = await downloadBlob(downloadUrl);
+  await putCachedMedia(cacheKey, blob);
+  return getCachedObjectUrl(cacheKey, blob);
 }
 
 export async function resolveStorageReference(
   reference?: string,
 ): Promise<string | undefined> {
   if (!reference) return undefined;
+  if (reference.startsWith('blob:')) return reference;
 
   const legacy = resolveLegacyAssetUrl(reference);
-  if (legacy) return legacy;
+  const cacheKey = buildMediaCacheKey(reference);
+  if (!cacheKey) return legacy;
 
-  const attachmentId = parseAttachmentId(reference);
-  if (!attachmentId) return undefined;
+  const existing = inflightDownloads.get(cacheKey);
+  if (existing) return existing;
 
-  return fetchPresignedUrl(attachmentId);
+  const promise = resolveCachedOrDownload(reference).finally(() => {
+    inflightDownloads.delete(cacheKey);
+  });
+  inflightDownloads.set(cacheKey, promise);
+  return promise;
 }
 
 export function useStorageUrl(reference?: string): string | undefined {
@@ -63,27 +97,36 @@ export function useStorageUrl(reference?: string): string | undefined {
 
   useEffect(() => {
     let cancelled = false;
-    const legacy = resolveLegacyAssetUrl(reference);
-    if (legacy) {
-      setResolved(legacy);
-      return;
-    }
 
-    if (!reference) {
-      setResolved(undefined);
-      return;
-    }
+    const reload = () => {
+      if (!reference) {
+        setResolved(undefined);
+        return;
+      }
 
-    resolveStorageReference(reference)
-      .then((url) => {
-        if (!cancelled) setResolved(url);
-      })
-      .catch(() => {
-        if (!cancelled) setResolved(undefined);
-      });
+      if (reference.startsWith('blob:')) {
+        setResolved(reference);
+        return;
+      }
+
+      resolveStorageReference(reference)
+        .then((url) => {
+          if (!cancelled) setResolved(url);
+        })
+        .catch(() => {
+          const legacy = resolveLegacyAssetUrl(reference);
+          if (!cancelled) setResolved(legacy);
+        });
+    };
+
+    reload();
+
+    const onCacheCleared = () => reload();
+    window.addEventListener('chatapp-media-cache-cleared', onCacheCleared);
 
     return () => {
       cancelled = true;
+      window.removeEventListener('chatapp-media-cache-cleared', onCacheCleared);
     };
   }, [reference]);
 

@@ -3269,6 +3269,54 @@ body {
   color: var(--text-secondary);
 }
 
+.profile-cache-intro {
+  margin: -0.35rem 0 0.85rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.profile-cache-stats {
+  margin-bottom: 0.75rem;
+}
+
+.profile-cache-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.profile-cache-btn {
+  padding: 0.55rem 0.9rem;
+  font-size: 0.85rem;
+}
+
+.profile-cache-clear-btn {
+  padding: 0.55rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--danger, #ef4444) 45%, transparent);
+  background: color-mix(in srgb, var(--danger, #ef4444) 12%, transparent);
+  color: #fca5a5;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.profile-cache-clear-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger, #ef4444) 20%, transparent);
+}
+
+.profile-cache-clear-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.profile-cache-message {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
 .profile-details {
   margin: 0;
   display: flex;
