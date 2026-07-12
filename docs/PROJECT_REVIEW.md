@@ -1,16 +1,16 @@
-# ChatApp — Project Review (2026-07-11)
+# ChatApp — Project Review (2026-07-12)
 
 This document summarizes the current codebase, highlights strengths and weaknesses, and proposes a prioritized improvement roadmap.
 
 ## Overview
 
 - **Product**: internal Slack-like chat (desktop + browser client + admin dashboard + API)
-- **Backend**: NestJS (REST + Socket.IO realtime), PostgreSQL, Redis (presence + Socket.IO adapter)
+- **Backend**: NestJS (REST + Socket.IO realtime), PostgreSQL, Redis (presence + Socket.IO adapter), **MinIO** (S3-compatible object storage)
 - **Clients**:
   - **Desktop**: Electron + React (Vite)
   - **Browser**: same React app for development (`localStorage` auth)
   - **Admin**: separate Vite + React app (`admin/`, port 5174)
-- **Infra**: Docker Compose (Postgres/Redis/API), production-like compose with Nginx reverse proxy
+- **Infra**: Docker Compose (Postgres/Redis/MinIO/API), production-like compose with Nginx reverse proxy
 - **Repo layout**: **npm workspaces** monorepo — one root `package-lock.json`, workspaces `chatapp-backend`, `chatapp-desktop`, `chatapp-admin`
 
 ## Repository structure (high level)
@@ -25,7 +25,7 @@ ChatApp/
 ├── infra/                   # Postgres init + migrations + nginx
 ├── docs/                    # Architecture + this review
 ├── docker-compose.yml       # Local dev stack
-├── docker-compose.prod.yml  # Prod-like stack (nginx + persistent uploads)
+├── docker-compose.prod.yml  # Prod-like stack (nginx + MinIO)
 └── .github/workflows/       # CI/CD (root npm ci, workspace lint/build, Docker)
 ```
 
@@ -33,7 +33,7 @@ ChatApp/
 
 ### Backend (NestJS)
 
-- **Modules**: `auth`, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`, `audit`, `admin`
+- **Modules**: `auth`, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`, `audit`, `admin`, **`storage`**
 - **Auth & sessions**:
   - JWT access tokens (15m) with required `sid` claim; validated against `user_sessions` on every REST and WebSocket request
   - Rotating refresh tokens (SHA-256 hashed, grouped by `session_family_id`)
@@ -44,7 +44,8 @@ ChatApp/
 - **Messaging**:
   - Monotonic per-conversation `sequence`; `clientMessageId` dedup
   - Edit, delete (me / everyone), replies, forwards, reactions
-  - Attachments (multipart upload to local disk)
+  - Attachments via **MinIO** (S3-compatible); metadata in `attachments` table (migration `021`)
+  - Presigned download URLs (2-minute expiry); MIME/size validation; UUID object keys
   - `@mentions` parsed server-side; stored in `message_mentions`
   - **Content search**: `GET /messages/search` — PostgreSQL FTS (`search_vector` + GIN), membership-scoped
   - Read/delivered receipts via realtime + `message_deliveries`
@@ -66,7 +67,14 @@ ChatApp/
 - **Admin** (`admin` module):
   - `AdminGuard` — requires `users.is_admin` (migration `018`)
   - Dashboard stats, user list/detail, session management
-  - Storage metrics: DB table sizes, upload folders, message kind breakdown
+  - Storage metrics: DB table sizes, legacy upload folders, message kind breakdown
+- **Object storage** (`storage` module):
+  - `StorageService` + `S3StorageProvider` (AWS SDK v3, `forcePathStyle` for MinIO)
+  - Buckets: `avatars`, `attachments`, `voice`, `videos`, `documents`, `backups`
+  - REST: `POST/GET/DELETE /attachments/*`, presigned `GET /attachments/:id/download`
+  - Integrated with message attachments, user avatars, conversation avatars
+  - Audit actions: `attachment.upload`, `attachment.download`, `attachment.delete`
+  - Extension hooks designed for virus scan, thumbnails (not implemented)
 - **Observability**:
   - `pino-http` structured logging + request IDs
   - Sentry integration + global exception filter (returns JSON to client)
@@ -74,7 +82,7 @@ ChatApp/
   - `GET /api/v1/health`
 - **DB**:
   - `infra/postgres/init.sql` for new databases (includes `schema_migrations` seed)
-  - Incremental SQL migrations in `infra/postgres/migrations/` (002–020)
+  - Incremental SQL migrations in `infra/postgres/migrations/` (002–021)
   - **Auto-applied** via `npm run migrate` / Compose `migrate` → `api`
   - **Drift check**: `npm run check:schema-drift` (CI) keeps `init.sql` aligned with migrations
 
@@ -95,7 +103,7 @@ ChatApp/
   - Chat list with pins, unread badges, last-message preview
   - Mentions autocomplete + highlighted mention text
   - In-app toast notifications (mentions, new DM, added to group/channel, new device login)
-  - Profile, contacts, conversation info, forward modal, attachment viewers
+  - Profile, contacts, conversation info, forward modal, attachment viewers (presigned URLs via `storageUrl.ts`)
   - **Search**:
     - Sidebar: split panel (conversations on top, message content hits below)
     - Global: `Ctrl+K` / `Cmd+K` modal (chats, channels, people, messages)
@@ -114,6 +122,7 @@ ChatApp/
   - DTO validation, throttling on auth, message sanitization
 - **Thoughtful schema** — message ordering, dedup indexes, membership constraints, session tables
 - **Dev ergonomics** — npm workspaces monorepo, root `npm run dev` / `dev:all`, compose stack, CI/CD from single lockfile
+- **Object storage** — MinIO/S3 with presigned URLs; horizontally safe for multi-instance API
 - **Admin & audit** — separate admin app, storage visibility, append-only audit trail
 - **Search UX** — unified conversation + message content search with jump-to-message
 - **Session management** — practical Telegram-style device list with push logout
@@ -127,13 +136,14 @@ ChatApp/
 
 ### Correctness & performance
 
-- **No automated tests** — auth, ACL, messaging, and session flows are untested in CI
-- **Uploads on local disk** — breaks horizontal scaling; architecture assumes S3/MinIO later
+- **No automated tests** — auth, ACL, messaging, session, and storage flows are untested in CI
+- **Admin storage panel** still reports legacy `uploads/` folder sizes; MinIO metrics not yet integrated
 - **Some gateway paths** still use per-member emits where room broadcast would suffice — watch fanout cost in large channels
 
 
 ## Recently addressed (2026-07)
 
+- **S3-compatible object storage (MinIO)** — `storage` module, `attachments` table, presigned URLs, AWS SDK v3 provider; Docker Compose + `dev:infra` include MinIO; native MinIO supported for local dev without Docker
 - **npm workspaces monorepo** — root `package.json` + single `package-lock.json`; `npm install` / `npm ci` at repo root; CI and Docker builds use workspace-aware layout
 - **SSE realtime fallback** — `GET /realtime/stream` + `/realtime/*` REST actions; desktop client auto-falls back when WebSocket cannot connect
 - **Redis session cache** — active/revoked session state cached in Redis; `last_active_at` DB writes debounced (~60s) on hot paths
@@ -164,8 +174,8 @@ ChatApp/
 
 ### P1 (high value next)
 
-- **Object storage** for uploads/avatars (S3/MinIO + pre-signed URLs)
 - **OpenAPI** for REST + formal realtime event catalog
+- **Admin storage panel**: MinIO bucket/object metrics alongside legacy folder stats
 - **Desktop release pipeline** (signed builds for Windows/Linux)
 
 ### P2 (polish and scale)
@@ -183,7 +193,7 @@ ChatApp/
 - [x] Secure token storage (Electron) + session revocation
 - [x] Basic observability (structured logs, Sentry, health check)
 - [x] Database migrations applied automatically in deploy (Compose `migrate` job)
-- [ ] Object storage for uploads
+- [x] Object storage for uploads (MinIO/S3 + presigned URLs)
 - [ ] Explicit production CORS origins (no `*`)
 
 ## Backend observability env vars
@@ -194,6 +204,21 @@ ChatApp/
 | `SENTRY_DSN` | Sentry project DSN (empty = disabled) |
 | `SENTRY_RELEASE` | e.g. `chatapp-backend@1.0.0+abc123` |
 | `SENTRY_TRACES_SAMPLE_RATE` | `0` dev; `0.01`–`0.05` prod |
+
+## Object storage env vars
+
+| Variable | Purpose |
+|----------|---------|
+| `S3_ENDPOINT` | MinIO/S3 host (use `127.0.0.1` on Windows to avoid IPv6 issues) |
+| `S3_PORT` | API port (default `9000`) |
+| `S3_SSL` | `true` / `false` |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | Credentials |
+| `S3_REGION` | AWS region for SDK (e.g. `us-east-1`) |
+| `S3_BUCKET_*` | Bucket names per media category |
+| `S3_PRESIGNED_URL_EXPIRES_SECONDS` | Download URL TTL (default `120`) |
+| `STORAGE_MAX_*_MB` | Upload size limits per category |
+
+See `backend/.env.example` for defaults. Required in production (`NODE_ENV=production`).
 
 ## Related docs
 

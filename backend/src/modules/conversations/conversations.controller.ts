@@ -12,9 +12,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { join, extname } from 'path';
-import { existsSync, mkdirSync } from 'fs';
+import { memoryStorage } from 'multer';
+import { extname } from 'path';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
@@ -27,11 +26,6 @@ import {
   DeleteConversationDto,
   LeaveChannelDto,
 } from './dto/conversation.dto';
-
-const channelAvatarUploadDir = join(process.cwd(), 'uploads', 'channel-avatars');
-if (!existsSync(channelAvatarUploadDir)) {
-  mkdirSync(channelAvatarUploadDir, { recursive: true });
-}
 
 @Controller('conversations')
 @UseGuards(JwtAuthGuard)
@@ -108,18 +102,12 @@ export class ConversationsController {
   @Post(':id/avatar')
   @UseInterceptors(
     FileInterceptor('avatar', {
-      storage: diskStorage({
-        destination: channelAvatarUploadDir,
-        filename: (_req, file, cb) => {
-          const ext = extname(file.originalname).toLowerCase();
-          cb(null, `tmp-${Date.now()}${ext}`);
-        },
-      }),
-      limits: { fileSize: 2 * 1024 * 1024 },
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 },
       fileFilter: (_req, file, cb) => {
         const ext = extname(file.originalname).toLowerCase();
-        if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
-          cb(new BadRequestException('Only JPG, PNG, and WebP images are allowed'), false);
+        if (!['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)) {
+          cb(new BadRequestException('Only JPG, PNG, WebP, and GIF images are allowed'), false);
           return;
         }
         cb(null, true);

@@ -36,10 +36,11 @@
          ┌────────────────────┼────────────────────┐
          ▼                    ▼                    ▼
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│   PostgreSQL    │  │     Redis       │  │  Local uploads  │
-│  users, msgs,   │  │  presence,      │  │  (/uploads —    │
-│  sessions, etc. │  │  Socket.IO      │  │  S3 future)     │
-│                 │  │  pub/sub        │  │                 │
+│   PostgreSQL    │  │     Redis       │  │  MinIO (S3)     │
+│  users, msgs,   │  │  presence,      │  │  avatars,       │
+│  attachments    │  │  Socket.IO      │  │  attachments,   │
+│  (metadata),    │  │  pub/sub        │  │  videos, etc.   │
+│  sessions, etc. │  │                 │  │                 │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
 ```
 
@@ -85,6 +86,7 @@ There is no `apps/` or `packages/` split today — top-level workspace folders a
 | `npm run dev:desktop` | `chatapp-desktop` | Electron + Vite dev |
 | `npm run dev:admin` | `chatapp-admin` | Admin Vite dev server |
 | `npm run dev` / `dev:all` | multiple | Concurrent dev processes |
+| `npm run dev:infra` | Docker | Postgres + Redis + MinIO (+ bucket init) |
 | `npm run build` | all | Production builds |
 | `npm run lint` | all | ESLint in every workspace |
 | `npm run migrate` | `chatapp-backend` | Apply SQL migrations |
@@ -113,6 +115,7 @@ The MVP ships as a **modular monolith** with clean boundaries:
 | `contacts` | Contact list | Contacts Service |
 | `conversations` | DMs, channels, groups, invites, membership ACL | Conversation Service |
 | `messages` | Persistence, ordering, sanitization, mentions, attachments, reactions, **content search** | Messaging Service |
+| `storage` | S3-compatible object storage (upload, delete, presigned URLs, `attachments` metadata) | Storage Service |
 | `audit` | Append-only audit trail for user and admin actions | Audit Service |
 | `admin` | Admin-only stats, user management, storage metrics, audit log API | Admin API |
 | `presence` | Online/offline, typing (Redis + in-memory connection registry) | Presence Service |
@@ -207,7 +210,7 @@ Telegram-style **device sessions** tie refresh tokens and access tokens to a log
 | API + WebSocket | Horizontal | Stateless; Redis adapter required |
 | PostgreSQL | Vertical + read replicas | Single primary for writes |
 | Redis | Cluster / Sentinel | Presence + Socket.IO pub/sub |
-| File uploads | Not horizontally safe yet | Local disk; move to S3/MinIO |
+| Object storage (MinIO/S3) | Horizontal | Shared across API instances; presigned URL downloads |
 
 ## 8. Trade-offs
 
@@ -337,6 +340,7 @@ Client clears local auth and returns to login.
 users ─────────────┬──── conversation_members ──── conversations
                    │                                    │
                    ├──── messages ──────────────────────┘
+                   │    ├── attachments (metadata → MinIO blobs)
                    │    ├── message_mentions
                    │    ├── message_reactions
                    │    ├── message_deliveries
@@ -411,6 +415,7 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 │ ChatPage → conversations, messages, in-app toasts     │
 ├─────────────────────────────────────────────────────────┤
 │ api.ts          REST client, token refresh, sessions    │
+│ storageUrl.ts   Presigned URL fetch + cache for media   │
 │ realtime.ts     Socket.IO event handlers                │
 │ SidebarSearchPanel / GlobalSearchModal                  │
 │   → filter conversations + GET /messages/search         │
@@ -458,14 +463,70 @@ Separate workspace: Vite + React (port 5174). Uses the same JWT auth; requires `
 **Admin storage metrics** (`AdminStorageService`):
 
 - PostgreSQL table sizes via `pg_total_relation_size`
-- Upload folder sizes (`avatars`, `channel-avatars`, `message-attachments`)
+- Legacy local upload folder sizes (`backend/uploads/` — pre-MinIO data only)
 - Message counts by media kind (text, image, video, etc.)
+- MinIO object counts/sizes (future enhancement)
 
-## 15. File Upload Architecture (Current)
+## 15. Object Storage Architecture (MinIO / S3)
 
-- Multipart upload to API → stored under `uploads/` on disk
-- Served at `/uploads/...` with cross-origin resource policy for avatars/attachments
-- **Production gap**: not safe across multiple API instances without shared/object storage
+```
+Client                    NestJS API                    Storage Layer
+  │                            │                              │
+  │── multipart upload ───────►│── StorageService             │
+  │                            │   ├── validate MIME/size     │
+  │                            │   ├── UUID object key        │
+  │                            │   └── S3StorageProvider ────►│ MinIO / AWS S3
+  │                            │                              │
+  │                            │── StorageRepository ────────►│ PostgreSQL
+  │                            │   (attachments metadata)   │ (metadata only)
+  │◄── attachment metadata ────│                              │
+  │                            │                              │
+  │── GET /attachments/:id/download ────────────────────────►│
+  │◄── presigned URL (2 min) ──│                              │
+```
+
+### Design principles
+
+- **PostgreSQL stores metadata only** — `attachments` table (migration `021_attachments.sql`): `bucket`, `object_key`, `mime_type`, `checksum`, relations to `users`, `conversations`, `messages`.
+- **Blobs in object storage** — never in the database. Object keys use `chat/YYYY/MM/DD/{uuid}.{ext}`.
+- **Provider abstraction** — `IStorageProvider` + `S3StorageProvider` (AWS SDK v3). Switching MinIO → AWS S3 is env-only (`S3_ENDPOINT`, credentials, region).
+- **Presigned URLs only** — clients never receive internal object paths. `GET /attachments/:id/download` returns a short-lived URL.
+- **Permission checks** — conversation membership, ownership, avatar bucket read access for authenticated users.
+- **Extension hooks** — `StorageHook` interface for future virus scan, compression, thumbnails (not implemented).
+
+### Buckets
+
+| Env var | Default bucket | Content |
+|---------|----------------|---------|
+| `S3_BUCKET_AVATARS` | `avatars` | User + conversation avatars |
+| `S3_BUCKET_ATTACHMENTS` | `attachments` | Message images |
+| `S3_BUCKET_VIDEOS` | `videos` | Message videos |
+| `S3_BUCKET_VOICE` | `voice` | Audio messages |
+| `S3_BUCKET_DOCUMENTS` | `documents` | PDF, Office, zip |
+| `S3_BUCKET_BACKUPS` | `backups` | Reserved |
+
+Buckets are auto-created by `S3StorageProvider` on startup (with retries in development). Docker Compose also runs `minio-init` via `mc`.
+
+### Upload entry points
+
+| Route | Used by |
+|-------|---------|
+| `POST /attachments/upload` | Direct upload API |
+| `POST /conversations/:id/messages/attachment` | Chat message attachments |
+| `POST /users/me/avatar` | Profile avatar |
+| `POST /conversations/:id/avatar` | Channel/group avatar |
+
+All delegate to `StorageService.upload()`.
+
+### Client download flow
+
+1. Message `content` references `/api/v1/attachments/{id}/download` (not a direct file URL).
+2. Desktop client (`storageUrl.ts`) fetches presigned URL with JWT, caches until near expiry.
+3. `<img>`, `<video>`, `<audio>` use the presigned URL.
+
+### Legacy local disk
+
+`backend/uploads/` and `GET /uploads/*` remain for **pre-migration** files. New uploads use MinIO. Message forward of legacy attachments still copies from local disk when no `attachments` row exists.
 
 ## 16. Observability
 
@@ -492,6 +553,16 @@ Separate workspace: Vite + React (port 5174). Uses the same JWT auth; requires `
 | `SENTRY_RELEASE` | Release tag for Sentry | optional |
 | `RATE_LIMIT_TTL` / `RATE_LIMIT_MAX` | Global rate limit | `60` / `100` |
 | `PORT` | API listen port | `3000` |
+| `S3_ENDPOINT` | MinIO/S3 host | `127.0.0.1` |
+| `S3_PORT` | MinIO/S3 port | `9000` |
+| `S3_SSL` | Use HTTPS for S3 endpoint | `false` |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | Object storage credentials | `minioadmin` (dev) |
+| `S3_REGION` | AWS region (required for SDK) | `us-east-1` |
+| `S3_BUCKET_*` | Bucket names per media type | see §15 |
+| `S3_PRESIGNED_URL_EXPIRES_SECONDS` | Download URL TTL | `120` |
+| `STORAGE_MAX_*_MB` | Per-category upload size limits | see `backend/.env.example` |
+
+**Production:** `S3_ENDPOINT`, credentials, region, and bucket env vars are required (Zod validation in `backend/src/config/env.ts`).
 
 **Per-workspace env files** (created by `npm run setup` from `*.env.example`):
 

@@ -1,4 +1,5 @@
-import { resolveAvatarUrl, getInitials } from '../utils/avatar';
+import { getInitials } from '../utils/avatar';
+import { useStorageUrl } from '../utils/storageUrl';
 import type { AvatarPresence } from '../services/realtime';
 
 interface Props {
@@ -10,7 +11,7 @@ interface Props {
 }
 
 export function Avatar({ name, avatarUrl, size = 'sm', className = '', presence }: Props) {
-  const src = resolveAvatarUrl(avatarUrl);
+  const src = useStorageUrl(avatarUrl);
   const sizeClass = size === 'lg' ? 'profile-avatar-lg' : 'profile-avatar-sm';
 
   const avatar = src ? (

@@ -14,19 +14,12 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { join, extname } from 'path';
-import { existsSync, mkdirSync } from 'fs';
+import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
 import { MessagesService } from './messages.service';
 import { MarkReadDto, EditMessageDto, DeleteMessageDto, ToggleReactionDto, ForwardMessageDto } from './dto/message.dto';
-
-const attachmentUploadDir = join(process.cwd(), 'uploads', 'message-attachments', '_tmp');
-if (!existsSync(attachmentUploadDir)) {
-  mkdirSync(attachmentUploadDir, { recursive: true });
-}
 
 @Controller('conversations/:conversationId/messages')
 @UseGuards(JwtAuthGuard)
@@ -51,14 +44,8 @@ export class MessagesController {
   @Post('attachment')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: attachmentUploadDir,
-        filename: (_req, file, cb) => {
-          const ext = extname(file.originalname).toLowerCase();
-          cb(null, `tmp-${Date.now()}${ext}`);
-        },
-      }),
-      limits: { fileSize: 50 * 1024 * 1024 },
+      storage: memoryStorage(),
+      limits: { fileSize: 500 * 1024 * 1024 },
     }),
   )
   sendAttachment(

@@ -13,6 +13,7 @@ import { ContactsModule } from './modules/contacts/contacts.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
+import { StorageModule } from './storage/storage.module';
 import { HealthController } from './health.controller';
 import { validateEnv } from './config/env';
 import { MetricsController } from './observability/metrics.controller';
@@ -54,6 +55,7 @@ import { MetricsController } from './observability/metrics.controller';
     RealtimeModule,
     ContactsModule,
     AdminModule,
+    StorageModule,
   ],
   controllers: [HealthController, MetricsController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

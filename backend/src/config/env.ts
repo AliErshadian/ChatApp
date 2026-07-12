@@ -100,6 +100,24 @@ const EnvSchema = z
     WS_RATE_LIMIT_MESSAGE_SEND_REFILL_PER_SEC: z.coerce.number().min(0.01).optional(),
     WS_RATE_LIMIT_TYPING_CAPACITY: z.coerce.number().int().min(1).optional(),
     WS_RATE_LIMIT_TYPING_REFILL_PER_SEC: z.coerce.number().min(0.01).optional(),
+    S3_ENDPOINT: z.string().trim().optional(),
+    S3_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+    S3_SSL: z.enum(['true', 'false']).optional(),
+    S3_ACCESS_KEY: z.string().trim().optional(),
+    S3_SECRET_KEY: z.string().trim().optional(),
+    S3_REGION: z.string().trim().optional(),
+    S3_BUCKET_AVATARS: z.string().trim().optional(),
+    S3_BUCKET_ATTACHMENTS: z.string().trim().optional(),
+    S3_BUCKET_DOCUMENTS: z.string().trim().optional(),
+    S3_BUCKET_VIDEOS: z.string().trim().optional(),
+    S3_BUCKET_VOICE: z.string().trim().optional(),
+    S3_BUCKET_BACKUPS: z.string().trim().optional(),
+    S3_PRESIGNED_URL_EXPIRES_SECONDS: z.coerce.number().int().min(30).max(3600).optional(),
+    STORAGE_MAX_AVATAR_MB: z.coerce.number().min(1).optional(),
+    STORAGE_MAX_IMAGE_MB: z.coerce.number().min(1).optional(),
+    STORAGE_MAX_DOCUMENT_MB: z.coerce.number().min(1).optional(),
+    STORAGE_MAX_VIDEO_MB: z.coerce.number().min(1).optional(),
+    STORAGE_MAX_VOICE_MB: z.coerce.number().min(1).optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;
@@ -234,6 +252,26 @@ const EnvSchema = z
         path: ['LOG_LEVEL'],
         message: 'LOG_LEVEL must be info, warn, error, or fatal in production',
       });
+    }
+
+    for (const key of [
+      'S3_ENDPOINT',
+      'S3_ACCESS_KEY',
+      'S3_SECRET_KEY',
+      'S3_REGION',
+      'S3_BUCKET_AVATARS',
+      'S3_BUCKET_ATTACHMENTS',
+      'S3_BUCKET_DOCUMENTS',
+      'S3_BUCKET_VIDEOS',
+      'S3_BUCKET_VOICE',
+    ] as const) {
+      if (!env[key]?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required in production`,
+        });
+      }
     }
   });
 

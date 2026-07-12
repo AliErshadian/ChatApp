@@ -18,15 +18,14 @@ import { ConversationType } from '../conversations/entities/conversation.entity'
 import { ConversationsService } from '../conversations/conversations.service';
 import { SanitizationService } from '../../common/services/sanitization.service';
 import { SendMessageDto } from './dto/message.dto';
-import { validateMessageMediaFile, isTextContentType } from './message-media.util';
+import { isTextContentType } from './message-media.util';
 import { buildMessageSearchTsQuery } from './message-search.util';
 import { resolveMentionUserIds } from './mention.util';
 import { MessageRealtimePublisher } from './message-realtime.publisher';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit-action';
+import { StorageService } from '../../storage/storage.service';
 import { randomUUID } from 'crypto';
-import { join, extname } from 'path';
-import { existsSync, mkdirSync, renameSync, copyFileSync } from 'fs';
 
 export type MessageStatus = 'sent' | 'delivered' | 'read';
 
@@ -68,6 +67,7 @@ export interface MessagePayload {
   fileName?: string;
   fileSize?: string;
   caption?: string;
+  attachmentId?: string;
   clientMessageId?: string;
   sequence: string;
   createdAt: Date;
@@ -124,6 +124,7 @@ export class MessagesService {
     private readonly sanitization: SanitizationService,
     private readonly messagePublisher: MessageRealtimePublisher,
     private readonly audit: AuditService,
+    private readonly storageService: StorageService,
   ) {}
 
   async send(userId: string, dto: SendMessageDto): Promise<MessagePayload> {
@@ -207,11 +208,10 @@ export class MessagesService {
         relations: [...this.messageRelations],
       });
       if (existing) {
-        return this.toPayload(existing, userId, 'sent');
+        const attachmentId = this.storageService.findAttachmentByMessageContent(existing.content);
+        return this.toPayload(existing, userId, 'sent', [], [], attachmentId);
       }
     }
-
-    const media = validateMessageMediaFile(file);
 
     let replyToMessageId: string | undefined;
     if (options.replyToMessageId) {
@@ -226,33 +226,25 @@ export class MessagesService {
       ? this.sanitization.sanitizeMessage(options.caption)
       : undefined;
 
-    const storedName = `${randomUUID()}${media.ext}`;
-    const attachmentDir = join(
-      process.cwd(),
-      'uploads',
-      'message-attachments',
+    const attachment = await this.storageService.upload(userId, file, {
       conversationId,
-    );
-    if (!existsSync(attachmentDir)) {
-      mkdirSync(attachmentDir, { recursive: true });
-    }
-
-    renameSync(file.path, join(attachmentDir, storedName));
-    const content = `/uploads/message-attachments/${conversationId}/${storedName}`;
+    });
+    const content = this.storageService.buildMessageContent(attachment.id);
 
     const message = this.messageRepo.create({
       conversationId,
       senderId: userId,
       content,
-      contentType: media.mimeType,
-      fileName: media.originalName,
-      fileSize: String(file.size),
+      contentType: attachment.mimeType,
+      fileName: attachment.originalName,
+      fileSize: attachment.size,
       caption: caption || undefined,
       clientMessageId: options.clientMessageId,
       replyToMessageId,
     });
 
     const saved = await this.messageRepo.save(message);
+    await this.storageService.linkToMessage(attachment.id, saved.id, conversationId);
     const mentionSource = [caption].filter(Boolean).join(' ');
     if (mentionSource) {
       await this.resolveAndSaveMentions(saved.id, conversationId, mentionSource);
@@ -262,7 +254,7 @@ export class MessagesService {
       relations: [...this.messageRelations],
     });
 
-    const payload = this.toPayload(withSender!, userId, 'sent');
+    const payload = this.toPayload(withSender!, userId, 'sent', [], [], attachment.id);
     await this.messagePublisher.publishNewMessage(payload, userId);
 
     this.audit.record({
@@ -272,8 +264,9 @@ export class MessagesService {
       resourceId: saved.id,
       metadata: {
         conversationId,
-        contentType: media.mimeType,
-        fileName: media.originalName,
+        contentType: attachment.mimeType,
+        fileName: attachment.originalName,
+        attachmentId: attachment.id,
       },
     });
 
@@ -322,7 +315,11 @@ export class MessagesService {
     for (const targetConversationId of uniqueTargets) {
       await this.conversationsService.assertCanSendMessage(targetConversationId, userId);
 
-      const copied = await this.copyMessageContentForForward(source, targetConversationId);
+      const copied = await this.copyMessageContentForForward(
+        source,
+        userId,
+        targetConversationId,
+      );
 
       const saved = await this.messageRepo.save(
         this.messageRepo.create({
@@ -337,6 +334,14 @@ export class MessagesService {
           originalSenderId,
         }),
       );
+
+      if (copied.attachmentId) {
+        await this.storageService.linkToMessage(
+          copied.attachmentId,
+          saved.id,
+          targetConversationId,
+        );
+      }
 
       const mentionSource = [
         isTextContentType(copied.contentType) ? copied.content : '',
@@ -877,6 +882,7 @@ export class MessagesService {
 
   private async copyMessageContentForForward(
     source: Message,
+    userId: string,
     targetConversationId: string,
   ): Promise<{
     content: string;
@@ -884,6 +890,7 @@ export class MessagesService {
     fileName?: string;
     fileSize?: string;
     caption?: string;
+    attachmentId?: string;
   }> {
     if (isTextContentType(source.contentType)) {
       return {
@@ -892,6 +899,26 @@ export class MessagesService {
         caption: source.caption,
       };
     }
+
+    const attachmentId = this.storageService.findAttachmentByMessageContent(source.content);
+    if (attachmentId) {
+      const copied = await this.storageService.copyAttachmentForConversation(
+        attachmentId,
+        userId,
+        targetConversationId,
+      );
+      return {
+        content: this.storageService.buildMessageContent(copied.id),
+        contentType: copied.mimeType,
+        fileName: copied.originalName,
+        fileSize: copied.size,
+        caption: source.caption,
+        attachmentId: copied.id,
+      };
+    }
+
+    const { join, extname } = await import('path');
+    const { existsSync, mkdirSync, copyFileSync } = await import('fs');
 
     const relativePath = source.content.replace(/^\//, '').split('?')[0];
     const sourcePath = join(process.cwd(), relativePath);
@@ -966,10 +993,13 @@ export class MessagesService {
     status?: MessageStatus,
     reactions: ReactionSummary[] = [],
     mentions: MentionSummary[] = [],
+    attachmentId?: string,
   ): MessagePayload {
     const deletedForEveryone = !!message.deletedAt;
     const resolvedMentions =
       mentions.length > 0 ? mentions : this.toMentionSummaries(message);
+    const resolvedAttachmentId =
+      attachmentId ?? this.storageService.findAttachmentByMessageContent(message.content);
 
     return {
       id: message.id,
@@ -980,6 +1010,7 @@ export class MessagesService {
       fileName: message.fileName,
       fileSize: message.fileSize,
       caption: message.caption,
+      attachmentId: resolvedAttachmentId,
       clientMessageId: message.clientMessageId,
       sequence: message.sequence,
       createdAt: message.createdAt,

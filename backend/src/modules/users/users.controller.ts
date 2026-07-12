@@ -12,18 +12,11 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { join, extname } from 'path';
-import { existsSync, mkdirSync } from 'fs';
+import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from './entities/user.entity';
 import { UsersService } from './users.service';
-
-const avatarDir = join(process.cwd(), 'uploads', 'avatars');
-if (!existsSync(avatarDir)) {
-  mkdirSync(avatarDir, { recursive: true });
-}
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
@@ -38,22 +31,8 @@ export class UsersController {
   @Post('me/avatar')
   @UseInterceptors(
     FileInterceptor('avatar', {
-      storage: diskStorage({
-        destination: avatarDir,
-        filename: (_req, file, cb) => {
-          const ext = extname(file.originalname).toLowerCase();
-          cb(null, `tmp-${Date.now()}${ext}`);
-        },
-      }),
-      limits: { fileSize: 2 * 1024 * 1024 },
-      fileFilter: (_req, file, cb) => {
-        const ext = extname(file.originalname).toLowerCase();
-        if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
-          cb(new BadRequestException('Only JPG, PNG, and WebP images are allowed'), false);
-          return;
-        }
-        cb(null, true);
-      },
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 },
     }),
   )
   uploadAvatar(

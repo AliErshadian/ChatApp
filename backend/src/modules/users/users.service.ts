@@ -1,11 +1,10 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { join, extname } from 'path';
-import { existsSync, unlinkSync, mkdirSync, renameSync } from 'fs';
 import { User } from './entities/user.entity';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit-action';
+import { StorageService } from '../../storage/storage.service';
 
 export interface CreateUserInput {
   email: string;
@@ -14,20 +13,14 @@ export interface CreateUserInput {
   passwordHash: string;
 }
 
-const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp']);
-const AVATAR_DIR = join(process.cwd(), 'uploads', 'avatars');
-
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly audit: AuditService,
-  ) {
-    if (!existsSync(AVATAR_DIR)) {
-      mkdirSync(AVATAR_DIR, { recursive: true });
-    }
-  }
+    private readonly storageService: StorageService,
+  ) {}
 
   create(input: CreateUserInput) {
     const user = this.userRepo.create(input);
@@ -77,31 +70,25 @@ export class UsersService {
   }
 
   async updateAvatar(userId: string, file: Express.Multer.File) {
-    const ext = extname(file.originalname).toLowerCase();
-    if (!ALLOWED_EXTENSIONS.has(ext)) {
-      throw new BadRequestException('Only JPG, PNG, and WebP images are allowed');
-    }
-
     const user = await this.findById(userId);
     if (!user) throw new BadRequestException('User not found');
 
-    if (user.avatarUrl) {
-      const relativePath = user.avatarUrl.replace(/^\//, '').split('?')[0];
-      const oldPath = join(process.cwd(), relativePath);
-      if (existsSync(oldPath)) {
-        try {
-          unlinkSync(oldPath);
-        } catch {
-          // ignore cleanup errors
-        }
+    const previousAttachmentId = this.storageService.findAttachmentByMessageContent(
+      user.avatarUrl?.split('?')[0] ?? '',
+    );
+    if (previousAttachmentId) {
+      try {
+        await this.storageService.delete(userId, previousAttachmentId);
+      } catch {
+        // ignore cleanup errors for stale references
       }
     }
 
-    const filename = `${userId}${ext}`;
-    const avatarPath = join(AVATAR_DIR, filename);
-    renameSync(file.path, avatarPath);
+    const attachment = await this.storageService.upload(userId, file, {
+      forceCategory: 'avatar',
+    });
 
-    user.avatarUrl = `/uploads/avatars/${filename}?v=${Date.now()}`;
+    user.avatarUrl = `${attachment.url}?v=${Date.now()}`;
     await this.userRepo.save(user);
 
     this.audit.record({
@@ -109,6 +96,7 @@ export class UsersService {
       userId,
       resourceType: 'user',
       resourceId: userId,
+      metadata: { attachmentId: attachment.id },
     });
 
     return this.toPublic(user);

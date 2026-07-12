@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Conversation } from './entities/conversation.entity';
 import { ConversationMember } from './entities/conversation-member.entity';
@@ -11,6 +11,7 @@ import { ConversationsService } from './conversations.service';
 import { ConversationRealtimePublisher } from './conversation-realtime.publisher';
 import { ConversationsController } from './conversations.controller';
 import { InvitesController } from './invites.controller';
+import { StorageModule } from '../../storage/storage.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { InvitesController } from './invites.controller';
       Message,
       MessageUserHidden,
     ]),
+    forwardRef(() => StorageModule),
   ],
   controllers: [ConversationsController, InvitesController],
   providers: [ConversationsService, ConversationRealtimePublisher],

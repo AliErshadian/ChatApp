@@ -13,6 +13,7 @@ import { MessagesSearchController } from './messages-search.controller';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { SanitizationService } from '../../common/services/sanitization.service';
 import { MessageRealtimePublisher } from './message-realtime.publisher';
+import { StorageModule } from '../../storage/storage.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { MessageRealtimePublisher } from './message-realtime.publisher';
       ConversationMember,
     ]),
     ConversationsModule,
+    StorageModule,
   ],
   controllers: [MessagesController, MessagesSearchController],
   providers: [MessagesService, SanitizationService, MessageRealtimePublisher],

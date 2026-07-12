@@ -15,7 +15,7 @@
     "dev:admin": "npm run dev -w chatapp-admin",
     "dev": "concurrently -n backend,desktop -c blue,magenta \"npm run dev:backend\" \"npm run dev:desktop\"",
     "dev:all": "concurrently -n backend,desktop,admin -c blue,magenta,cyan \"npm run dev:backend\" \"npm run dev:desktop\" \"npm run dev:admin\"",
-    "dev:infra": "docker compose up -d postgres redis",
+    "dev:infra": "docker compose up -d postgres redis minio minio-init",
     "migrate": "npm run migrate -w chatapp-backend",
     "check:schema-drift": "npm run check:schema-drift -w chatapp-backend",
     "check:secrets": "npm run check:secrets -w chatapp-backend",

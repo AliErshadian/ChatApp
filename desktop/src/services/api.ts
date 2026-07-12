@@ -138,6 +138,7 @@ export interface Message {
   fileName?: string;
   fileSize?: string;
   caption?: string;
+  attachmentId?: string;
   clientMessageId?: string;
   sequence: string;
   createdAt: string;

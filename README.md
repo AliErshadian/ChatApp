@@ -1,6 +1,6 @@
 # ChatApp — Enterprise Internal Messaging Platform
 
-Production-oriented MVP for a Slack-like internal chat system with cross-platform desktop client (Electron), browser dev client (Vite + React), **admin dashboard**, modular NestJS backend, PostgreSQL persistence, and Redis-backed real-time scaling.
+Production-oriented MVP for a Slack-like internal chat system with cross-platform desktop client (Electron), browser dev client (Vite + React), **admin dashboard**, modular NestJS backend, PostgreSQL persistence, Redis-backed real-time scaling, and **MinIO** (S3-compatible) object storage.
 
 The repository is an **npm workspaces** monorepo (`backend`, `desktop`, `admin`) with a single root lockfile and orchestration scripts at the repo root.
 
@@ -10,14 +10,14 @@ The repository is an **npm workspaces** monorepo (`backend`, `desktop`, `admin`)
 # From repository root
 cp .env.example .env
 
-# Start PostgreSQL, Redis, and API
+# Start PostgreSQL, Redis, MinIO, and API
 docker compose up --build -d
 
 # Verify health
 curl http://localhost:3000/api/v1/health
 ```
 
-### Production-like run (nginx + persistent uploads)
+### Production-like run (nginx + MinIO)
 
 ```bash
 # Ensure you set strong secrets first
@@ -32,7 +32,9 @@ curl http://localhost/api/v1/health
 
 - **Database schema**: initialized from `infra/postgres/init.sql` when the `postgres` container is first created.
 - **Incremental migrations**: SQL files in `infra/postgres/migrations/` are applied automatically by `npm run migrate` (or the Compose `migrate` service before `api`). Fresh Compose databases also seed `schema_migrations` from `init.sql`; run `npm run check:schema-drift` after editing either file.
-- **Uploads**: in Docker, files are served from `/app/uploads`; `docker-compose.prod.yml` mounts a named volume there.
+- **Object storage**: uploads (avatars, message attachments) go to **MinIO** (S3-compatible). PostgreSQL stores metadata only in the `attachments` table. Files are served via **presigned URLs** (2-minute expiry), not direct disk paths.
+- **MinIO console** (local): http://127.0.0.1:9001 — login `minioadmin` / `minioadmin` (default). Objects live under buckets like `attachments/chat/2026/07/12/{uuid}.png`.
+- **Legacy `uploads/`**: older local-disk files may still exist under `backend/uploads/`; new uploads use MinIO. The API still serves `/uploads/*` for backward compatibility.
 
 ### Local Development (from repo root)
 
@@ -40,7 +42,7 @@ curl http://localhost/api/v1/health
 # One-time: copy .env files + install all workspace deps
 npm run setup
 
-# Optional: start Postgres + Redis only (if not using full docker compose)
+# Optional: start Postgres + Redis + MinIO (if not using full docker compose)
 npm run dev:infra
 
 # Run backend + Electron desktop together
@@ -78,6 +80,15 @@ npm run dev:admin
 
 Open http://localhost:5174 and sign in with the admin account.
 
+**MinIO without Docker:** download [MinIO Server for Windows](https://min.io/download) (AMD64), then:
+
+```powershell
+mkdir C:\minio-data
+.\minio.exe server C:\minio-data --console-address ":9001"
+```
+
+Set `S3_ENDPOINT=127.0.0.1` in `backend/.env` (see `backend/.env.example`). Buckets are auto-created on first upload, or create them in the console: `avatars`, `attachments`, `voice`, `videos`, `documents`, `backups`.
+
 **Browser-only client** (no Electron): start the API (`npm run dev:backend`), then `npm run dev:desktop` from the repo root and open `http://localhost:5173`. Auth persists in `localStorage`. The client auto-targets the API on port 3000; when opened via a LAN IP (Vite `host: true`), API/WebSocket URLs follow the same host. If WebSocket is blocked, the client automatically falls back to SSE + REST.
 
 ## Technology Choices
@@ -90,6 +101,7 @@ Open http://localhost:5174 and sign in with the admin account.
 | Real-time | **Socket.IO + Redis adapter** (primary); **SSE + REST fallback** when WebSocket is blocked | Room-based routing; Redis pub/sub for multi-instance and SSE fanout |
 | Database | **PostgreSQL** | ACID guarantees, BIGINT sequences for message ordering, relational membership model |
 | Cache/Presence | **Redis** | Presence TTL, typing indicators, Socket.IO adapter |
+| Object storage | **MinIO** (S3-compatible) | Horizontally scalable file storage; AWS SDK v3; swappable to AWS S3 via env |
 
 **Why not FastAPI?** NestJS integrates HTTP guards and WebSocket auth in one process with a consistent module layout.
 
@@ -114,6 +126,11 @@ ChatApp/
 │       │   ├── admin/          # Admin-only REST (stats, users, storage)
 │       │   ├── presence/
 │       │   └── realtime/       # WebSocket gateway, SSE stream, event bus, REST fallback
+│       ├── storage/            # S3-compatible object storage (MinIO provider)
+│       │   ├── storage.service.ts
+│       │   ├── storage.controller.ts
+│       │   ├── providers/s3-storage.provider.ts
+│       │   └── entities/attachment.entity.ts
 │       ├── infrastructure/
 │       │   ├── redis/
 │       │   └── websocket/      # Redis Socket.IO adapter
@@ -128,7 +145,7 @@ ChatApp/
 │       └── components/
 ├── infra/postgres/
 │   ├── init.sql                # Full schema for new databases
-│   └── migrations/             # Incremental SQL migrations (001–020+)
+│   └── migrations/             # Incremental SQL migrations (002–021+)
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── PROJECT_REVIEW.md
@@ -181,12 +198,23 @@ Access tokens include a `sid` claim (session id). Refresh tokens are SHA-256 has
 | POST | `/conversations/groups` | Create group |
 | POST | `/conversations/direct` | Create/get DM |
 | GET/POST | `/conversations/:id/messages` | History + send (REST); realtime preferred for send |
-| POST | `/conversations/:id/messages/attachment` | Upload file attachment |
+| POST | `/conversations/:id/messages/attachment` | Upload file attachment (stored in MinIO) |
 | PATCH/DELETE | `/conversations/:id/messages/:messageId` | Edit / delete message |
 | GET | `/messages/search` | Full-text search (`q`, `limit`; min 2 chars; Postgres FTS + GIN index) |
 | POST | `/conversations/:id/messages/:messageId/reactions` | Toggle reaction |
 | POST | `/contacts` | Add contact |
 | GET | `/users/search` | Partial user search (username, display name, email) |
+
+### Attachments (object storage)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/attachments/upload` | Upload file (`conversationId` required); metadata in Postgres, blob in MinIO |
+| GET | `/attachments/:id` | Attachment metadata (auth + membership check) |
+| GET | `/attachments/:id/download` | Presigned download URL (2-minute expiry) |
+| DELETE | `/attachments/:id` | Delete object + metadata |
+
+Message attachments also flow through `POST /conversations/:id/messages/attachment`, which uses the storage layer internally. Clients resolve media via presigned URLs (`desktop/src/utils/storageUrl.ts`).
 
 See controllers under `backend/src/modules/` for the full surface area (invites, avatars, pins, forwards, etc.).
 
@@ -239,7 +267,7 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 ## Client Features (current)
 
 - DMs, channels, and groups with invites and member management
-- Message edit/delete, replies, forwards, reactions, attachments (images/video/files)
+- Message edit/delete, replies, forwards, reactions, attachments (images/video/audio/documents via MinIO)
 - `@mentions` with autocomplete and in-app mention toasts
 - In-app notifications: mentions, new DMs, added to group/channel, new device login
 - Read/delivered ticks, typing indicators, presence
@@ -257,7 +285,23 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 - `class-validator` on REST DTOs; `sanitize-html` on message content
 - `@nestjs/throttler` (stricter on auth endpoints)
 - Helmet security headers; CORS allowlist (LAN/private origins supported in dev)
+- File uploads: MIME/size validation, UUID object keys, presigned URLs only (no public buckets)
 - TLS termination expected at reverse proxy in production
+
+## Object Storage (MinIO / S3)
+
+Files are **never stored in PostgreSQL** — only metadata (`attachments` table). Blobs live in MinIO buckets:
+
+| Bucket | Purpose |
+|--------|---------|
+| `avatars` | User and conversation avatars |
+| `attachments` | Message images |
+| `videos` | Message videos |
+| `voice` | Audio messages |
+| `documents` | PDF, Office docs, zip |
+| `backups` | Reserved for future use |
+
+Configure via `backend/.env` (`S3_ENDPOINT`, `S3_PORT`, `S3_ACCESS_KEY`, etc.). Production requires S3 env vars (validated at startup). Switching to AWS S3 is a configuration change only — the `S3StorageProvider` uses AWS SDK v3 with `forcePathStyle`.
 
 ## Production Deployment Notes
 
@@ -268,7 +312,7 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 5. Redis Cluster / Sentinel for HA presence + pub/sub
 6. Set `CORS_ORIGIN` to explicit client origins in production
 7. Enable structured logging (pino), Sentry (`SENTRY_DSN`), and metrics (Prometheus)
-8. Move uploads to object storage for multi-instance deployments (local disk today)
+8. Use managed S3 or self-hosted MinIO for object storage (required for multi-instance deployments)
 9. Validate production env before deploy: `npm run build -w chatapp-backend && NODE_ENV=production npm run validate:env -w chatapp-backend`
 
 ## CI/CD

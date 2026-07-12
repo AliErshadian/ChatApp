@@ -4,8 +4,8 @@ import {
   formatFileSize,
   getMessageMediaKind,
   isTextMessage,
-  resolveMediaUrl,
 } from '../utils/messageMedia';
+import { useStorageUrl } from '../utils/storageUrl';
 import { LinkifiedMessageText } from './LinkifiedMessageText';
 import { ImageViewerModal } from './ImageViewerModal';
 import { VideoViewerModal } from './VideoViewerModal';
@@ -18,7 +18,7 @@ export function MessageAttachmentContent({ message }: Props) {
   const [imageViewerOpen, setImageViewerOpen] = useState(false);
   const [videoViewerOpen, setVideoViewerOpen] = useState(false);
   const kind = getMessageMediaKind(message.contentType);
-  const mediaUrl = resolveMediaUrl(message.content);
+  const mediaUrl = useStorageUrl(message.content);
   const caption = message.caption?.trim();
 
   if (!mediaUrl) {

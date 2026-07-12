@@ -1,9 +1,11 @@
 import {
+  Inject,
   Injectable,
   NotFoundException,
   ForbiddenException,
   ConflictException,
   BadRequestException,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In, IsNull } from 'typeorm';
@@ -17,13 +19,13 @@ import { ConversationUserHidden } from './entities/conversation-user-hidden.enti
 import { ChannelInvite } from './entities/channel-invite.entity';
 import { Message } from '../messages/entities/message.entity';
 import { randomBytes } from 'crypto';
-import { join, extname } from 'path';
-import { existsSync, mkdirSync, renameSync, unlinkSync } from 'fs';
+import { extname } from 'path';
 import { MessageUserHidden } from '../messages/entities/message-user-hidden.entity';
 import { CreateChannelDto, CreateGroupDto, CreateDirectDto } from './dto/conversation.dto';
 import { ConversationRealtimePublisher } from './conversation-realtime.publisher';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit-action';
+import { StorageService } from '../../storage/storage.service';
 
 @Injectable()
 export class ConversationsService {
@@ -43,6 +45,8 @@ export class ConversationsService {
     private readonly dataSource: DataSource,
     private readonly conversationPublisher: ConversationRealtimePublisher,
     private readonly audit: AuditService,
+    @Inject(forwardRef(() => StorageService))
+    private readonly storageService: StorageService,
   ) {}
 
   async listForUser(userId: string) {
@@ -411,31 +415,28 @@ export class ConversationsService {
     }
 
     const ext = extname(file.originalname).toLowerCase();
-    const allowed = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+    const allowed = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
     if (!allowed.has(ext)) {
-      throw new BadRequestException('Only JPG, PNG, and WebP images are allowed');
+      throw new BadRequestException('Only JPG, PNG, WebP, and GIF images are allowed');
     }
 
-    const channelAvatarDir = join(process.cwd(), 'uploads', 'channel-avatars');
-    if (!existsSync(channelAvatarDir)) {
-      mkdirSync(channelAvatarDir, { recursive: true });
-    }
-
-    if (conversation.avatarUrl) {
-      const relativePath = conversation.avatarUrl.replace(/^\//, '').split('?')[0];
-      const oldPath = join(process.cwd(), relativePath);
-      if (existsSync(oldPath)) {
-        try {
-          unlinkSync(oldPath);
-        } catch {
-          // ignore cleanup errors
-        }
+    const previousAttachmentId = this.storageService.findAttachmentByMessageContent(
+      conversation.avatarUrl?.split('?')[0] ?? '',
+    );
+    if (previousAttachmentId) {
+      try {
+        await this.storageService.delete(userId, previousAttachmentId);
+      } catch {
+        // ignore cleanup errors for stale references
       }
     }
 
-    const filename = `${conversationId}${ext}`;
-    renameSync(file.path, join(channelAvatarDir, filename));
-    conversation.avatarUrl = `/uploads/channel-avatars/${filename}?v=${Date.now()}`;
+    const attachment = await this.storageService.upload(userId, file, {
+      conversationId,
+      forceCategory: 'avatar',
+    });
+
+    conversation.avatarUrl = `${attachment.url}?v=${Date.now()}`;
     await this.conversationRepo.save(conversation);
     await this.publishConversationUpdate(conversationId);
 

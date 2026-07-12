@@ -269,6 +269,28 @@ CREATE TRIGGER messages_search_vector_trigger
     FOR EACH ROW
     EXECUTE FUNCTION messages_search_vector_update();
 
+CREATE TABLE attachments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    original_name VARCHAR(255) NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    bucket VARCHAR(128) NOT NULL,
+    object_key TEXT NOT NULL,
+    mime_type VARCHAR(128) NOT NULL,
+    extension VARCHAR(32) NOT NULL,
+    size BIGINT NOT NULL,
+    checksum VARCHAR(64) NOT NULL,
+    url TEXT NOT NULL,
+    uploaded_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL,
+    message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_uploaded_by ON attachments(uploaded_by);
+CREATE INDEX IF NOT EXISTS idx_attachments_conversation_id ON attachments(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_message_id ON attachments(message_id);
+
 -- Fresh databases from init.sql are marked up-to-date for incremental migrations.
 -- Checksums are verified in CI via: npm run check:schema-drift
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -296,7 +318,8 @@ INSERT INTO schema_migrations (version, checksum) VALUES
     ('017_user_sessions', '2881b88ac0684d5794be7e74524593677432ed23ed03df9e1009c0dafd63bfcc'),
     ('018_admin_users', '10e5ca126e794c6ff1ba3baf63fbada86cd3555795a6a17ffc5591acb9a966c2'),
     ('019_audit_logs', 'e34adae3bcc2378a0340c325c951d6325bbd400433ced38dc4ead174187f0fd0'),
-    ('020_message_search_fts', '6030984121e3713524e6cee3ba9f46d93645fc55aec323a0f83d9702192c39b7')
+    ('020_message_search_fts', '6030984121e3713524e6cee3ba9f46d93645fc55aec323a0f83d9702192c39b7'),
+    ('021_attachments', '02af4f9276bbd941ec3e49024e06d57ab69c79a16e4abcc29a45c461d6bbc3d7')
 ON CONFLICT (version) DO NOTHING;
 
 -- Grant app user access (required when schema is created by postgres superuser)
