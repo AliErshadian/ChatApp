@@ -115,7 +115,7 @@ The MVP ships as a **modular monolith** with clean boundaries:
 | `contacts` | Contact list | Contacts Service |
 | `conversations` | DMs, channels, groups, invites, membership ACL | Conversation Service |
 | `messages` | Persistence, ordering, sanitization, mentions, attachments, reactions, **content search** | Messaging Service |
-| `storage` | S3-compatible object storage (upload, delete, presigned URLs, `attachments` metadata) | Storage Service |
+| `storage` | S3-compatible object storage (upload, delete, stream content, presigned URLs, `attachments` metadata) | Storage Service |
 | `audit` | Append-only audit trail for user and admin actions | Audit Service |
 | `admin` | Admin-only stats, user management, storage metrics, audit log API | Admin API |
 | `presence` | Online/offline, typing (Redis + in-memory connection registry) | Presence Service |
@@ -210,7 +210,7 @@ Telegram-style **device sessions** tie refresh tokens and access tokens to a log
 | API + WebSocket | Horizontal | Stateless; Redis adapter required |
 | PostgreSQL | Vertical + read replicas | Single primary for writes |
 | Redis | Cluster / Sentinel | Presence + Socket.IO pub/sub |
-| Object storage (MinIO/S3) | Horizontal | Shared across API instances; presigned URL downloads |
+| Object storage (MinIO/S3) | Horizontal | Shared across API instances; clients download via API proxy |
 
 ## 8. Trade-offs
 
@@ -360,6 +360,7 @@ audit_logs ── users (user_id, actor_user_id)
 - `infra/postgres/init.sql` — full schema for new databases; seeds `schema_migrations` with checksums
 - `infra/postgres/migrations/*.sql` — incremental changes; applied by `backend/scripts/migrate.mjs` (`npm run migrate` from repo root)
 - `npm run check:schema-drift` — CI guard that `init.sql` matches all migration files (root script → `chatapp-backend`)
+- `backend/scripts/repair-migration-checksums.mjs` — dev-only repair when migration SQL on disk matches what was applied but checksums in `schema_migrations` are stale (e.g. after line-ending normalization)
 
 Key indexes:
 
@@ -415,13 +416,15 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 │ ChatPage → conversations, messages, in-app toasts     │
 ├─────────────────────────────────────────────────────────┤
 │ api.ts          REST client, token refresh, sessions    │
-│ storageUrl.ts   Presigned URL fetch + cache for media   │
+│ storageUrl.ts   API content proxy fetch + blob URL resolution │
+│ mediaCache.ts   IndexedDB LRU cache for offline media         │
 │ realtime.ts     Socket.IO event handlers                │
 │ SidebarSearchPanel / GlobalSearchModal                  │
 │   → filter conversations + GET /messages/search         │
 │   → jump to message (paginate history, scroll + glow)   │
 │ InAppNotifications  mentions, new chat, new device      │
 │ SessionsPanel   device list (Profile)                   │
+│ CacheManagementPanel  offline cache stats + clear       │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -436,9 +439,11 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 
 Separate workspace: Vite + React (port 5174). Uses the same JWT auth; requires `users.is_admin = TRUE`. Dev: `npm run dev:admin` from repo root.
 
-- **Dashboard**: user/message/conversation counts, recent activity, storage breakdown
-- **Users**: list with role/status filters; detail with session count, message stats
-- **Audit log**: filterable paginated trail with expandable metadata
+- **Dashboard**: user/message/conversation counts, recent activity, collapsible storage breakdown (MinIO + DB)
+- **Users**: list with role/status filters, avatars, debounced search; detail with session count, message stats
+- **Audit log**: filterable paginated trail with expandable metadata, debounced search
+
+Admin avatars and attachments use the same API content proxy as the chat client (`admin/src/utils/storageUrl.ts`, `mediaCache.ts`).
 
 **Service URL resolution** (`endpoints.ts`): on LAN hosts, API/WS target the same hostname on port 3000 instead of hardcoded `localhost`.
 
@@ -454,7 +459,7 @@ Separate workspace: Vite + React (port 5174). Uses the same JWT auth; requires `
                     ▼                            ▼                            ▼
             ┌───────────────┐           ┌───────────────┐           ┌───────────────┐
             │ user stats    │           │ storage stats │           │ audit_logs    │
-            │ sessions      │           │ DB + uploads  │           │ (append-only) │
+            │ sessions      │           │ DB + MinIO    │           │ (append-only) │
             └───────────────┘           └───────────────┘           └───────────────┘
 ```
 
@@ -463,9 +468,9 @@ Separate workspace: Vite + React (port 5174). Uses the same JWT auth; requires `
 **Admin storage metrics** (`AdminStorageService`):
 
 - PostgreSQL table sizes via `pg_total_relation_size`
-- Legacy local upload folder sizes (`backend/uploads/` — pre-MinIO data only)
+- MinIO bucket object counts and total bytes via `S3StorageProvider.getBucketStats()` (`ListObjectsV2`)
 - Message counts by media kind (text, image, video, etc.)
-- MinIO object counts/sizes (future enhancement)
+- Legacy local upload folder sizes (`backend/uploads/` — pre-MinIO data only, informational)
 
 ## 15. Object Storage Architecture (MinIO / S3)
 
@@ -481,8 +486,11 @@ Client                    NestJS API                    Storage Layer
   │                            │   (attachments metadata)   │ (metadata only)
   │◄── attachment metadata ────│                              │
   │                            │                              │
-  │── GET /attachments/:id/download ────────────────────────►│
-  │◄── presigned URL (2 min) ──│                              │
+  │── GET /attachments/:id/content (JWT) ───────────────────►│
+  │◄── streamed bytes ─────────│◄── getObjectStream() ────────│
+  │                            │                              │
+  │── GET /attachments/:id/download (optional) ─────────────►│
+  │◄── presigned URL JSON ─────│                              │
 ```
 
 ### Design principles
@@ -490,7 +498,8 @@ Client                    NestJS API                    Storage Layer
 - **PostgreSQL stores metadata only** — `attachments` table (migration `021_attachments.sql`): `bucket`, `object_key`, `mime_type`, `checksum`, relations to `users`, `conversations`, `messages`.
 - **Blobs in object storage** — never in the database. Object keys use `chat/YYYY/MM/DD/{uuid}.{ext}`.
 - **Provider abstraction** — `IStorageProvider` + `S3StorageProvider` (AWS SDK v3). Switching MinIO → AWS S3 is env-only (`S3_ENDPOINT`, credentials, region).
-- **Presigned URLs only** — clients never receive internal object paths. `GET /attachments/:id/download` returns a short-lived URL.
+- **API content proxy (primary client path)** — `GET /attachments/:id/content` streams object bytes through the API with JWT auth. Clients never need direct MinIO access (works on LAN/mobile when only the API port is reachable).
+- **Presigned URLs (optional)** — `GET /attachments/:id/download` returns a short-lived MinIO URL for external integrations; chat/admin clients use `/content` instead.
 - **Permission checks** — conversation membership, ownership, avatar bucket read access for authenticated users.
 - **Extension hooks** — `StorageHook` interface for future virus scan, compression, thumbnails (not implemented).
 
@@ -520,9 +529,10 @@ All delegate to `StorageService.upload()`.
 
 ### Client download flow
 
-1. Message `content` references `/api/v1/attachments/{id}/download` (not a direct file URL).
-2. Desktop client (`storageUrl.ts`) fetches presigned URL with JWT, caches until near expiry.
-3. `<img>`, `<video>`, `<audio>` use the presigned URL.
+1. New uploads store `/api/v1/attachments/{id}/content` in message metadata (not a direct MinIO URL).
+2. Client (`storageUrl.ts`) fetches `/content` with JWT, optionally caches the blob in IndexedDB (`mediaCache.ts`), and serves a `blob:` URL.
+3. `<img>`, `<video>`, `<audio>` use the blob URL. Profile → Offline cache shows IndexedDB usage and supports clear.
+4. Legacy messages may still reference `/download` or `/uploads/*`; those paths remain for backward compatibility.
 
 ### Legacy local disk
 

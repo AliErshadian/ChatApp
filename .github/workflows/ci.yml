@@ -48,6 +48,15 @@ jobs:
           export JWT_REFRESH_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
           export CORS_ORIGIN=https://app.example.com
           export LOG_LEVEL=info
+          export S3_ENDPOINT=s3.example.com
+          export S3_ACCESS_KEY=$(node -e "console.log(require('crypto').randomBytes(16).toString('hex'))")
+          export S3_SECRET_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+          export S3_REGION=us-east-1
+          export S3_BUCKET_AVATARS=avatars
+          export S3_BUCKET_ATTACHMENTS=attachments
+          export S3_BUCKET_DOCUMENTS=documents
+          export S3_BUCKET_VIDEOS=videos
+          export S3_BUCKET_VOICE=voice
           npm run validate:env -w chatapp-backend
 
   desktop:

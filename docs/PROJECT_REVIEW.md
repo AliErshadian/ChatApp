@@ -45,7 +45,8 @@ ChatApp/
   - Monotonic per-conversation `sequence`; `clientMessageId` dedup
   - Edit, delete (me / everyone), replies, forwards, reactions
   - Attachments via **MinIO** (S3-compatible); metadata in `attachments` table (migration `021`)
-  - Presigned download URLs (2-minute expiry); MIME/size validation; UUID object keys
+  - Client downloads via **API proxy** (`GET /attachments/:id/content`); presigned URLs remain on `/download` for optional use
+  - MIME/size validation; UUID object keys
   - `@mentions` parsed server-side; stored in `message_mentions`
   - **Content search**: `GET /messages/search` — PostgreSQL FTS (`search_vector` + GIN), membership-scoped
   - Read/delivered receipts via realtime + `message_deliveries`
@@ -67,11 +68,11 @@ ChatApp/
 - **Admin** (`admin` module):
   - `AdminGuard` — requires `users.is_admin` (migration `018`)
   - Dashboard stats, user list/detail, session management
-  - Storage metrics: DB table sizes, legacy upload folders, message kind breakdown
+  - Storage metrics: DB table sizes, **MinIO bucket object counts/sizes** (via `ListObjectsV2`), message kind breakdown
 - **Object storage** (`storage` module):
   - `StorageService` + `S3StorageProvider` (AWS SDK v3, `forcePathStyle` for MinIO)
   - Buckets: `avatars`, `attachments`, `voice`, `videos`, `documents`, `backups`
-  - REST: `POST/GET/DELETE /attachments/*`, presigned `GET /attachments/:id/download`
+  - REST: `POST/GET/DELETE /attachments/*`, streamed `GET /attachments/:id/content`, presigned `GET /attachments/:id/download`
   - Integrated with message attachments, user avatars, conversation avatars
   - Audit actions: `attachment.upload`, `attachment.download`, `attachment.delete`
   - Extension hooks designed for virus scan, thumbnails (not implemented)
@@ -90,9 +91,9 @@ ChatApp/
 
 - Separate Vite + React app on port **5174** (`npm run dev:admin`, `npm run dev:all`)
 - Own auth flow; uses admin JWT against `/api/v1/admin/*`
-- **Dashboard**: platform stats, recent activity chart, storage panel
-- **Users**: role/status filters, sort, pagination; user detail with counts and sessions
-- **Audit log**: expandable rows, date presets, action filter, metadata copy
+- **Dashboard**: platform stats, recent activity, collapsible storage panel (MinIO + DB)
+- **Users**: role/status filters, sort, pagination, avatars; user detail with counts and sessions
+- **Audit log**: expandable rows, date presets, action filter, debounced search, metadata copy
 
 ### Desktop / Browser client
 
@@ -103,12 +104,13 @@ ChatApp/
   - Chat list with pins, unread badges, last-message preview
   - Mentions autocomplete + highlighted mention text
   - In-app toast notifications (mentions, new DM, added to group/channel, new device login)
-  - Profile, contacts, conversation info, forward modal, attachment viewers (presigned URLs via `storageUrl.ts`)
+  - Profile, contacts, conversation info, forward modal, attachment viewers (API content proxy + IndexedDB cache via `storageUrl.ts` / `mediaCache.ts`)
   - **Search**:
     - Sidebar: split panel (conversations on top, message content hits below)
     - Global: `Ctrl+K` / `Cmd+K` modal (chats, channels, people, messages)
     - Click message result → open chat, paginate history if needed, scroll + highlight
   - **Devices panel**: list sessions, terminate, terminate all others
+  - **Offline cache** (Profile): IndexedDB blob cache with size stats and clear action
   - User-friendly auth error messages on login/register
 - **Lint**: ESLint configured for backend, desktop, and admin; runs in CI
 
@@ -122,7 +124,7 @@ ChatApp/
   - DTO validation, throttling on auth, message sanitization
 - **Thoughtful schema** — message ordering, dedup indexes, membership constraints, session tables
 - **Dev ergonomics** — npm workspaces monorepo, root `npm run dev` / `dev:all`, compose stack, CI/CD from single lockfile
-- **Object storage** — MinIO/S3 with presigned URLs; horizontally safe for multi-instance API
+- **Object storage** — MinIO/S3; clients download through API proxy (LAN/mobile friendly); presigned URLs optional
 - **Admin & audit** — separate admin app, storage visibility, append-only audit trail
 - **Search UX** — unified conversation + message content search with jump-to-message
 - **Session management** — practical Telegram-style device list with push logout
@@ -137,13 +139,16 @@ ChatApp/
 ### Correctness & performance
 
 - **No automated tests** — auth, ACL, messaging, session, and storage flows are untested in CI
-- **Admin storage panel** still reports legacy `uploads/` folder sizes; MinIO metrics not yet integrated
 - **Some gateway paths** still use per-member emits where room broadcast would suffice — watch fanout cost in large channels
 
 
 ## Recently addressed (2026-07)
 
-- **S3-compatible object storage (MinIO)** — `storage` module, `attachments` table, presigned URLs, AWS SDK v3 provider; Docker Compose + `dev:infra` include MinIO; native MinIO supported for local dev without Docker
+- **API-proxied media downloads** — `GET /attachments/:id/content` streams from MinIO through the API; clients use JWT + same host as chat (works on LAN/mobile without MinIO port exposure)
+- **Client offline cache** — IndexedDB blob cache (`mediaCache.ts`); Profile → Offline cache (size + clear)
+- **Admin storage panel** — MinIO bucket metrics via `ListObjectsV2`; compact UI with debounced search and mobile bottom nav
+- **Admin avatars** — user list/detail show avatars via API content proxy + local cache
+- **S3-compatible object storage (MinIO)** — `storage` module, `attachments` table, AWS SDK v3 provider; Docker Compose + `dev:infra` include MinIO; native MinIO supported for local dev without Docker
 - **npm workspaces monorepo** — root `package.json` + single `package-lock.json`; `npm install` / `npm ci` at repo root; CI and Docker builds use workspace-aware layout
 - **SSE realtime fallback** — `GET /realtime/stream` + `/realtime/*` REST actions; desktop client auto-falls back when WebSocket cannot connect
 - **Redis session cache** — active/revoked session state cached in Redis; `last_active_at` DB writes debounced (~60s) on hot paths
@@ -175,7 +180,6 @@ ChatApp/
 ### P1 (high value next)
 
 - **OpenAPI** for REST + formal realtime event catalog
-- **Admin storage panel**: MinIO bucket/object metrics alongside legacy folder stats
 - **Desktop release pipeline** (signed builds for Windows/Linux)
 
 ### P2 (polish and scale)
@@ -193,7 +197,7 @@ ChatApp/
 - [x] Secure token storage (Electron) + session revocation
 - [x] Basic observability (structured logs, Sentry, health check)
 - [x] Database migrations applied automatically in deploy (Compose `migrate` job)
-- [x] Object storage for uploads (MinIO/S3 + presigned URLs)
+- [x] Object storage for uploads (MinIO/S3 + API content proxy; presigned URLs optional)
 - [ ] Explicit production CORS origins (no `*`)
 
 ## Backend observability env vars
@@ -215,7 +219,7 @@ ChatApp/
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | Credentials |
 | `S3_REGION` | AWS region for SDK (e.g. `us-east-1`) |
 | `S3_BUCKET_*` | Bucket names per media category |
-| `S3_PRESIGNED_URL_EXPIRES_SECONDS` | Download URL TTL (default `120`) |
+| `S3_PRESIGNED_URL_EXPIRES_SECONDS` | Presigned `/download` URL TTL (default `120`; optional external use) |
 | `STORAGE_MAX_*_MB` | Upload size limits per category |
 
 See `backend/.env.example` for defaults. Required in production (`NODE_ENV=production`).

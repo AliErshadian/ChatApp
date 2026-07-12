@@ -31,8 +31,8 @@ curl http://localhost/api/v1/health
 ### Notes
 
 - **Database schema**: initialized from `infra/postgres/init.sql` when the `postgres` container is first created.
-- **Incremental migrations**: SQL files in `infra/postgres/migrations/` are applied automatically by `npm run migrate` (or the Compose `migrate` service before `api`). Fresh Compose databases also seed `schema_migrations` from `init.sql`; run `npm run check:schema-drift` after editing either file.
-- **Object storage**: uploads (avatars, message attachments) go to **MinIO** (S3-compatible). PostgreSQL stores metadata only in the `attachments` table. Files are served via **presigned URLs** (2-minute expiry), not direct disk paths.
+- **Incremental migrations**: SQL files in `infra/postgres/migrations/` are applied automatically by `npm run migrate` (or the Compose `migrate` service before `api`). Fresh Compose databases also seed `schema_migrations` from `init.sql`; run `npm run check:schema-drift` after editing either file. If you see a checksum mismatch after a line-ending normalization update, run `node backend/scripts/repair-migration-checksums.mjs` (dev only, when migration SQL on disk matches what was applied).
+- **Object storage**: uploads (avatars, message attachments) go to **MinIO** (S3-compatible). PostgreSQL stores metadata only in the `attachments` table. Clients download via **`GET /attachments/:id/content`** (API streams from MinIO with JWT) — works on LAN/mobile without exposing MinIO. `GET /attachments/:id/download` still returns presigned URLs for external integrations.
 - **MinIO console** (local): http://127.0.0.1:9001 — login `minioadmin` / `minioadmin` (default). Objects live under buckets like `attachments/chat/2026/07/12/{uuid}.png`.
 - **Legacy `uploads/`**: older local-disk files may still exist under `backend/uploads/`; new uploads use MinIO. The API still serves `/uploads/*` for backward compatibility.
 
@@ -80,6 +80,8 @@ npm run dev:admin
 
 Open http://localhost:5174 and sign in with the admin account.
 
+The admin UI includes a compact dashboard, debounced user/audit search, fixed sidebar (bottom nav on mobile), MinIO bucket metrics in the storage panel, and avatar display via the same API content proxy as the chat client.
+
 **MinIO without Docker:** download [MinIO Server for Windows](https://min.io/download) (AMD64), then:
 
 ```powershell
@@ -89,7 +91,7 @@ mkdir C:\minio-data
 
 Set `S3_ENDPOINT=127.0.0.1` in `backend/.env` (see `backend/.env.example`). Buckets are auto-created on first upload, or create them in the console: `avatars`, `attachments`, `voice`, `videos`, `documents`, `backups`.
 
-**Browser-only client** (no Electron): start the API (`npm run dev:backend`), then `npm run dev:desktop` from the repo root and open `http://localhost:5173`. Auth persists in `localStorage`. The client auto-targets the API on port 3000; when opened via a LAN IP (Vite `host: true`), API/WebSocket URLs follow the same host. If WebSocket is blocked, the client automatically falls back to SSE + REST.
+**Browser-only client** (no Electron): start the API (`npm run dev:backend`), then `npm run dev:desktop` from the repo root and open `http://localhost:5173`. Auth persists in `localStorage`. The client auto-targets the API on port 3000; when opened via a LAN IP (Vite `host: true`), API/WebSocket URLs follow the same host — media downloads use the API proxy, so MinIO does not need to be reachable from other devices. If WebSocket is blocked, the client automatically falls back to SSE + REST.
 
 ## Technology Choices
 
@@ -174,7 +176,7 @@ Base URL: `http://localhost:3000/api/v1`
 |--------|----------|-------------|
 | GET | `/admin/me` | Current admin profile |
 | GET | `/admin/stats` | Platform statistics (users, messages, conversations, audit activity) |
-| GET | `/admin/storage` | Storage breakdown (DB tables, upload folders, message kinds) |
+| GET | `/admin/storage` | Storage breakdown (DB tables, MinIO buckets, message kinds) |
 | GET | `/admin/users` | Paginated user list (`page`, `limit`, `q`, `isActive`, `role`, `sort`) |
 | GET | `/admin/users/:id` | User detail |
 | PATCH | `/admin/users/:id` | Update `isActive`, `isAdmin` |
@@ -183,7 +185,7 @@ Base URL: `http://localhost:3000/api/v1`
 | DELETE | `/admin/users/:id/sessions` | Terminate all user sessions |
 | GET | `/admin/audit-logs` | Paginated audit trail (`page`, `limit`, `userId`, `category`, `action`, `from`, `to`, `q`) |
 
-The **admin dashboard** (`admin/`, port 5174) includes Dashboard (stats + storage panel), Users (filters, detail, sessions), and Audit log (expandable rows, date/action filters).
+The **admin dashboard** (`admin/`, port 5174) includes Dashboard (stats + collapsible storage panel with MinIO bucket usage), Users (filters, avatars, detail, sessions), and Audit log (expandable rows, date/action filters).
 
 The **audit trail** records sign-in/out, messages, conversations, contacts, profile changes, and admin actions. Apply migration `019_audit_logs.sql` on existing databases.
 
@@ -211,10 +213,11 @@ Access tokens include a `sid` claim (session id). Refresh tokens are SHA-256 has
 |--------|----------|-------------|
 | POST | `/attachments/upload` | Upload file (`conversationId` required); metadata in Postgres, blob in MinIO |
 | GET | `/attachments/:id` | Attachment metadata (auth + membership check) |
-| GET | `/attachments/:id/download` | Presigned download URL (2-minute expiry) |
+| GET | `/attachments/:id/content` | Stream file bytes through API (JWT; used by clients) |
+| GET | `/attachments/:id/download` | Presigned MinIO URL JSON (2-minute expiry; optional/external) |
 | DELETE | `/attachments/:id` | Delete object + metadata |
 
-Message attachments also flow through `POST /conversations/:id/messages/attachment`, which uses the storage layer internally. Clients resolve media via presigned URLs (`desktop/src/utils/storageUrl.ts`).
+Message attachments also flow through `POST /conversations/:id/messages/attachment`, which uses the storage layer internally. Clients fetch media via `/content` with JWT, cache blobs in IndexedDB, and display via `blob:` URLs (`desktop/src/utils/storageUrl.ts`, `desktop/src/utils/mediaCache.ts`).
 
 See controllers under `backend/src/modules/` for the full surface area (invites, avatars, pins, forwards, etc.).
 
@@ -274,6 +277,7 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 - Profile avatars, conversation pins, contact list
 - **Search**: sidebar filter (chats/groups/channels + message content); global search (`Ctrl+K` / `Cmd+K`); click result to jump and scroll to message
 - **Devices** (Profile → Devices): Telegram-style session list, terminate device, terminate all others
+- **Offline cache** (Profile → Offline cache): IndexedDB blob cache for avatars/attachments; view size and clear cache
 - **Realtime fallback**: automatic SSE + REST when WebSocket cannot connect
 - Electron: system tray, native notifications, encrypted refresh-token store, deep links (`chatapp://`)
 
@@ -285,7 +289,7 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 - `class-validator` on REST DTOs; `sanitize-html` on message content
 - `@nestjs/throttler` (stricter on auth endpoints)
 - Helmet security headers; CORS allowlist (LAN/private origins supported in dev)
-- File uploads: MIME/size validation, UUID object keys, presigned URLs only (no public buckets)
+- File uploads: MIME/size validation, UUID object keys; downloads via authenticated API proxy (no public buckets; MinIO internal to server)
 - TLS termination expected at reverse proxy in production
 
 ## Object Storage (MinIO / S3)
@@ -301,7 +305,7 @@ Files are **never stored in PostgreSQL** — only metadata (`attachments` table)
 | `documents` | PDF, Office docs, zip |
 | `backups` | Reserved for future use |
 
-Configure via `backend/.env` (`S3_ENDPOINT`, `S3_PORT`, `S3_ACCESS_KEY`, etc.). Production requires S3 env vars (validated at startup). Switching to AWS S3 is a configuration change only — the `S3StorageProvider` uses AWS SDK v3 with `forcePathStyle`.
+Configure via `backend/.env` (`S3_ENDPOINT`, `S3_PORT`, `S3_ACCESS_KEY`, etc.). The API connects to MinIO internally (`S3_ENDPOINT=127.0.0.1` in dev). Clients never need direct MinIO access — only the API port. Production requires S3 env vars (validated at startup). Switching to AWS S3 is a configuration change only — the `S3StorageProvider` uses AWS SDK v3 with `forcePathStyle`.
 
 ## Production Deployment Notes
 
