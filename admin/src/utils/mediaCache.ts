@@ -51,7 +51,7 @@ function runTransaction<T>(
 
 export function buildMediaCacheKey(reference: string): string | null {
   const cleaned = reference.replace(/\?.*$/, '');
-  const attachmentMatch = cleaned.match(/\/attachments\/([0-9a-f-]{36})(?:\/download)?$/i);
+  const attachmentMatch = cleaned.match(/\/attachments\/([0-9a-f-]{36})(?:\/(?:download|content))?$/i);
   if (attachmentMatch) return `attachment:${attachmentMatch[1]}`;
 
   if (

@@ -17,7 +17,7 @@ export function getAssetBase() {
 export function parseAttachmentId(reference?: string): string | undefined {
   if (!reference) return undefined;
   const cleaned = reference.replace(/\?.*$/, '');
-  const match = cleaned.match(/\/attachments\/([0-9a-f-]{36})(?:\/download)?$/i);
+  const match = cleaned.match(/\/attachments\/([0-9a-f-]{36})(?:\/(?:download|content))?$/i);
   return match?.[1];
 }
 
@@ -33,7 +33,19 @@ export function resolveLegacyAssetUrl(reference?: string): string | undefined {
   return `${getAssetBase()}${reference.startsWith('/') ? reference : `/${reference}`}`;
 }
 
-async function downloadBlob(url: string): Promise<Blob> {
+async function fetchAttachmentBlob(attachmentId: string): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  const token = api.getAccessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${getApiBase()}/attachments/${attachmentId}/content`, { headers });
+  if (!response.ok) {
+    throw new Error('Failed to download media');
+  }
+  return response.blob();
+}
+
+async function downloadLegacyBlob(url: string): Promise<Blob> {
   const headers: Record<string, string> = {};
   const token = api.getAccessToken();
   if (token && url.includes('/api/v1/')) {
@@ -57,15 +69,15 @@ async function resolveCachedOrDownload(reference: string): Promise<string | unde
   }
 
   const legacy = resolveLegacyAssetUrl(reference);
-  let downloadUrl = legacy;
-  if (!downloadUrl) {
-    const attachmentId = parseAttachmentId(reference);
-    if (!attachmentId) return undefined;
-    const payload = await api.getAttachmentDownloadUrl(attachmentId);
-    downloadUrl = payload.url;
-  }
+  const attachmentId = parseAttachmentId(reference);
+  const blob = legacy
+    ? await downloadLegacyBlob(legacy)
+    : attachmentId
+      ? await fetchAttachmentBlob(attachmentId)
+      : null;
 
-  const blob = await downloadBlob(downloadUrl);
+  if (!blob) return undefined;
+
   await putCachedMedia(cacheKey, blob);
   return getCachedObjectUrl(cacheKey, blob);
 }

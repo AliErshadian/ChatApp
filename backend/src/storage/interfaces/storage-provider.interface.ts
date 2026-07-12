@@ -1,3 +1,5 @@
+import { Readable } from 'node:stream';
+
 export interface StorageUploadInput {
   bucket: string;
   objectKey: string;
@@ -40,6 +42,7 @@ export interface IStorageProvider {
     objectKey: string,
     options: PresignedUrlOptions,
   ): Promise<string>;
+  getObjectStream(bucket: string, objectKey: string): Promise<Readable>;
   getBucketStats(bucket: string): Promise<StorageBucketStats>;
 }
 

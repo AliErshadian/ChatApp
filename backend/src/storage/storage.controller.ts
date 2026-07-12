@@ -7,10 +7,12 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -54,6 +56,15 @@ export class StorageController {
   @Get(':id')
   getById(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {
     return this.storageService.getById(user.id, id);
+  }
+
+  @Get(':id/content')
+  async content(
+    @CurrentUser() user: User,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res() res: Response,
+  ) {
+    await this.storageService.streamAttachmentContent(user.id, id, res);
   }
 
   @Get(':id/download')

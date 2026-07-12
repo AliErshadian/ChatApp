@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
+import type { Response } from 'express';
 import { ConversationsService } from '../modules/conversations/conversations.service';
 import { MemberRole } from '../modules/conversations/entities/conversation-member.entity';
 import { AuditService } from '../modules/audit/audit.service';
@@ -210,6 +211,45 @@ export class StorageService {
     };
   }
 
+  async streamAttachmentContent(
+    userId: string,
+    attachmentId: string,
+    res: Response,
+  ): Promise<void> {
+    const attachment = await this.requireAttachment(attachmentId);
+    await this.assertCanAccess(userId, attachment);
+
+    const body = await this.provider.getObjectStream(attachment.bucket, attachment.objectKey);
+
+    this.audit.record({
+      action: AuditAction.ATTACHMENT_DOWNLOAD,
+      userId,
+      resourceType: 'attachment',
+      resourceId: attachment.id,
+      metadata: {
+        conversationId: attachment.conversationId,
+        proxied: true,
+      },
+    });
+
+    res.setHeader('Content-Type', attachment.mimeType);
+    if (attachment.size) {
+      res.setHeader('Content-Length', attachment.size);
+    }
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${attachment.originalName.replace(/"/g, '')}"`,
+    );
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+
+    await new Promise<void>((resolve, reject) => {
+      body.on('error', reject);
+      res.on('error', reject);
+      res.on('finish', () => resolve());
+      body.pipe(res);
+    });
+  }
+
   async delete(userId: string, attachmentId: string): Promise<void> {
     const attachment = await this.requireAttachment(attachmentId);
     await this.assertCanDelete(userId, attachment);
@@ -283,7 +323,7 @@ export class StorageService {
 
   findAttachmentByMessageContent(content: string): string | undefined {
     const normalized = content.replace(/\?.*$/, '');
-    const match = normalized.match(/^\/api\/v1\/attachments\/([0-9a-f-]{36})(?:\/download)?$/i);
+    const match = normalized.match(/^\/api\/v1\/attachments\/([0-9a-f-]{36})(?:\/(?:download|content))?$/i);
     return match?.[1];
   }
 
@@ -292,7 +332,7 @@ export class StorageService {
   }
 
   private buildApiUrl(attachmentId: string): string {
-    return `/api/v1/attachments/${attachmentId}/download`;
+    return `/api/v1/attachments/${attachmentId}/content`;
   }
 
   private assertSizeLimit(category: StorageCategory, size: number) {

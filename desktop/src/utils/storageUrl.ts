@@ -8,13 +8,12 @@ import {
   putCachedMedia,
 } from './mediaCache';
 
-const presignedCache = new Map<string, { url: string; expiresAt: number }>();
 const inflightDownloads = new Map<string, Promise<string | undefined>>();
 
 export function parseAttachmentId(reference?: string): string | undefined {
   if (!reference) return undefined;
   const cleaned = reference.replace(/\?.*$/, '');
-  const match = cleaned.match(/\/attachments\/([0-9a-f-]{36})(?:\/download)?$/i);
+  const match = cleaned.match(/\/attachments\/([0-9a-f-]{36})(?:\/(?:download|content))?$/i);
   return match?.[1];
 }
 
@@ -30,38 +29,22 @@ export function resolveLegacyAssetUrl(reference?: string): string | undefined {
   return `${getAssetBase()}${reference}`;
 }
 
-export async function fetchPresignedUrl(
+async function fetchAttachmentBlob(
   apiBase: string,
   attachmentId: string,
   accessToken: string | null,
-): Promise<string> {
-  const cached = presignedCache.get(attachmentId);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.url;
-  }
+): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
-  const response = await fetch(`${apiBase}/attachments/${attachmentId}/download`, {
-    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-  });
-
+  const response = await fetch(`${apiBase}/attachments/${attachmentId}/content`, { headers });
   if (!response.ok) {
-    throw new Error('Failed to resolve attachment download URL');
+    throw new Error('Failed to download media');
   }
-
-  const payload = (await response.json()) as {
-    url: string;
-    expiresInSeconds: number;
-  };
-
-  presignedCache.set(attachmentId, {
-    url: payload.url,
-    expiresAt: Date.now() + Math.max(0, payload.expiresInSeconds - 15) * 1000,
-  });
-
-  return payload.url;
+  return response.blob();
 }
 
-async function downloadBlob(url: string, accessToken: string | null): Promise<Blob> {
+async function downloadLegacyBlob(url: string, accessToken: string | null): Promise<Blob> {
   const headers: Record<string, string> = {};
   if (accessToken && url.includes('/api/v1/')) {
     headers.Authorization = `Bearer ${accessToken}`;
@@ -88,11 +71,15 @@ async function resolveCachedOrDownload(
   }
 
   const legacy = resolveLegacyAssetUrl(reference);
-  const downloadUrl = legacy
-    ? legacy
-    : await fetchPresignedUrl(apiBase, parseAttachmentId(reference)!, accessToken);
+  const attachmentId = parseAttachmentId(reference);
+  const blob = legacy
+    ? await downloadLegacyBlob(legacy, accessToken)
+    : attachmentId
+      ? await fetchAttachmentBlob(apiBase, attachmentId, accessToken)
+      : null;
 
-  const blob = await downloadBlob(downloadUrl, accessToken);
+  if (!blob) return undefined;
+
   await putCachedMedia(cacheKey, blob);
   return getCachedObjectUrl(cacheKey, blob);
 }

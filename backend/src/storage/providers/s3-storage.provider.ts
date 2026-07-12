@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Readable } from 'node:stream';
 import {
   CopyObjectCommand,
   CreateBucketCommand,
@@ -179,6 +180,23 @@ export class S3StorageProvider implements IStorageProvider, OnModuleInit {
       Key: objectKey,
     });
     return getSignedUrl(this.client, command, { expiresIn: options.expiresInSeconds });
+  }
+
+  async getObjectStream(bucket: string, objectKey: string): Promise<Readable> {
+    await this.waitUntilReady(bucket);
+
+    const response = await this.client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: objectKey,
+      }),
+    );
+
+    if (!response.Body) {
+      throw new Error(`Object body missing for ${bucket}/${objectKey}`);
+    }
+
+    return response.Body as Readable;
   }
 
   async getBucketStats(bucket: string): Promise<StorageBucketStats> {
