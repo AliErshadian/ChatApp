@@ -29,6 +29,7 @@ import { WsRateLimit } from '../../observability/ws-rate-limit.decorator';
 import { WsRateLimitGuard } from '../../observability/ws-rate-limit.guard';
 import { RealtimeBroadcastService } from './realtime-broadcast.service';
 import { RealtimeActionsService } from './realtime-actions.service';
+import { CallSignalingService } from '../calls/call-signaling.service';
 
 interface AuthenticatedSocket extends Socket {
   data: { userId: string; email: string; sessionId: string };
@@ -58,6 +59,7 @@ export class RealtimeGateway
     private readonly authService: AuthService,
     private readonly broadcast: RealtimeBroadcastService,
     private readonly actions: RealtimeActionsService,
+    private readonly callSignaling: CallSignalingService,
   ) {}
 
   onModuleInit() {
@@ -299,5 +301,88 @@ export class RealtimeGateway
   @SubscribeMessage('presence:query')
   async queryPresence(@MessageBody() data: { userIds: string[] }) {
     return this.actions.queryPresence(data.userIds);
+  }
+
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'call_invite',
+    capacity: 3,
+    refillPerSec: 0.1,
+  })
+  @SubscribeMessage('call:invite')
+  async handleCallInvite(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { conversationId: string },
+  ) {
+    const result = await this.callSignaling.invite(
+      client.data.userId,
+      client.data.sessionId,
+      data.conversationId,
+    );
+    return { success: true, ...result };
+  }
+
+  @UseGuards(WsJwtGuard)
+  @SubscribeMessage('call:accept')
+  async handleCallAccept(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { callId: string },
+  ) {
+    const result = await this.callSignaling.accept(
+      client.data.userId,
+      client.data.sessionId,
+      data.callId,
+    );
+    return { success: true, ...result };
+  }
+
+  @UseGuards(WsJwtGuard)
+  @SubscribeMessage('call:reject')
+  async handleCallReject(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { callId: string },
+  ) {
+    const result = await this.callSignaling.reject(
+      client.data.userId,
+      client.data.sessionId,
+      data.callId,
+    );
+    return { success: true, ...result };
+  }
+
+  @UseGuards(WsJwtGuard)
+  @SubscribeMessage('call:end')
+  async handleCallEnd(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { callId: string },
+  ) {
+    const result = await this.callSignaling.end(
+      client.data.userId,
+      client.data.sessionId,
+      data.callId,
+    );
+    return { success: true, ...result };
+  }
+
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'call_signal',
+    capacity: 120,
+    refillPerSec: 30,
+    keySuffixFromBody: (body) => body?.callId,
+  })
+  @SubscribeMessage('call:signal')
+  async handleCallSignal(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody()
+    data: { callId: string; type: 'offer' | 'answer' | 'ice'; payload: unknown },
+  ) {
+    return this.callSignaling.forwardSignal(
+      client.data.userId,
+      client.data.sessionId,
+      data.callId,
+      data.type,
+      data.payload,
+    );
   }
 }

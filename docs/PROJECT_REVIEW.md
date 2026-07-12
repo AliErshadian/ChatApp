@@ -33,7 +33,7 @@ ChatApp/
 
 ### Backend (NestJS)
 
-- **Modules**: `auth`, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`, `audit`, `admin`, **`storage`**
+- **Modules**: `auth`, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`, `audit`, `admin`, **`storage`**, **`calls`**
 - **Auth & sessions**:
   - JWT access tokens (15m) with required `sid` claim; validated against `user_sessions` on every REST and WebSocket request
   - Rotating refresh tokens (SHA-256 hashed, grouped by `session_family_id`)
@@ -61,6 +61,13 @@ ChatApp/
   - Shared `RealtimeActionsService` + `RealtimeBroadcastService` used by WS gateway and REST fallback
   - Redis Socket.IO adapter when Redis is available
   - Room-based fanout (`conversation:`, `user:`, `session:`)
+- **Voice calls** (`calls` module):
+  - **1:1 DMs only** — groups/channels rejected server-side
+  - In-memory call registry (`CallRegistryService`): ringing/active state, busy detection, 45s ring timeout
+  - WebSocket signaling: `call:invite`, `call:accept`, `call:reject`, `call:end`, `call:signal` (offer/answer/ICE)
+  - Server events: `call:incoming`, `call:accepted`, `call:ended`, forwarded `call:signal`
+  - `GET /calls/ice-servers` — STUN from `WEBRTC_STUN_URLS`; optional TURN via `TURN_*` env
+  - **Requires WebSocket** — not available when client falls back to SSE
 - **Audit** (`audit` module, global):
   - Append-only `audit_logs` table (migration `019`)
   - Records auth, messages, conversations, contacts, profile, and admin actions
@@ -98,8 +105,8 @@ ChatApp/
 
 ### Desktop / Browser client
 
-- **Electron**: secure refresh-token store (`safeStorage`), tray, notifications, `chatapp://` invite links
-- **Browser (Vite dev)**: `localStorage` auth persistence; LAN host auto-routes API to same IP:3000
+- **Electron**: secure refresh-token store (`safeStorage`), tray, notifications, `chatapp://` invite links; dev loads `https://localhost:5173`
+- **Browser (Vite dev)**: `localStorage` auth persistence; HTTPS dev server (`@vitejs/plugin-basic-ssl`, `host: true`); LAN via `https://<IP>:5173` with Vite proxy to backend; `endpoints.ts` resolves API/WS per host
 - REST + Socket.IO (with automatic SSE + REST fallback when WebSocket fails)
 - **UI features**:
   - Chat list with pins, unread badges, last-message preview
@@ -107,6 +114,7 @@ ChatApp/
   - In-app toast notifications (mentions, new DM, added to group/channel, new device login)
   - Profile, contacts, conversation info, forward modal, attachment viewers (API content proxy + IndexedDB cache via `storageUrl.ts` / `mediaCache.ts`)
   - **File management** (per DM/group/channel): header 📁 button or conversation info → filter tabs (All, My uploads, Shared, Images, Videos, Documents, Audio, Voice); jump to message, preview, download
+  - **Voice calls** (DMs only): 📞 in DM header; `VoiceCallModal` for incoming/active calls; WebRTC audio via `voiceCall.ts`; mute; mic permission handling (`mediaDevices.ts` with HTTPS/LAN guidance)
   - **Search**:
     - Sidebar: split panel (conversations on top, message content hits below)
     - Global: `Ctrl+K` / `Cmd+K` modal (chats, channels, people, messages)
@@ -130,6 +138,7 @@ ChatApp/
 - **Admin & audit** — separate admin app, storage visibility, append-only audit trail
 - **Search UX** — unified conversation + message content search with jump-to-message
 - **File management** — per-conversation shared files browser with media-type filters and jump-to-message
+- **1:1 voice calls** — WebRTC + Socket.IO signaling for DMs; ICE endpoint; HTTPS dev for LAN microphone access
 - **Session management** — practical Telegram-style device list with push logout
 
 ## Cons / risks (what can bite you in production)
@@ -141,12 +150,15 @@ ChatApp/
 
 ### Correctness & performance
 
-- **No automated tests** — auth, ACL, messaging, session, and storage flows are untested in CI
+- **No automated tests** — auth, ACL, messaging, session, storage, and call signaling flows are untested in CI
 - **Some gateway paths** still use per-member emits where room broadcast would suffice — watch fanout cost in large channels
+- **Voice calls**: in-memory call registry is not shared across API instances; TURN not bundled (needed for some NAT/firewall setups)
 
 
 ## Recently addressed (2026-07)
 
+- **1:1 voice calls (DMs)** — `calls` module (signaling, ICE servers, in-memory registry); desktop `voiceCall.ts`, `VoiceCallModal`, WebSocket `call:*` events; WebRTC audio with STUN/TURN env config; **WebSocket required** (not SSE)
+- **HTTPS LAN dev for microphone** — Vite `@vitejs/plugin-basic-ssl` + proxy `/api` and `/socket.io`; `mediaDevices.ts` friendly errors; `endpoints.ts` same-origin proxy on `https://<LAN-IP>:5173`, direct `:3000` on localhost/Electron
 - **Per-chat file management** — `GET /conversations/:id/attachments` with kind filters (`mine`, `shared`, `image`, `video`, etc.) and cursor pagination; `FileManagementPanel` in desktop client (header + conversation info entry points)
 - **API-proxied media downloads** — `GET /attachments/:id/content` streams from MinIO through the API; clients use JWT + same host as chat (works on LAN/mobile without MinIO port exposure)
 - **Client offline cache** — IndexedDB blob cache (`mediaCache.ts`); Profile → Offline cache (size + clear)
@@ -189,6 +201,8 @@ ChatApp/
 ### P2 (polish and scale)
 
 - Room-only fanout audit in gateway (remove remaining per-member loops)
+- **TURN server** (e.g. coturn in Compose) for reliable voice calls behind symmetric NAT
+- **Redis-backed call registry** if scaling voice signaling across multiple API instances
 
 ## Suggested “definition of done” for production readiness
 
@@ -225,6 +239,8 @@ ChatApp/
 | `S3_BUCKET_*` | Bucket names per media category |
 | `S3_PRESIGNED_URL_EXPIRES_SECONDS` | Presigned `/download` URL TTL (default `120`; optional external use) |
 | `STORAGE_MAX_*_MB` | Upload size limits per category |
+| `WEBRTC_STUN_URLS` | Comma-separated STUN URLs for voice calls |
+| `TURN_URL` / `TURN_USERNAME` / `TURN_PASSWORD` | Optional TURN for restrictive NAT |
 
 See `backend/.env.example` for defaults. Required in production (`NODE_ENV=production`).
 

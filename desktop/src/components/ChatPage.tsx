@@ -10,6 +10,7 @@ import { ProfilePanel } from './ProfilePanel';
 import { ContactsPanel } from './ContactsPanel';
 import { ConversationInfoPanel } from './ConversationInfoPanel';
 import { FileManagementPanel } from './FileManagementPanel';
+import { VoiceCallModal } from './VoiceCallModal';
 import { ChannelJoinBanner } from './ChannelJoinBanner';
 import { mergeMessageStatus, mergeOutgoingServerMessage } from '../utils/messageStatus';
 import { ConversationListItem } from './ConversationListItem';
@@ -44,6 +45,7 @@ import { isMessageInView } from '../utils/isMessageInView';
 import type { InAppNotification } from '../utils/inAppNotification';
 import { buildNewSessionNotificationText } from '../utils/sessionDisplay';
 import { filterConversationsBySearch, isSearchQueryActive } from '../utils/search';
+import { useVoiceCall } from '../hooks/useVoiceCall';
 
 export function ChatPage() {
   const { user, logout } = useAuth();
@@ -73,6 +75,8 @@ export function ChatPage() {
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showConversationInfo, setShowConversationInfo] = useState(false);
   const [showFileManagement, setShowFileManagement] = useState(false);
+  const [callError, setCallError] = useState('');
+  const { startCall } = useVoiceCall();
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [channelName, setChannelName] = useState('');
   const [firstUnreadMessageId, setFirstUnreadMessageId] = useState<string | null>(null);
@@ -129,6 +133,21 @@ export function ChatPage() {
     if (!activeConversation || !user) return true;
     return canSendInConversation(activeConversation, user.id);
   }, [activeConversation, user]);
+
+  const handleStartVoiceCall = useCallback(async () => {
+    if (!activeConversation || !activePeer) return;
+    setCallError('');
+    try {
+      await startCall(activeConversation.id, {
+        id: activePeer.userId,
+        displayName: activePeer.displayName ?? activeConversation.name,
+        username: activePeer.username,
+      });
+    } catch (err) {
+      setCallError(err instanceof Error ? err.message : 'Failed to start call');
+    }
+  }, [activeConversation, activePeer, startCall]);
+
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isPanelVisible =
     isPanelOpen &&
@@ -2167,6 +2186,17 @@ export function ChatPage() {
                     : `${activeConversation.members.length} members`}
                 </span>
               </button>
+              {activeConversation.type === 'direct' && activePeer && (
+                <button
+                  type="button"
+                  className="icon-btn chat-header-call-btn"
+                  onClick={() => void handleStartVoiceCall()}
+                  title="Voice call"
+                  aria-label="Voice call"
+                >
+                  📞
+                </button>
+              )}
               <button
                 type="button"
                 className="icon-btn chat-header-files-btn"
@@ -2503,6 +2533,17 @@ export function ChatPage() {
         onDismiss={dismissInAppNotification}
         onClick={goToInAppNotification}
       />
+
+      <VoiceCallModal />
+
+      {callError && (
+        <div className="voice-call-error-toast" role="alert">
+          <span>{callError}</span>
+          <button type="button" className="voice-call-error-dismiss" onClick={() => setCallError('')}>
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -792,6 +792,14 @@ export class ConversationsService {
     return members.map((m) => m.userId);
   }
 
+  async getConversationType(conversationId: string): Promise<ConversationType | null> {
+    const conversation = await this.conversationRepo.findOne({
+      where: { id: conversationId },
+      select: ['id', 'type'],
+    });
+    return conversation?.type ?? null;
+  }
+
   async getConversationIdsForUser(userId: string): Promise<string[]> {
     const memberships = await this.memberRepo.find({
       where: { userId },

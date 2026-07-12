@@ -892,6 +892,12 @@ class ApiClient {
     );
   }
 
+  getCallIceServers() {
+    return this.request<{
+      iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }>;
+    }>('/calls/ice-servers');
+  }
+
   async sendMessageAttachment(
     conversationId: string,
     file: File,

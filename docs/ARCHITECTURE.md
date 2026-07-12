@@ -115,6 +115,7 @@ The MVP ships as a **modular monolith** with clean boundaries:
 | `contacts` | Contact list | Contacts Service |
 | `conversations` | DMs, channels, groups, invites, membership ACL | Conversation Service |
 | `messages` | Persistence, ordering, sanitization, mentions, attachments, reactions, **content search** | Messaging Service |
+| `calls` | 1:1 DM voice call signaling (in-memory registry), ICE server config | Calls / Signaling Service |
 | `storage` | S3-compatible object storage (upload, delete, stream content, presigned URLs, `attachments` metadata) | Storage Service |
 | `audit` | Append-only audit trail for user and admin actions | Audit Service |
 | `admin` | Admin-only stats, user management, storage metrics, audit log API | Admin API |
@@ -366,6 +367,31 @@ Sent to other devices when a new session is created:
 
 Client clears local auth and returns to login.
 
+### Voice call signaling (1:1 DMs, WebSocket only)
+
+**Client → Server** (with ack callbacks):
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `call:invite` | `{ conversationId }` | Start outbound call; server returns `callId` |
+| `call:accept` | `{ callId }` | Callee accepts |
+| `call:reject` | `{ callId }` | Callee declines |
+| `call:end` | `{ callId }` | Hang up active or cancel ringing call |
+| `call:signal` | `{ callId, type, payload }` | WebRTC `offer` / `answer` / `ice` |
+
+**Server → Client:**
+
+| Event | Description |
+|-------|-------------|
+| `call:incoming` | Ringing notification to callee (`caller` profile) |
+| `call:accepted` | Caller notified that callee joined |
+| `call:ended` | Call finished (`reason`: ended, rejected, cancelled, busy, timeout, unavailable) |
+| `call:signal` | Forwarded SDP/ICE from peer |
+
+**REST:** `GET /api/v1/calls/ice-servers` returns STUN/TURN list from env (`WEBRTC_STUN_URLS`, optional `TURN_*`).
+
+**Constraints:** DM conversations only; one active call per user; 45s ring timeout; in-memory call registry (single-instance friendly; Redis-backed registry would be needed for multi-instance call state). **Not available over SSE fallback** — clients must use WebSocket.
+
 ## 11. Database Schema Summary
 
 ```
@@ -451,8 +477,11 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 │ api.ts          REST client, token refresh, sessions    │
 │ storageUrl.ts   API content proxy fetch + blob URL resolution │
 │ mediaCache.ts   IndexedDB LRU cache for offline media         │
-│ realtime.ts     Socket.IO event handlers                │
+│ realtime.ts     Socket.IO event handlers (+ call signaling)     │
+│ voiceCall.ts    WebRTC RTCPeerConnection, mic stream, ICE       │
+│ mediaDevices.ts Microphone access; HTTPS/LAN error messages     │
 │ FileManagementPanel  per-chat files (filter tabs, preview)    │
+│ VoiceCallModal  incoming/active call UI (mute, hang up)         │
 │ ConversationInfoPanel  details + link to shared files           │
 │ SidebarSearchPanel / GlobalSearchModal                  │
 │   → filter conversations + GET /messages/search         │
@@ -477,6 +506,20 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 3. `GET /conversations/:id/attachments` with `kind` + cursor pagination
 4. Thumbnails for images/videos; preview modals; **Jump** scrolls to source message; **Save** downloads via cached blob URL
 
+**Voice call flow (DM only):**
+
+1. Caller taps 📞 in DM header → `call:invite` → server validates DM membership, busy state, emits `call:incoming` to callee
+2. Client fetches `GET /calls/ice-servers`, acquires mic via `getUserMedia` (`mediaDevices.ts`)
+3. WebRTC offer/answer + trickle ICE exchanged through `call:signal` (server forwards to peer, excluding sender session)
+4. Callee accepts via `VoiceCallModal` → `call:accept` → media flows peer-to-peer (STUN; TURN optional for hard NAT)
+5. Hang up / reject / timeout → `call:end` or server timeout → `call:ended` → cleanup tracks and `RTCPeerConnection`
+
+**Dev HTTPS / LAN:**
+
+- Vite dev (`desktop/vite.config.ts`): `@vitejs/plugin-basic-ssl`, `host: true`, proxies `/api` and `/socket.io` to `http://127.0.0.1:3000`
+- `endpoints.ts`: on `https://` + non-localhost host (LAN phone/laptop), API/WS use same origin (through Vite proxy); on `localhost` / Electron, direct `http://localhost:3000`
+- Microphone APIs require secure context — `http://192.168.x.x` is blocked; use `https://192.168.x.x:5173`
+
 ### Admin client (`admin/` — `chatapp-admin`)
 
 Separate workspace: Vite + React (port 5174). Uses the same JWT auth; requires `users.is_admin = TRUE`. Dev: `npm run dev:admin` from repo root.
@@ -487,7 +530,16 @@ Separate workspace: Vite + React (port 5174). Uses the same JWT auth; requires `
 
 Admin avatars and attachments use the same API content proxy as the chat client (`admin/src/utils/storageUrl.ts`, `mediaCache.ts`).
 
-**Service URL resolution** (`endpoints.ts`): on LAN hosts, API/WS target the same hostname on port 3000 instead of hardcoded `localhost`.
+**Service URL resolution** (`endpoints.ts`):
+
+| Context | API | WebSocket |
+|---------|-----|-----------|
+| `localhost` / `127.0.0.1` (dev) | `http://localhost:3000/api/v1` | `http://localhost:3000` |
+| LAN `https://192.168.x.x:5173` (dev) | `https://192.168.x.x:5173/api/v1` (Vite proxy) | `https://192.168.x.x:5173` (Vite proxy) |
+| LAN `http://192.168.x.x:5173` | `http://192.168.x.x:3000/api/v1` | `http://192.168.x.x:3000` |
+| Production HTTPS | same host, port 3000 or edge URL | WSS at same host |
+
+Override with `VITE_API_URL` / `VITE_WS_URL` in `desktop/.env`.
 
 ## 14. Admin & Audit Architecture
 
@@ -614,6 +666,9 @@ All delegate to `StorageService.upload()`.
 | `S3_BUCKET_*` | Bucket names per media type | see §15 |
 | `S3_PRESIGNED_URL_EXPIRES_SECONDS` | Download URL TTL | `120` |
 | `STORAGE_MAX_*_MB` | Per-category upload size limits | see `backend/.env.example` |
+| `WEBRTC_STUN_URLS` | Comma-separated STUN URLs for voice calls | Google public STUN (dev) |
+| `TURN_URL` | Optional TURN server URL | unset |
+| `TURN_USERNAME` / `TURN_PASSWORD` | TURN credentials (all three required to enable) | unset |
 
 **Production:** `S3_ENDPOINT`, credentials, region, and bucket env vars are required (Zod validation in `backend/src/config/env.ts`).
 
@@ -626,7 +681,7 @@ All delegate to `StorageService.upload()`.
 | `desktop/.env` | `chatapp-desktop` | optional `VITE_API_URL`, `VITE_WS_URL` |
 | `admin/.env` | `chatapp-admin` | optional `VITE_API_URL` |
 
-**Desktop / Admin (Vite):** `VITE_API_URL`, `VITE_WS_URL` override defaults when not using LAN auto-detection.
+**Desktop / Admin (Vite):** `VITE_API_URL`, `VITE_WS_URL` override defaults when not using LAN auto-detection. `VITE_API_PROXY_TARGET` (desktop dev only) overrides the backend target for the Vite `/api` and `/socket.io` proxies (default `http://127.0.0.1:3000`).
 
 ## 18. SSE Fallback (WebSocket-blocked environments)
 
@@ -692,4 +747,4 @@ Accept: text/event-stream
 
 `desktop/src/services/realtime.ts` tries **WebSocket first** (~8s timeout). On failure it connects via **EventSource** to `/realtime/stream` and routes outbound operations to the REST endpoints above (`api.sendRealtimeMessage`, etc.).
 
-SSE mode is automatic; no user configuration required.
+SSE mode is automatic; no user configuration required. **Voice calls are disabled in SSE mode** — WebSocket is required for `call:*` signaling and WebRTC setup.

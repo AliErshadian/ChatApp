@@ -28,7 +28,17 @@ export function resolveServiceUrls() {
     return { apiBase: configuredApi, wsBase: configuredWs };
   }
 
-  const { hostname, protocol } = window.location;
+  const { hostname, protocol, origin } = window.location;
+
+  // LAN dev over HTTPS: proxy API/WS through Vite (avoids mixed content on https://192.168.x.x).
+  // localhost (Electron on this machine) talks to the backend directly on :3000.
+  if (import.meta.env.DEV && protocol === 'https:' && !isLocalHostname(hostname)) {
+    return {
+      apiBase: `${origin}/api/v1`,
+      wsBase: origin,
+    };
+  }
+
   if (isLocalHostname(hostname)) {
     return { apiBase: configuredApi, wsBase: configuredWs };
   }

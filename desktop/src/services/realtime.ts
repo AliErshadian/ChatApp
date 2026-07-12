@@ -53,6 +53,32 @@ type SessionCreatedHandler = (data: {
   ipAddress: string | null;
 }) => void;
 
+type CallIncomingHandler = (data: {
+  callId: string;
+  conversationId: string;
+  caller: { id: string; displayName: string; username: string };
+}) => void;
+
+type CallAcceptedHandler = (data: {
+  callId: string;
+  conversationId: string;
+  acceptedBy: string;
+}) => void;
+
+type CallEndedHandler = (data: {
+  callId: string;
+  conversationId: string;
+  reason: string;
+  endedBy?: string;
+}) => void;
+
+type CallSignalHandler = (data: {
+  callId: string;
+  type: 'offer' | 'answer' | 'ice';
+  payload: unknown;
+  fromUserId: string;
+}) => void;
+
 interface PendingSend {
   resolve: (message: Message) => void;
   reject: (error: Error) => void;
@@ -99,6 +125,15 @@ function parseSendAck(ack: unknown): Message | null {
   return null;
 }
 
+function parseWsAckMessage(ack: unknown, fallback: string): string {
+  if (!ack || typeof ack !== 'object') return fallback;
+  const payload = ack as Record<string, unknown>;
+  if (typeof payload.message === 'string') return payload.message;
+  if (typeof payload.error === 'string') return payload.error;
+  if (payload.status === 'error' && typeof payload.message === 'string') return payload.message;
+  return fallback;
+}
+
 class RealtimeClient {
   private socket: Socket | null = null;
   private eventSource: EventSource | null = null;
@@ -118,6 +153,10 @@ class RealtimeClient {
   private conversationCreatedHandlers = new Set<ConversationCreatedHandler>();
   private sessionTerminatedHandlers = new Set<SessionTerminatedHandler>();
   private sessionCreatedHandlers = new Set<SessionCreatedHandler>();
+  private callIncomingHandlers = new Set<CallIncomingHandler>();
+  private callAcceptedHandlers = new Set<CallAcceptedHandler>();
+  private callEndedHandlers = new Set<CallEndedHandler>();
+  private callSignalHandlers = new Set<CallSignalHandler>();
   private connectHandlers = new Set<ConnectHandler>();
   private presenceChangeHandlers = new Set<PresenceChangeHandler>();
   private pendingSends = new Map<string, PendingSend>();
@@ -311,6 +350,22 @@ class RealtimeClient {
 
     this.socket.on('presence:sync', (data: PresenceInfo[]) => {
       this.dispatchPresenceBatch(data);
+    });
+
+    this.socket.on('call:incoming', (data) => {
+      this.callIncomingHandlers.forEach((handler) => handler(data));
+    });
+
+    this.socket.on('call:accepted', (data) => {
+      this.callAcceptedHandlers.forEach((handler) => handler(data));
+    });
+
+    this.socket.on('call:ended', (data) => {
+      this.callEndedHandlers.forEach((handler) => handler(data));
+    });
+
+    this.socket.on('call:signal', (data) => {
+      this.callSignalHandlers.forEach((handler) => handler(data));
     });
 
     this.socket.on('connect', () => {
@@ -828,6 +883,128 @@ class RealtimeClient {
         },
       );
     });
+  }
+
+  private requireWebSocket() {
+    if (this.transport !== 'websocket' || !this.socket?.connected) {
+      throw new Error('Voice calls require a live WebSocket connection');
+    }
+    return this.socket;
+  }
+
+  inviteCall(conversationId: string) {
+    const socket = this.requireWebSocket();
+    return new Promise<{ callId: string; conversationId: string; calleeId: string }>(
+      (resolve, reject) => {
+        socket.emit('call:invite', { conversationId }, (ack: unknown) => {
+          const payload = ack as {
+            success?: boolean;
+            callId?: string;
+            conversationId?: string;
+            calleeId?: string;
+            message?: string;
+          };
+          if (payload?.success && payload.callId) {
+            resolve({
+              callId: payload.callId,
+              conversationId: payload.conversationId ?? conversationId,
+              calleeId: payload.calleeId ?? '',
+            });
+            return;
+          }
+          reject(new Error(parseWsAckMessage(ack, 'Failed to start call')));
+        });
+      },
+    );
+  }
+
+  acceptCall(callId: string) {
+    const socket = this.requireWebSocket();
+    return new Promise<{ callId: string; conversationId: string; acceptedBy: string }>(
+      (resolve, reject) => {
+        socket.emit('call:accept', { callId }, (ack: unknown) => {
+          const payload = ack as {
+            success?: boolean;
+            callId?: string;
+            conversationId?: string;
+            acceptedBy?: string;
+            message?: string;
+          };
+          if (payload?.success && payload.callId) {
+            resolve({
+              callId: payload.callId,
+              conversationId: payload.conversationId ?? '',
+              acceptedBy: payload.acceptedBy ?? '',
+            });
+            return;
+          }
+          reject(new Error(parseWsAckMessage(ack, 'Failed to accept call')));
+        });
+      },
+    );
+  }
+
+  rejectCall(callId: string) {
+    const socket = this.requireWebSocket();
+    return new Promise<void>((resolve, reject) => {
+      socket.emit('call:reject', { callId }, (ack: { success?: boolean; message?: string }) => {
+        if (ack?.success) {
+          resolve();
+          return;
+        }
+        reject(new Error(ack?.message ?? 'Failed to reject call'));
+      });
+    });
+  }
+
+  endCall(callId: string) {
+    const socket = this.requireWebSocket();
+    return new Promise<void>((resolve, reject) => {
+      socket.emit('call:end', { callId }, (ack: { success?: boolean; message?: string }) => {
+        if (ack?.success) {
+          resolve();
+          return;
+        }
+        reject(new Error(ack?.message ?? 'Failed to end call'));
+      });
+    });
+  }
+
+  sendCallSignal(callId: string, type: 'offer' | 'answer' | 'ice', payload: unknown) {
+    const socket = this.requireWebSocket();
+    return new Promise<void>((resolve, reject) => {
+      socket.emit(
+        'call:signal',
+        { callId, type, payload },
+        (ack: { success?: boolean; message?: string }) => {
+          if (ack?.success) {
+            resolve();
+            return;
+          }
+          reject(new Error(ack?.message ?? 'Failed to send call signal'));
+        },
+      );
+    });
+  }
+
+  onCallIncoming(handler: CallIncomingHandler) {
+    this.callIncomingHandlers.add(handler);
+    return () => this.callIncomingHandlers.delete(handler);
+  }
+
+  onCallAccepted(handler: CallAcceptedHandler) {
+    this.callAcceptedHandlers.add(handler);
+    return () => this.callAcceptedHandlers.delete(handler);
+  }
+
+  onCallEnded(handler: CallEndedHandler) {
+    this.callEndedHandlers.add(handler);
+    return () => this.callEndedHandlers.delete(handler);
+  }
+
+  onCallSignal(handler: CallSignalHandler) {
+    this.callSignalHandlers.add(handler);
+    return () => this.callSignalHandlers.delete(handler);
   }
 
   onMessage(handler: MessageHandler) {

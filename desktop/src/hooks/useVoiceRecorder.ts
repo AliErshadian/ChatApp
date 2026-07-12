@@ -8,6 +8,7 @@ import {
   VOICE_WAVEFORM_BARS,
 } from '../utils/voiceMessage';
 import { computeWaveformPeaks, normalizePeaks } from '../utils/voiceWaveform';
+import { getMediaDevicesUnavailableMessage, getUserAudioStream } from '../utils/mediaDevices';
 
 export type VoiceRecorderPhase = 'idle' | 'recording';
 
@@ -144,7 +145,7 @@ export function useVoiceRecorder(options?: {
     if (phaseRef.current !== 'idle' || processing) return false;
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Microphone is not available in this browser');
+      throw new Error(getMediaDevicesUnavailableMessage());
     }
 
     const mimeType = pickRecorderMimeType();
@@ -152,7 +153,7 @@ export function useVoiceRecorder(options?: {
       throw new Error('Voice recording is not supported in this browser');
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await getUserAudioStream();
     const recorder = new MediaRecorder(stream, { mimeType });
     const audioContext = new AudioContext();
     const source = audioContext.createMediaStreamSource(stream);

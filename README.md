@@ -91,7 +91,13 @@ mkdir C:\minio-data
 
 Set `S3_ENDPOINT=127.0.0.1` in `backend/.env` (see `backend/.env.example`). Buckets are auto-created on first upload, or create them in the console: `avatars`, `attachments`, `voice`, `videos`, `documents`, `backups`.
 
-**Browser-only client** (no Electron): start the API (`npm run dev:backend`), then `npm run dev:desktop` from the repo root and open `http://localhost:5173`. Auth persists in `localStorage`. The client auto-targets the API on port 3000; when opened via a LAN IP (Vite `host: true`), API/WebSocket URLs follow the same host — media downloads use the API proxy, so MinIO does not need to be reachable from other devices. If WebSocket is blocked, the client automatically falls back to SSE + REST.
+**Browser-only client** (no Electron): start the API (`npm run dev:backend`), then `npm run dev:desktop` from the repo root.
+
+- **This machine**: open `https://localhost:5173` (Vite dev uses a self-signed certificate via `@vitejs/plugin-basic-ssl`; accept the browser warning).
+- **Another device on LAN**: open `https://<your-LAN-IP>:5173` (not `http://`). Microphone access (voice calls, voice messages) requires a **secure context** — plain HTTP on a LAN IP is blocked by browsers.
+- On LAN HTTPS, the Vite dev server proxies `/api` and `/socket.io` to the backend on port 3000 (avoids mixed-content issues). On `localhost`, the client talks to `http://localhost:3000` directly.
+- Auth persists in `localStorage`. API/WebSocket URLs are resolved in `desktop/src/config/endpoints.ts`. Media downloads use the API proxy, so MinIO does not need to be reachable from other devices.
+- If WebSocket is blocked, the client automatically falls back to SSE + REST (text chat only — **voice calls require WebSocket**).
 
 ## Technology Choices
 
@@ -125,6 +131,7 @@ ChatApp/
 │       │   ├── contacts/
 │       │   ├── conversations/  # DMs, channels, groups, invites
 │       │   ├── messages/       # Text, attachments, mentions, reactions, search
+│       │   ├── calls/          # 1:1 DM voice calls (WebRTC signaling, ICE config)
 │       │   ├── admin/          # Admin-only REST (stats, users, storage)
 │       │   ├── presence/
 │       │   └── realtime/       # WebSocket gateway, SSE stream, event bus, REST fallback
@@ -141,8 +148,13 @@ ChatApp/
 ├── desktop/                    # Electron + React client
 │   ├── electron/               # Main process, tray, secure auth store
 │   └── src/
-│       └── components/
-│           └── FileManagementPanel.tsx  # Per-chat shared files UI
+│       ├── components/
+│       │   ├── FileManagementPanel.tsx  # Per-chat shared files UI
+│       │   └── VoiceCallModal.tsx       # 1:1 voice call overlay
+│       ├── services/
+│       │   └── voiceCall.ts             # WebRTC peer connection manager
+│       └── utils/
+│           └── mediaDevices.ts          # Mic access + HTTPS/LAN error messages
 ├── admin/                      # Admin dashboard (Vite + React, port 5174)
 │   └── src/
 │       ├── pages/              # Dashboard, users, user detail, audit log
@@ -211,6 +223,14 @@ Access tokens include a `sid` claim (session id). Refresh tokens are SHA-256 has
 | POST | `/contacts` | Add contact |
 | GET | `/users/search` | Partial user search (username, display name, email) |
 
+### Voice calls (1:1 DMs only)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/calls/ice-servers` | STUN/TURN ICE server list for WebRTC (`WEBRTC_STUN_URLS`, optional `TURN_*` in `backend/.env`) |
+
+Signaling is over WebSocket only (not SSE). DM membership is enforced server-side; groups and channels are not supported.
+
 ### Attachments (object storage)
 
 | Method | Endpoint | Description |
@@ -243,6 +263,10 @@ Connect with `auth: { token: <accessToken> }`. Clients join `user:{userId}` and 
 | `session:created` | Server → Client | New login on another device |
 | `session:terminated` | Server → Client | Force logout (session revoked) |
 | `presence:heartbeat` | Client → Server | Keep-alive |
+| `call:invite` / `call:accept` / `call:reject` / `call:end` | Client → Server | 1:1 voice call signaling (DM only) |
+| `call:signal` | Client → Server | WebRTC offer/answer/ICE trickle |
+| `call:incoming` / `call:accepted` / `call:ended` | Server → Client | Call state sync |
+| `call:signal` | Server → Client | Forwarded WebRTC SDP/ICE to peer |
 
 ### SSE fallback (`/realtime/*`)
 
@@ -281,10 +305,15 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 - Profile avatars, conversation pins, contact list
 - **Search**: sidebar filter (chats/groups/channels + message content); global search (`Ctrl+K` / `Cmd+K`); click result to jump and scroll to message
 - **File management**: per-chat shared files panel (📁 in header or conversation info); tabs for All, My uploads, Shared, Images, Videos, Documents, Audio, Voice; preview, download, jump to message
+- **Voice calls** (DMs only): 📞 button in DM header; WebRTC audio with Socket.IO signaling; incoming call modal; mute; 45s ring timeout; requires WebSocket (not SSE fallback)
 - **Devices** (Profile → Devices): Telegram-style session list, terminate device, terminate all others
 - **Offline cache** (Profile → Offline cache): IndexedDB blob cache for avatars/attachments; view size and clear cache
 - **Realtime fallback**: automatic SSE + REST when WebSocket cannot connect
-- Electron: system tray, native notifications, encrypted refresh-token store, deep links (`chatapp://`)
+- Electron: system tray, native notifications, encrypted refresh-token store, deep links (`chatapp://`); dev loads `https://localhost:5173` with self-signed cert trust
+
+### LAN / microphone (dev)
+
+Browsers only expose `navigator.mediaDevices` in secure contexts (`https://` or `localhost`). The Vite dev server serves HTTPS (`@vitejs/plugin-basic-ssl`) with `host: true` so other devices can open `https://<LAN-IP>:5173`. Optional TURN (`TURN_URL`, `TURN_USERNAME`, `TURN_PASSWORD` in `backend/.env`) helps when peers are behind restrictive NAT.
 
 ## Security
 

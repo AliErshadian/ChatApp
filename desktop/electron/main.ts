@@ -13,6 +13,7 @@ import {
 
 const isDev = !app.isPackaged;
 const APP_PROTOCOL = 'chatapp';
+const DEV_APP_URL = 'https://localhost:5173';
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let pendingInviteUrl: string | null = null;
@@ -298,7 +299,7 @@ function createWindow() {
   });
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.loadURL(DEV_APP_URL);
     if (process.env.CHATAPP_OPEN_DEVTOOLS === '1') {
       mainWindow.webContents.openDevTools({ mode: 'detach' });
     }
@@ -332,6 +333,15 @@ function createTray() {
   tray.setContextMenu(contextMenu);
   tray.on('double-click', () => mainWindow?.show());
 }
+
+app.on('certificate-error', (event, _webContents, url, _error, _certificate, callback) => {
+  if (isDev && url.startsWith(DEV_APP_URL)) {
+    event.preventDefault();
+    callback(true);
+    return;
+  }
+  callback(false);
+});
 
 app.whenReady().then(() => {
   createWindow();
