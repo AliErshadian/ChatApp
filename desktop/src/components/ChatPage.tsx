@@ -9,6 +9,7 @@ import { MessageReplyQuote } from './MessageReplyQuote';
 import { ProfilePanel } from './ProfilePanel';
 import { ContactsPanel } from './ContactsPanel';
 import { ConversationInfoPanel } from './ConversationInfoPanel';
+import { FileManagementPanel } from './FileManagementPanel';
 import { ChannelJoinBanner } from './ChannelJoinBanner';
 import { mergeMessageStatus, mergeOutgoingServerMessage } from '../utils/messageStatus';
 import { ConversationListItem } from './ConversationListItem';
@@ -71,6 +72,7 @@ export function ChatPage() {
   const [showNewChatPicker, setShowNewChatPicker] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showConversationInfo, setShowConversationInfo] = useState(false);
+  const [showFileManagement, setShowFileManagement] = useState(false);
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [channelName, setChannelName] = useState('');
   const [firstUnreadMessageId, setFirstUnreadMessageId] = useState<string | null>(null);
@@ -562,6 +564,7 @@ export function ChatPage() {
       setIsPanelOpen(false);
       setMessages([]);
       setShowConversationInfo(false);
+      setShowFileManagement(false);
       setTypingUsers(new Set());
     }
   }, []);
@@ -708,6 +711,7 @@ export function ChatPage() {
     setShowContacts(false);
     setShowNewChatPicker(false);
     setShowConversationInfo(false);
+    setShowFileManagement(false);
 
     const conv = conversationsRef.current.find((c) => c.id === id);
     const list =
@@ -741,6 +745,7 @@ export function ChatPage() {
         setShowContacts(false);
         setShowNewChatPicker(false);
         setShowConversationInfo(false);
+        setShowFileManagement(false);
         setPendingChannelInvite(null);
         setIsPanelOpen(true);
         return;
@@ -775,6 +780,7 @@ export function ChatPage() {
         setShowContacts(false);
         setShowNewChatPicker(false);
         setShowConversationInfo(false);
+        setShowFileManagement(false);
 
         if (status.isMember) {
           const visible = conversations.find((c) => c.id === status.conversationId);
@@ -870,6 +876,7 @@ export function ChatPage() {
     setShowContacts(false);
     setShowNewChatPicker(true);
     setShowConversationInfo(false);
+    setShowFileManagement(false);
     setIsPanelOpen(true);
   }, []);
 
@@ -887,6 +894,7 @@ export function ChatPage() {
       setShowContacts(false);
       setShowNewChatPicker(false);
       setShowConversationInfo(false);
+      setShowFileManagement(false);
       setPendingChannelInvite(null);
 
       const activeConv = conversations.find((c) => c.id === activeIdRef.current);
@@ -930,10 +938,15 @@ export function ChatPage() {
     setShowNewChatPicker(false);
     setPendingChannelInvite(null);
     setShowConversationInfo(false);
+    setShowFileManagement(false);
     setTypingUsers(new Set());
   }, []);
 
   const handleSwipeBack = useCallback(() => {
+    if (showFileManagement) {
+      setShowFileManagement(false);
+      return;
+    }
     if (showConversationInfo) {
       setShowConversationInfo(false);
       return;
@@ -943,7 +956,7 @@ export function ChatPage() {
       return;
     }
     closeChatPanel();
-  }, [showConversationInfo, pendingChannelInvite, dismissChannelInvite, closeChatPanel]);
+  }, [showFileManagement, showConversationInfo, pendingChannelInvite, dismissChannelInvite, closeChatPanel]);
 
   const handleSwipeRelease = useCallback(
     (offset: number, width: number) => {
@@ -966,7 +979,7 @@ export function ChatPage() {
   );
 
   useSwipeBack(chatMainRef, {
-    enabled: isMobile && isPanelOpen && !showConversationInfo && !pendingChannelInvite,
+    enabled: isMobile && isPanelOpen && !showConversationInfo && !showFileManagement && !pendingChannelInvite,
     onOffset: setSwipeOffset,
     onRelease: handleSwipeRelease,
   });
@@ -1754,6 +1767,7 @@ export function ChatPage() {
       } finally {
         setDeleteChatBusy(false);
         setShowConversationInfo(false);
+        setShowFileManagement(false);
       }
     },
     [applyConversationHidden, applyConversationMessagesDeleted],
@@ -1769,6 +1783,7 @@ export function ChatPage() {
       } finally {
         setDeleteChatBusy(false);
         setShowConversationInfo(false);
+        setShowFileManagement(false);
       }
     },
     [applyConversationHidden],
@@ -1832,6 +1847,28 @@ export function ChatPage() {
           : undefined,
     }),
     [deleteChatBusy, handleDeleteChat, handleLeaveChannel, handleTogglePin],
+  );
+
+  const jumpToFileMessage = useCallback(
+    async (messageId: string) => {
+      if (!activeConversation) return;
+      setShowFileManagement(false);
+      setMentionGlowIds(new Set([messageId]));
+
+      if (messagesRef.current.some((message) => message.id === messageId)) {
+        scrollIntentRef.current = { kind: 'mention', messageId };
+        scrollToMessage(messageId);
+        return;
+      }
+
+      const loadedMessages = await loadMessagesUntilTarget(activeConversation.id, messageId);
+      activeChatMessageIdsRef.current = new Set(loadedMessages.map((message) => message.id));
+      scrollIntentRef.current = loadedMessages.some((message) => message.id === messageId)
+        ? { kind: 'mention', messageId }
+        : { kind: 'bottom' };
+      setMessages(loadedMessages);
+    },
+    [activeConversation, loadMessagesUntilTarget, scrollToMessage],
   );
 
   const jumpToSearchMessage = useCallback(
@@ -2130,6 +2167,15 @@ export function ChatPage() {
                     : `${activeConversation.members.length} members`}
                 </span>
               </button>
+              <button
+                type="button"
+                className="icon-btn chat-header-files-btn"
+                onClick={() => setShowFileManagement(true)}
+                title="Shared files"
+                aria-label="Shared files"
+              >
+                📁
+              </button>
             </header>
 
             <div className="chat-body">
@@ -2307,11 +2353,24 @@ export function ChatPage() {
               {sendError && <p className="composer-error">{sendError}</p>}
             </footer>
 
+              {showFileManagement && (
+                <FileManagementPanel
+                  conversationId={activeConversation.id}
+                  currentUserId={user!.id}
+                  onClose={() => setShowFileManagement(false)}
+                  onOpenMessage={(messageId) => void jumpToFileMessage(messageId)}
+                />
+              )}
+
               {showConversationInfo && (
                 <ConversationInfoPanel
                   conversation={activeConversation}
                   currentUserId={user!.id}
                   onClose={() => setShowConversationInfo(false)}
+                  onOpenFiles={() => {
+                    setShowConversationInfo(false);
+                    setShowFileManagement(true);
+                  }}
                   isContact={!activePeer || contactIds.has(activePeer.userId)}
                   contactPromptIgnored={
                     activePeer ? ignoredContactIds.has(activePeer.userId) : false

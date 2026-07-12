@@ -14,6 +14,7 @@ interface Props {
   conversation: Conversation;
   currentUserId: string;
   onClose: () => void;
+  onOpenFiles?: () => void;
   isContact?: boolean;
   contactPromptIgnored?: boolean;
   contactActionBusy?: boolean;
@@ -38,6 +39,7 @@ export function ConversationInfoPanel({
   conversation,
   currentUserId,
   onClose,
+  onOpenFiles,
   isContact = true,
   contactPromptIgnored = false,
   contactActionBusy = false,
@@ -190,6 +192,18 @@ export function ConversationInfoPanel({
                 </dl>
               </section>
 
+              {onOpenFiles && (
+                <section className="profile-section">
+                  <h4>Files</h4>
+                  <p className="channel-invite-hint">
+                    Browse photos, videos, documents, and other files shared in this chat.
+                  </p>
+                  <button type="button" className="btn-secondary files-section-btn" onClick={onOpenFiles}>
+                    Open shared files
+                  </button>
+                </section>
+              )}
+
               {onDeleteChat && (
                 <ChatDeleteSection
                   description={
@@ -248,6 +262,18 @@ export function ConversationInfoPanel({
 
             {(isChannel || (isGroup && conversation.isPublic)) && (
               <ChannelInviteSection conversationId={conversation.id} />
+            )}
+
+            {onOpenFiles && (
+              <section className="profile-section">
+                <h4>Files</h4>
+                <p className="channel-invite-hint">
+                  Browse photos, videos, documents, and other files shared in this conversation.
+                </p>
+                <button type="button" className="btn-secondary files-section-btn" onClick={onOpenFiles}>
+                  Open shared files
+                </button>
+              </section>
             )}
 
             <section className="profile-section">

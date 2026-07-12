@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   UseGuards,
   ParseUUIDPipe,
   UseInterceptors,
@@ -17,6 +18,7 @@ import { extname } from 'path';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
+import { StorageService } from '../../storage/storage.service';
 import { ConversationsService } from './conversations.service';
 import {
   CreateChannelDto,
@@ -30,11 +32,39 @@ import {
 @Controller('conversations')
 @UseGuards(JwtAuthGuard)
 export class ConversationsController {
-  constructor(private readonly conversationsService: ConversationsService) {}
+  constructor(
+    private readonly conversationsService: ConversationsService,
+    private readonly storageService: StorageService,
+  ) {}
 
   @Get()
   list(@CurrentUser() user: User) {
     return this.conversationsService.listForUser(user.id);
+  }
+
+  @Get(':id/attachments')
+  listAttachments(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+    @Query('kind') kind?: string,
+  ) {
+    const parsedLimit = limit ? parseInt(limit, 10) : 50;
+    return this.storageService.listForConversation(id, user.id, {
+      cursor,
+      limit: Number.isFinite(parsedLimit) ? parsedLimit : 50,
+      kind: kind as
+        | 'all'
+        | 'mine'
+        | 'shared'
+        | 'image'
+        | 'video'
+        | 'audio'
+        | 'voice'
+        | 'document'
+        | undefined,
+    });
   }
 
   @Get(':id')

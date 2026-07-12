@@ -1,6 +1,6 @@
 import { Message, MessageReplyPreview } from '../services/api';
 import { getAssetBase } from './avatar';
-import { isVoiceMessage } from './voiceMessage';
+import { isVoiceMessage, VOICE_MESSAGE_PREFIX } from './voiceMessage';
 
 export type MessageMediaKind = 'text' | 'image' | 'video' | 'audio' | 'document' | 'voice';
 
@@ -18,6 +18,37 @@ export function getMessageMediaKind(
   if (contentType.startsWith('video/')) return 'video';
   if (contentType.startsWith('audio/')) return 'audio';
   return 'document';
+}
+
+export function getAttachmentMediaKind(
+  attachment: Pick<{ mimeType: string; originalName: string }, 'mimeType' | 'originalName'>,
+): Exclude<MessageMediaKind, 'text'> {
+  if (attachment.originalName?.toLowerCase().startsWith(VOICE_MESSAGE_PREFIX)) return 'voice';
+  const mimeType = attachment.mimeType || '';
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  return 'document';
+}
+
+export function getAttachmentMediaLabel(
+  attachment: Pick<{ mimeType: string; originalName: string }, 'mimeType' | 'originalName'>,
+): string {
+  const kind = getAttachmentMediaKind(attachment);
+  switch (kind) {
+    case 'image':
+      return 'Photo';
+    case 'video':
+      return 'Video';
+    case 'voice':
+      return 'Voice message';
+    case 'audio':
+      return 'Audio';
+    case 'document':
+      return attachment.originalName ?? 'Document';
+    default:
+      return 'File';
+  }
 }
 
 export function getMessageMediaLabel(

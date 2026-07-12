@@ -129,6 +129,38 @@ export interface MessageForwardedFrom {
   sender?: { id: string; displayName: string; username: string };
 }
 
+export type ConversationAttachmentKind =
+  | 'all'
+  | 'mine'
+  | 'shared'
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'voice'
+  | 'document';
+
+export interface ConversationAttachment {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  size: string;
+  url: string;
+  uploadedBy: string;
+  messageId: string;
+  caption?: string;
+  createdAt: string;
+  uploader: {
+    id: string;
+    displayName: string;
+    username: string;
+  };
+}
+
+export interface ConversationAttachmentListResponse {
+  items: ConversationAttachment[];
+  nextCursor: string | null;
+}
+
 export interface Message {
   id: string;
   conversationId: string;
@@ -843,6 +875,20 @@ class ApiClient {
     const qs = cursor ? `?cursor=${cursor}` : '';
     return this.request<{ messages: Message[]; nextCursor: string | null }>(
       `/conversations/${conversationId}/messages${qs}`,
+    );
+  }
+
+  listConversationAttachments(
+    conversationId: string,
+    options?: { cursor?: string; kind?: ConversationAttachmentKind; limit?: number },
+  ) {
+    const params = new URLSearchParams();
+    if (options?.cursor) params.set('cursor', options.cursor);
+    if (options?.kind && options.kind !== 'all') params.set('kind', options.kind);
+    if (options?.limit) params.set('limit', String(options.limit));
+    const qs = params.toString();
+    return this.request<ConversationAttachmentListResponse>(
+      `/conversations/${conversationId}/attachments${qs ? `?${qs}` : ''}`,
     );
   }
 

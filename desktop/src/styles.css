@@ -1212,6 +1212,197 @@ body {
   line-height: 1.45;
 }
 
+.file-management-panel .conversation-info-content {
+  max-width: none;
+  padding-top: 0;
+}
+
+.file-management-tabs {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--glass-border);
+  background: color-mix(in srgb, var(--glass-1) 55%, transparent);
+  scrollbar-width: thin;
+}
+
+.file-management-tab {
+  flex: 0 0 auto;
+  border: 1px solid var(--glass-border);
+  background: color-mix(in srgb, var(--glass-2) 70%, transparent);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.file-management-tab:hover {
+  color: var(--text-primary);
+}
+
+.file-management-tab--active {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--glass-border));
+  background: color-mix(in srgb, var(--accent) 18%, var(--glass-2));
+}
+
+.file-management-content {
+  padding: 1rem 1rem 1.5rem;
+}
+
+.file-management-empty {
+  text-align: center;
+  padding: 2.5rem 1rem;
+  color: var(--text-secondary);
+}
+
+.file-management-empty-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.file-management-empty p {
+  margin: 0 0 0.5rem;
+}
+
+.file-management-empty-hint {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  max-width: 320px;
+  margin: 0 auto !important;
+}
+
+.file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.file-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--glass-2) 72%, transparent);
+}
+
+.file-thumb {
+  flex: 0 0 auto;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 10px;
+  overflow: hidden;
+  border: none;
+  padding: 0;
+  background: color-mix(in srgb, var(--glass-1) 80%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+
+.file-thumb--image,
+.file-thumb--video {
+  cursor: pointer;
+}
+
+.file-thumb img,
+.file-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.file-thumb--video {
+  position: relative;
+}
+
+.file-thumb-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.file-kind-icon {
+  font-size: 1.35rem;
+}
+
+.file-list-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-list-title {
+  font-weight: 600;
+  font-size: 0.92rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.65rem;
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.file-list-uploader {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.file-list-caption {
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.file-list-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+}
+
+.file-action-btn {
+  font-size: 0.78rem;
+  padding: 0.15rem 0.25rem;
+}
+
+.file-management-load-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.chat-header-files-btn {
+  margin-left: auto;
+}
+
+.files-section-btn {
+  width: 100%;
+  margin-top: 0.5rem;
+}
+
 .channel-invite-row {
   display: flex;
   gap: 0.5rem;

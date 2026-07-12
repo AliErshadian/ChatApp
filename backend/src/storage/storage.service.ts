@@ -23,6 +23,7 @@ import {
   STORAGE_PROVIDER,
 } from './interfaces/storage-provider.interface';
 import { StorageRepository } from './storage.repository';
+import { AttachmentListKind } from './dto/list-conversation-attachments.dto';
 import { buildObjectKey, buildStoredFileName } from './utils/file-name.util';
 import { StorageCategory, validateMediaFile } from './utils/mime.util';
 
@@ -41,6 +42,28 @@ export interface AttachmentMetadata {
   messageId?: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface ConversationAttachmentItem {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  size: string;
+  url: string;
+  uploadedBy: string;
+  messageId: string;
+  caption?: string;
+  createdAt: string;
+  uploader: {
+    id: string;
+    displayName: string;
+    username: string;
+  };
+}
+
+export interface ConversationAttachmentListResponse {
+  items: ConversationAttachmentItem[];
+  nextCursor: string | null;
 }
 
 export interface PresignedDownloadResponse {
@@ -177,6 +200,31 @@ export class StorageService {
     const attachment = await this.requireAttachment(attachmentId);
     await this.assertCanAccess(userId, attachment);
     return this.toMetadata(attachment);
+  }
+
+  async listForConversation(
+    conversationId: string,
+    userId: string,
+    options: { cursor?: string; limit?: number; kind?: AttachmentListKind } = {},
+  ): Promise<ConversationAttachmentListResponse> {
+    await this.conversationsService.assertMember(conversationId, userId);
+
+    const limit = Math.min(options.limit ?? 50, 100);
+    const rows = await this.repository.listForConversation({
+      conversationId,
+      userId,
+      cursor: options.cursor,
+      limit,
+      kind: options.kind,
+    });
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+
+    return {
+      items: page.map((attachment) => this.toConversationItem(attachment)),
+      nextCursor: hasMore ? page[page.length - 1]?.createdAt.toISOString() ?? null : null,
+    };
   }
 
   async getPresignedDownloadUrl(
@@ -419,6 +467,26 @@ export class StorageService {
       messageId: attachment.messageId,
       createdAt: attachment.createdAt,
       updatedAt: attachment.updatedAt,
+    };
+  }
+
+  private toConversationItem(attachment: Attachment): ConversationAttachmentItem {
+    const uploader = attachment.uploader;
+    return {
+      id: attachment.id,
+      originalName: attachment.originalName,
+      mimeType: attachment.mimeType,
+      size: attachment.size,
+      url: attachment.url,
+      uploadedBy: attachment.uploadedBy,
+      messageId: attachment.messageId!,
+      caption: attachment.message?.caption,
+      createdAt: attachment.createdAt.toISOString(),
+      uploader: {
+        id: uploader?.id ?? attachment.uploadedBy,
+        displayName: uploader?.displayName ?? 'Unknown',
+        username: uploader?.username ?? 'unknown',
+      },
     };
   }
 }
