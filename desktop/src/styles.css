@@ -2124,6 +2124,270 @@ body {
   background: #000;
 }
 
+.composer-form.voice-active {
+  display: flex;
+  align-items: stretch;
+}
+
+.composer-mic-btn {
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--glass-2));
+  color: color-mix(in srgb, var(--accent) 85%, white);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.composer-mic-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.composer-mic-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 24%, var(--glass-3));
+}
+
+.composer-mic-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.voice-recorder-panel {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--glass-border));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--accent) 10%, var(--glass-2)) 0%,
+      color-mix(in srgb, var(--glass-1) 88%, transparent) 100%
+    );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
+}
+
+.voice-recorder-panel-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.voice-recorder-panel-status {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.voice-recorder-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--accent) 70%, var(--text-secondary));
+  text-transform: uppercase;
+}
+
+.voice-recorder-discard,
+.voice-recorder-finish {
+  flex-shrink: 0;
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  color: inherit;
+  background: color-mix(in srgb, var(--glass-2) 75%, transparent);
+}
+
+.voice-recorder-discard svg,
+.voice-recorder-finish svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.voice-recorder-discard:hover {
+  background: color-mix(in srgb, #ef4444 18%, var(--glass-2));
+  border-color: color-mix(in srgb, #ef4444 35%, var(--glass-border));
+  color: #fecaca;
+}
+
+.voice-recorder-finish {
+  background: color-mix(in srgb, var(--accent) 78%, #111);
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--glass-border));
+  color: white;
+}
+
+.voice-recorder-finish:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, #111);
+}
+
+.voice-recorder-finish:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.voice-recorder-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #ef4444 18%, transparent);
+  animation: voice-recording-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes voice-recording-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.92);
+  }
+}
+
+.voice-recording-timer {
+  font-size: 0.84rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  min-width: 2.6rem;
+}
+
+.composer-form.voice-active .voice-recorder-panel {
+  flex: 1;
+}
+
+.voice-waveform {
+  height: 1.75rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.voice-waveform-playback {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  position: relative;
+  overflow: hidden;
+}
+
+.voice-waveform-track {
+  grid-area: 1 / 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: flex-end;
+}
+
+.voice-waveform-track-accent {
+  clip-path: inset(0 calc((1 - var(--voice-progress, 0)) * 100%) 0 0);
+  pointer-events: none;
+}
+
+.voice-waveform-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+}
+
+.voice-waveform-bar {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: 999px;
+}
+
+.voice-waveform-bars-muted .voice-waveform-bar {
+  background: rgba(148, 163, 184, 0.55);
+}
+
+.voice-message.own .voice-waveform-bars-muted .voice-waveform-bar {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.voice-waveform-bars-accent .voice-waveform-bar {
+  background: var(--accent, #3b82f6);
+}
+
+.voice-message.own .voice-waveform-bars-accent .voice-waveform-bar {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.voice-waveform-bars-live .voice-waveform-bar {
+  background: color-mix(in srgb, var(--accent) 55%, var(--text-secondary));
+}
+
+.voice-waveform-live {
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.voice-message-audio {
+  display: none;
+}
+
+.voice-message {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: min(260px, 100%);
+  max-width: 320px;
+  padding: 0.35rem 0.15rem;
+}
+
+.voice-message-play {
+  flex-shrink: 0;
+  width: 2.2rem;
+  height: 2.2rem;
+  border: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: white;
+  background: color-mix(in srgb, var(--accent) 82%, #111);
+}
+
+.voice-message.incoming .voice-message-play {
+  background: color-mix(in srgb, var(--text-secondary) 55%, #111);
+}
+
+.voice-message-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.voice-message-waveform-hit {
+  cursor: pointer;
+}
+
+.voice-message-duration {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
 .message-attachment-audio {
   display: flex;
   flex-direction: column;

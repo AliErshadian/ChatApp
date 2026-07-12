@@ -33,6 +33,10 @@ import { formatLastSeen } from '../utils/time';
 import { createClientMessageId } from '../utils/uuid';
 import { takePendingInviteToken } from '../utils/channelInvite';
 import { ATTACHMENT_ACCEPT, getMessagePreviewText } from '../utils/messageMedia';
+import { remapVoiceMessageMeta, setVoiceMessageMeta, getVoiceMessageMeta } from '../utils/voiceMessageCache';
+import { normalizeVoiceMimeType } from '../utils/voiceMessage';
+import type { VoiceRecordingResult } from '../hooks/useVoiceRecorder';
+import { VoiceRecorderControl } from './VoiceRecorderControl';
 import { isMessagesNearBottom, scrollToMessageById } from '../utils/messageScroll';
 import { getConversationMentionLabel, buildMentionNotificationText, buildNewChatNotificationText, buildAddedToConversationText } from '../utils/conversationLabel';
 import { isMessageInView } from '../utils/isMessageInView';
@@ -78,6 +82,7 @@ export function ChatPage() {
   const [deleteChatBusy, setDeleteChatBusy] = useState(false);
   const [sendError, setSendError] = useState('');
   const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const [voiceRecording, setVoiceRecording] = useState(false);
   const [lastSeenTick, setLastSeenTick] = useState(0);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [swipeTransition, setSwipeTransition] = useState(false);
@@ -1441,6 +1446,88 @@ export function ChatPage() {
     }
   };
 
+  const handleVoiceSend = async (recording: VoiceRecordingResult) => {
+    if (!activeId || !canSendInActiveChat || editingMessageId || attachmentBusy) {
+      URL.revokeObjectURL(recording.previewUrl);
+      return;
+    }
+
+    const clientMessageId = createClientMessageId();
+    const replyTarget = replyingToMessage;
+    const file = recording.file;
+    const previewUrl = recording.previewUrl;
+
+    setReplyingToMessage(null);
+    setSendError('');
+    setAttachmentBusy(true);
+    setVoiceMessageMeta(clientMessageId, {
+      peaks: recording.peaks,
+      durationMs: recording.durationMs,
+    });
+
+    const replyPreview = replyTarget
+      ? {
+          id: replyTarget.id,
+          senderId: replyTarget.senderId,
+          content: replyTarget.deletedForEveryone ? '' : replyTarget.content,
+          contentType: replyTarget.contentType,
+          fileName: replyTarget.fileName,
+          caption: replyTarget.caption,
+          deletedForEveryone: replyTarget.deletedForEveryone,
+          sender: replyTarget.sender,
+        }
+      : undefined;
+
+    const optimistic: Message = {
+      id: clientMessageId,
+      conversationId: activeId,
+      senderId: user!.id,
+      content: previewUrl,
+      contentType: normalizeVoiceMimeType(file.type || 'audio/webm'),
+      fileName: file.name,
+      fileSize: String(file.size),
+      clientMessageId,
+      sequence: '0',
+      createdAt: new Date().toISOString(),
+      status: 'sending',
+      replyTo: replyPreview,
+      sender: { id: user!.id, displayName: user!.displayName, username: user!.username },
+    };
+
+    setMessages((prev) => [...prev, optimistic]);
+    activeChatMessageIdsRef.current.add(clientMessageId);
+    shouldScrollToBottomRef.current = true;
+    clearPendingBelow();
+    setFirstUnreadMessageId(null);
+    setConversations((prev) =>
+      reorderConversations(
+        prev.map((c) =>
+          c.id === activeId ? bumpConversationFromMessage(c, optimistic) : c,
+        ),
+      ),
+    );
+
+    try {
+      const sent = await api.sendMessageAttachment(activeId, file, {
+        clientMessageId,
+        replyToMessageId: replyTarget?.id,
+      });
+      const voiceMeta = getVoiceMessageMeta(clientMessageId);
+      remapVoiceMessageMeta(clientMessageId, sent.id);
+      if (voiceMeta && sent.attachmentId) {
+        setVoiceMessageMeta(sent.attachmentId, voiceMeta);
+      }
+      confirmOutgoing(sent, clientMessageId);
+    } catch (err) {
+      setMessages((prev) => prev.filter((m) => m.clientMessageId !== clientMessageId));
+      if (replyTarget) setReplyingToMessage(replyTarget);
+      setSendError(err instanceof Error ? err.message : 'Failed to send voice message');
+    } finally {
+      URL.revokeObjectURL(previewUrl);
+      setAttachmentBusy(false);
+    }
+  };
+
   const handleComposerSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingMessageId) {
@@ -2136,67 +2223,80 @@ export function ChatPage() {
                       </button>
                     </div>
                   )}
-                  <form className="composer-form" onSubmit={handleComposerSubmit}>
-                    <button
-                      type="button"
-                      className="composer-attach-btn"
-                      onClick={() => attachmentInputRef.current?.click()}
-                      disabled={attachmentBusy || editBusy || !!editingMessageId}
-                      aria-label="Attach file"
-                      title="Attach photo, video, audio, or document"
-                    >
-                      📎
-                    </button>
-                    <input
-                      ref={attachmentInputRef}
-                      type="file"
-                      className="avatar-file-input"
-                      accept={ATTACHMENT_ACCEPT}
-                      onChange={(e) => void handleAttachmentSelect(e)}
-                    />
-                    <div className="composer-input-wrap">
-                      <MentionAutocomplete
-                        open={Boolean(mentionQuery && activeConversation && user)}
-                        members={activeConversation?.members ?? []}
-                        currentUserId={user!.id}
-                        query={mentionQuery?.query ?? ''}
-                        onSelect={handleMentionSelect}
-                        onClose={() => setMentionQuery(null)}
+                  <form className={`composer-form ${voiceRecording ? 'voice-active' : ''}`} onSubmit={handleComposerSubmit}>
+                    {!voiceRecording && (
+                      <>
+                        <button
+                          type="button"
+                          className="composer-attach-btn"
+                          onClick={() => attachmentInputRef.current?.click()}
+                          disabled={attachmentBusy || editBusy || !!editingMessageId}
+                          aria-label="Attach file"
+                          title="Attach photo, video, audio, or document"
+                        >
+                          📎
+                        </button>
+                        <input
+                          ref={attachmentInputRef}
+                          type="file"
+                          className="avatar-file-input"
+                          accept={ATTACHMENT_ACCEPT}
+                          onChange={(e) => void handleAttachmentSelect(e)}
+                        />
+                        <div className="composer-input-wrap">
+                          <MentionAutocomplete
+                            open={Boolean(mentionQuery && activeConversation && user)}
+                            members={activeConversation?.members ?? []}
+                            currentUserId={user!.id}
+                            query={mentionQuery?.query ?? ''}
+                            onSelect={handleMentionSelect}
+                            onClose={() => setMentionQuery(null)}
+                          />
+                          <input
+                            ref={composerInputRef}
+                            value={input}
+                            onChange={(e) =>
+                              handleInputChange(e.target.value, e.target.selectionStart ?? e.target.value.length)
+                            }
+                            onClick={(e) =>
+                              handleInputChange(
+                                e.currentTarget.value,
+                                e.currentTarget.selectionStart ?? e.currentTarget.value.length,
+                              )
+                            }
+                            onKeyUp={(e) =>
+                              handleInputChange(
+                                e.currentTarget.value,
+                                e.currentTarget.selectionStart ?? e.currentTarget.value.length,
+                              )
+                            }
+                            placeholder={
+                              editingMessageId
+                                ? 'Edit your message'
+                                : attachmentBusy
+                                  ? 'Sending attachment...'
+                                  : isMultiMemberConversation(activeConversation)
+                                    ? `Message ${activeConversation.name} (@ to mention)`
+                                    : `Message ${activeConversation.name}`
+                            }
+                            disabled={attachmentBusy}
+                            enterKeyHint={editingMessageId ? 'done' : 'send'}
+                          />
+                        </div>
+                      </>
+                    )}
+                    {editingMessageId || input.trim() ? (
+                      <button type="submit" disabled={!input.trim() || editBusy || attachmentBusy}>
+                        {editBusy ? 'Saving...' : editingMessageId ? 'Save' : 'Send'}
+                      </button>
+                    ) : (
+                      <VoiceRecorderControl
+                        disabled={attachmentBusy || editBusy || !!editingMessageId}
+                        onRecordingChange={setVoiceRecording}
+                        onSend={handleVoiceSend}
+                        onError={(message) => setSendError(message)}
                       />
-                      <input
-                        ref={composerInputRef}
-                        value={input}
-                        onChange={(e) =>
-                          handleInputChange(e.target.value, e.target.selectionStart ?? e.target.value.length)
-                        }
-                        onClick={(e) =>
-                          handleInputChange(
-                            e.currentTarget.value,
-                            e.currentTarget.selectionStart ?? e.currentTarget.value.length,
-                          )
-                        }
-                        onKeyUp={(e) =>
-                          handleInputChange(
-                            e.currentTarget.value,
-                            e.currentTarget.selectionStart ?? e.currentTarget.value.length,
-                          )
-                        }
-                        placeholder={
-                          editingMessageId
-                            ? 'Edit your message'
-                            : attachmentBusy
-                              ? 'Sending attachment...'
-                              : isMultiMemberConversation(activeConversation)
-                                ? `Message ${activeConversation.name} (@ to mention)`
-                                : `Message ${activeConversation.name}`
-                        }
-                        disabled={attachmentBusy}
-                        enterKeyHint={editingMessageId ? 'done' : 'send'}
-                      />
-                    </div>
-                    <button type="submit" disabled={!input.trim() || editBusy || attachmentBusy}>
-                      {editBusy ? 'Saving...' : editingMessageId ? 'Save' : 'Send'}
-                    </button>
+                    )}
                   </form>
                 </>
               ) : (

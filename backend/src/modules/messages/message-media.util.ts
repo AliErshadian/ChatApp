@@ -57,6 +57,33 @@ const MEDIA_RULES: MediaRule[] = [
   },
 ];
 
+function normalizeMimeType(mime: string): string {
+  return (mime || '').toLowerCase().split(';')[0]?.trim() ?? '';
+}
+
+function isVoiceRecordingName(name: string): boolean {
+  const base = name.replace(/\\/g, '/').split('/').pop()?.toLowerCase() ?? '';
+  return base.startsWith('voice-');
+}
+
+function resolveMessageMediaRule(file: Express.Multer.File): MediaRule | undefined {
+  const ext = extname(file.originalname).toLowerCase();
+  const mime = normalizeMimeType(file.mimetype);
+
+  if (isVoiceRecordingName(file.originalname)) {
+    return MEDIA_RULES.find((rule) => rule.kind === 'audio');
+  }
+
+  const mimeMatch = MEDIA_RULES.find((rule) => rule.mimeTypes.has(mime));
+  if (mimeMatch) return mimeMatch;
+
+  if (ext === '.webm' && mime.startsWith('audio/')) {
+    return MEDIA_RULES.find((rule) => rule.kind === 'audio');
+  }
+
+  return MEDIA_RULES.find((rule) => rule.extensions.has(ext));
+}
+
 export function isTextContentType(contentType: string): boolean {
   return contentType === 'text/plain' || contentType.startsWith('text/');
 }
@@ -71,11 +98,9 @@ export function getMessageMediaKind(contentType: string): MessageMediaKind | 'te
 
 export function validateMessageMediaFile(file: Express.Multer.File) {
   const ext = extname(file.originalname).toLowerCase();
-  const mime = (file.mimetype || '').toLowerCase();
+  const mime = normalizeMimeType(file.mimetype);
 
-  const rule = MEDIA_RULES.find(
-    (candidate) => candidate.extensions.has(ext) || candidate.mimeTypes.has(mime),
-  );
+  const rule = resolveMessageMediaRule(file);
 
   if (!rule) {
     throw new BadRequestException('Unsupported file type');
@@ -87,7 +112,9 @@ export function validateMessageMediaFile(file: Express.Multer.File) {
 
   const resolvedMime = rule.mimeTypes.has(mime)
     ? mime
-    : [...rule.mimeTypes].find((type) => type.startsWith(`${rule.kind}/`)) ?? mime;
+    : mime.startsWith(`${rule.kind}/`)
+      ? mime
+      : [...rule.mimeTypes].find((type) => type.startsWith(`${rule.kind}/`)) ?? mime;
 
   return {
     kind: rule.kind,

@@ -66,18 +66,39 @@ function sanitizeOriginalName(name: string): string {
     .slice(0, 255);
 }
 
+function normalizeMimeType(mime: string): string {
+  return (mime || '').toLowerCase().split(';')[0]?.trim() ?? '';
+}
+
+function isVoiceRecordingName(name: string): boolean {
+  const base = name.replace(/\\/g, '/').split('/').pop()?.toLowerCase() ?? '';
+  return base.startsWith('voice-');
+}
+
 function resolveRule(
   mime: string,
   ext: string,
   allowedCategories?: StorageCategory[],
+  originalName?: string,
 ): MediaRule | undefined {
   const rules = allowedCategories
     ? MEDIA_RULES.filter((rule) => allowedCategories.includes(rule.category))
     : MEDIA_RULES;
 
-  return rules.find(
-    (candidate) => candidate.extensions.has(ext) || candidate.mimeTypes.has(mime),
-  );
+  const normalizedMime = normalizeMimeType(mime);
+
+  if (originalName && isVoiceRecordingName(originalName)) {
+    return rules.find((rule) => rule.category === 'audio');
+  }
+
+  const mimeMatch = rules.find((rule) => rule.mimeTypes.has(normalizedMime));
+  if (mimeMatch) return mimeMatch;
+
+  if (ext === '.webm' && normalizedMime.startsWith('audio/')) {
+    return rules.find((rule) => rule.category === 'audio');
+  }
+
+  return rules.find((rule) => rule.extensions.has(ext));
 }
 
 export function validateMediaFile(
@@ -85,7 +106,7 @@ export function validateMediaFile(
   options: { allowedCategories?: StorageCategory[]; forceCategory?: StorageCategory } = {},
 ): ValidatedMedia {
   const ext = extname(file.originalname).toLowerCase();
-  const mime = (file.mimetype || '').toLowerCase();
+  const mime = normalizeMimeType(file.mimetype);
 
   if (options.forceCategory === 'avatar') {
     if (!AVATAR_RULE.extensions.has(ext) && !AVATAR_RULE.mimeTypes.has(mime)) {
@@ -103,14 +124,16 @@ export function validateMediaFile(
     };
   }
 
-  const rule = resolveRule(mime, ext, options.allowedCategories);
+  const rule = resolveRule(mime, ext, options.allowedCategories, file.originalname);
   if (!rule) {
     throw new BadRequestException('Unsupported file type');
   }
 
   const resolvedMime = rule.mimeTypes.has(mime)
     ? mime
-    : [...rule.mimeTypes].find((type) => type.startsWith(`${rule.category}/`)) ?? mime;
+    : mime.startsWith(`${rule.category}/`)
+      ? mime
+      : [...rule.mimeTypes].find((type) => type.startsWith(`${rule.category}/`)) ?? mime;
 
   return {
     category: rule.category,

@@ -1,14 +1,19 @@
 import { Message, MessageReplyPreview } from '../services/api';
 import { getAssetBase } from './avatar';
+import { isVoiceMessage } from './voiceMessage';
 
-export type MessageMediaKind = 'text' | 'image' | 'video' | 'audio' | 'document';
+export type MessageMediaKind = 'text' | 'image' | 'video' | 'audio' | 'document' | 'voice';
 
 export function isTextMessage(message: Pick<Message, 'contentType'>): boolean {
   return message.contentType === 'text/plain' || message.contentType.startsWith('text/');
 }
 
-export function getMessageMediaKind(contentType: string): MessageMediaKind {
-  if (isTextMessage({ contentType })) return 'text';
+export function getMessageMediaKind(
+  message: Pick<Message, 'contentType' | 'fileName'>,
+): MessageMediaKind {
+  if (isTextMessage(message)) return 'text';
+  if (isVoiceMessage(message)) return 'voice';
+  const contentType = message.contentType || '';
   if (contentType.startsWith('image/')) return 'image';
   if (contentType.startsWith('video/')) return 'video';
   if (contentType.startsWith('audio/')) return 'audio';
@@ -18,12 +23,14 @@ export function getMessageMediaKind(contentType: string): MessageMediaKind {
 export function getMessageMediaLabel(
   message: Pick<Message, 'contentType' | 'fileName'>,
 ): string {
-  const kind = getMessageMediaKind(message.contentType);
+  const kind = getMessageMediaKind(message);
   switch (kind) {
     case 'image':
       return 'Photo';
     case 'video':
       return 'Video';
+    case 'voice':
+      return 'Voice message';
     case 'audio':
       return 'Audio';
     case 'document':

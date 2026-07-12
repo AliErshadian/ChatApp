@@ -297,7 +297,7 @@ export function MessageBubble({
             />
           )}
           {isAttachmentMessage(message) ? (
-            <MessageAttachmentContent message={message} />
+            <MessageAttachmentContent message={message} isOwn={isOwn} />
           ) : (
             <div className="message-content">
               <LinkifiedMessageText text={message.content} mentions={message.mentions} />
