@@ -7,7 +7,7 @@ import {
 } from 'typeorm';
 import { Conversation } from '../../conversations/entities/conversation.entity';
 import { User } from '../../users/entities/user.entity';
-import type { CallEndedPayload } from '../call.types';
+import type { CallEndedPayload, CallMediaType } from '../call.types';
 
 @Entity('call_records')
 export class CallRecord {
@@ -43,6 +43,12 @@ export class CallRecord {
 
   @Column({ name: 'duration_seconds', type: 'int', nullable: true })
   durationSeconds!: number | null;
+
+  @Column({ name: 'media_type', type: 'text', default: 'audio' })
+  mediaType!: CallMediaType;
+
+  @Column({ name: 'callee_seen_at', type: 'timestamptz', nullable: true })
+  calleeSeenAt!: Date | null;
 
   @ManyToOne(() => Conversation, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'conversation_id' })

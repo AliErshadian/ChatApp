@@ -27,7 +27,7 @@ export function getCallHistoryCategory(
   }
 
   if (isCaller) {
-    if (record.endReason === 'cancelled') {
+    if (record.endReason === 'cancelled' || record.endReason === 'timeout') {
       return 'cancelled';
     }
     return 'not_answered';

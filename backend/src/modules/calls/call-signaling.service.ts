@@ -16,6 +16,7 @@ import type {
   CallAcceptedPayload,
   CallEndedPayload,
   CallIncomingPayload,
+  CallMediaType,
   CallSignalPayload,
 } from './call.types';
 
@@ -33,7 +34,8 @@ export class CallSignalingService {
     userId: string,
     sessionId: string,
     conversationId: string,
-  ): Promise<{ callId: string; conversationId: string; calleeId: string }> {
+    mediaType: CallMediaType = 'audio',
+  ): Promise<{ callId: string; conversationId: string; calleeId: string; mediaType: CallMediaType }> {
     if (this.registry.isUserBusy(userId)) {
       throw new ConflictException('You are already in a call');
     }
@@ -47,17 +49,21 @@ export class CallSignalingService {
     const caller = await this.usersService.findById(userId);
     if (!caller) throw new NotFoundException('Caller not found');
 
+    const normalizedMediaType: CallMediaType = mediaType === 'video' ? 'video' : 'audio';
+
     const callId = randomUUID();
     const call = this.registry.create({
       callId,
       conversationId,
       callerId: userId,
       calleeId: peerUserId,
+      mediaType: normalizedMediaType,
     });
 
     const incoming: CallIncomingPayload = {
       callId,
       conversationId,
+      mediaType: normalizedMediaType,
       caller: {
         id: caller.id,
         displayName: caller.displayName,
@@ -71,7 +77,7 @@ export class CallSignalingService {
       void this.endCall(callId, userId, 'timeout');
     });
 
-    return { callId: call.callId, conversationId, calleeId: peerUserId };
+    return { callId: call.callId, conversationId, calleeId: peerUserId, mediaType: normalizedMediaType };
   }
 
   async accept(
@@ -181,6 +187,7 @@ export class CallSignalingService {
       conversationId: call.conversationId,
       callerId: call.callerId,
       calleeId: call.calleeId,
+      mediaType: call.mediaType,
       endReason: reason,
       endedBy,
       startedAt: new Date(call.createdAt),

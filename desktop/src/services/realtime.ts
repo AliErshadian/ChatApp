@@ -892,11 +892,14 @@ class RealtimeClient {
     return this.socket;
   }
 
-  inviteCall(conversationId: string) {
+  inviteCall(conversationId: string, options?: { video?: boolean }) {
     const socket = this.requireWebSocket();
     return new Promise<{ callId: string; conversationId: string; calleeId: string }>(
       (resolve, reject) => {
-        socket.emit('call:invite', { conversationId }, (ack: unknown) => {
+        socket.emit(
+          'call:invite',
+          { conversationId, mediaType: options?.video ? 'video' : 'audio' },
+          (ack: unknown) => {
           const payload = ack as {
             success?: boolean;
             callId?: string;

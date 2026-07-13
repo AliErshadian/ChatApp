@@ -1,0 +1,1 @@
+ALTER TABLE call_records ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'audio';

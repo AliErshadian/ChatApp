@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UsersService } from '../users/users.service';
 import { CallRecord } from './entities/call-record.entity';
-import type { CallEndedPayload } from './call.types';
+import type { CallEndedPayload, CallMediaType } from './call.types';
 import {
   getCallHistoryCategory,
   getCallHistoryLabel,
@@ -15,6 +15,7 @@ export interface RecordCallEndInput {
   conversationId: string;
   callerId: string;
   calleeId: string;
+  mediaType: CallMediaType;
   endReason: CallEndedPayload['reason'];
   endedBy?: string;
   startedAt: Date;
@@ -42,6 +43,7 @@ export class CallsHistoryService {
         conversationId: input.conversationId,
         callerId: input.callerId,
         calleeId: input.calleeId,
+        mediaType: input.mediaType,
         endReason: input.endReason,
         endedBy: input.endedBy ?? null,
         startedAt: input.startedAt,
@@ -86,6 +88,42 @@ export class CallsHistoryService {
     };
   }
 
+  async countUnseenMissed(userId: string): Promise<number> {
+    const qb = this.callRecordRepo.createQueryBuilder('call').where('1=1');
+    this.applyMissedFilter(qb, userId);
+    qb.andWhere('call.calleeSeenAt IS NULL');
+    return qb.getCount();
+  }
+
+  async markMissedSeen(userId: string): Promise<{ count: number }> {
+    const result = await this.callRecordRepo
+      .createQueryBuilder()
+      .update(CallRecord)
+      .set({ calleeSeenAt: () => 'NOW()' })
+      .where('callee_id = :userId', { userId })
+      .andWhere('answered_at IS NULL')
+      .andWhere('callee_seen_at IS NULL')
+      .andWhere(
+        "(end_reason IN ('timeout', 'cancelled') OR (end_reason = 'rejected' AND (ended_by IS NULL OR ended_by != :userId)))",
+        { userId },
+      )
+      .execute();
+
+    return { count: result.affected ?? 0 };
+  }
+
+  private applyMissedFilter(
+    qb: ReturnType<Repository<CallRecord>['createQueryBuilder']>,
+    userId: string,
+  ) {
+    qb.andWhere('call.calleeId = :userId', { userId })
+      .andWhere('call.answeredAt IS NULL')
+      .andWhere(
+        "(call.endReason IN ('timeout', 'cancelled') OR (call.endReason = 'rejected' AND (call.endedBy IS NULL OR call.endedBy != :userId)))",
+        { userId },
+      );
+  }
+
   private applyFilter(
     qb: ReturnType<Repository<CallRecord>['createQueryBuilder']>,
     filter: CallHistoryCategory | 'all',
@@ -103,20 +141,17 @@ export class CallsHistoryService {
           .andWhere("call.endReason = 'ended'");
         break;
       case 'cancelled':
-        qb.andWhere('call.callerId = :userId', { userId }).andWhere("call.endReason = 'cancelled'");
+        qb.andWhere('call.callerId = :userId', { userId })
+          .andWhere('call.answeredAt IS NULL')
+          .andWhere("call.endReason IN ('cancelled', 'timeout')");
         break;
       case 'missed':
-        qb.andWhere('call.calleeId = :userId', { userId })
-          .andWhere('call.answeredAt IS NULL')
-          .andWhere(
-            "(call.endReason IN ('timeout', 'cancelled') OR (call.endReason = 'rejected' AND (call.endedBy IS NULL OR call.endedBy != :userId)))",
-            { userId },
-          );
+        this.applyMissedFilter(qb, userId);
         break;
       case 'not_answered':
         qb.andWhere('call.callerId = :userId', { userId })
           .andWhere('call.answeredAt IS NULL')
-          .andWhere("call.endReason IN ('timeout', 'rejected', 'busy', 'unavailable')");
+          .andWhere("call.endReason IN ('rejected', 'busy', 'unavailable')");
         break;
       default:
         break;
@@ -149,6 +184,7 @@ export class CallsHistoryService {
       answeredAt: record.answeredAt?.toISOString() ?? null,
       endedAt: record.endedAt.toISOString(),
       durationSeconds: record.durationSeconds,
+      mediaType: record.mediaType,
     };
   }
 }

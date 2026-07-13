@@ -312,12 +312,13 @@ export class RealtimeGateway
   @SubscribeMessage('call:invite')
   async handleCallInvite(
     @ConnectedSocket() client: AuthenticatedSocket,
-    @MessageBody() data: { conversationId: string },
+    @MessageBody() data: { conversationId: string; mediaType?: 'audio' | 'video' },
   ) {
     const result = await this.callSignaling.invite(
       client.data.userId,
       client.data.sessionId,
       data.conversationId,
+      data.mediaType,
     );
     return { success: true, ...result };
   }

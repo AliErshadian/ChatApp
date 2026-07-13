@@ -1,3 +1,5 @@
+export type CallMediaType = 'audio' | 'video';
+
 export type VoiceCallPhase =
   | 'idle'
   | 'outgoing'
@@ -27,10 +29,14 @@ export interface VoiceCallState {
   conversationId: string | null;
   peer: VoiceCallPeer | null;
   role: 'caller' | 'callee' | null;
+  mediaType: CallMediaType;
   muted: boolean;
+  cameraOff: boolean;
   speakerOn: boolean;
   speakerSupported: boolean;
   audioOutputPickerSupported: boolean;
+  hasLocalVideo: boolean;
+  hasRemoteVideo: boolean;
   error: string | null;
   endReason: VoiceCallEndReason | null;
 }
@@ -41,10 +47,14 @@ export const INITIAL_VOICE_CALL_STATE: VoiceCallState = {
   conversationId: null,
   peer: null,
   role: null,
+  mediaType: 'audio',
   muted: false,
+  cameraOff: false,
   speakerOn: false,
   speakerSupported: false,
   audioOutputPickerSupported: false,
+  hasLocalVideo: false,
+  hasRemoteVideo: false,
   error: null,
   endReason: null,
 };
@@ -52,6 +62,7 @@ export const INITIAL_VOICE_CALL_STATE: VoiceCallState = {
 export interface CallIncomingEvent {
   callId: string;
   conversationId: string;
+  mediaType?: CallMediaType;
   caller: VoiceCallPeer;
 }
 
@@ -73,4 +84,8 @@ export interface CallSignalEvent {
   type: 'offer' | 'answer' | 'ice';
   payload: unknown;
   fromUserId: string;
+}
+
+export interface StartCallOptions {
+  video?: boolean;
 }

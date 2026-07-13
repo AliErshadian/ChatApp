@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ActiveCall } from './call.types';
 
-const RING_TIMEOUT_MS = 45_000;
+const RING_TIMEOUT_MS = 15_000;
 
 @Injectable()
 export class CallRegistryService {

@@ -1414,6 +1414,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
+  overflow-y: auto;
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
@@ -1431,13 +1432,17 @@ body {
 }
 
 .voice-call-card {
-  width: min(100%, 320px);
+  width: min(100%, 360px);
+  max-height: min(92vh, 860px);
   padding: 2rem 1.5rem 1.5rem;
   border-radius: 20px;
   border: 1px solid var(--glass-border);
   background: color-mix(in srgb, var(--glass-1) 88%, transparent);
   text-align: center;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
 }
 
 .voice-call-card--phone {
@@ -1458,12 +1463,16 @@ body {
 }
 
 .voice-call-header {
-  flex: 1;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   min-height: 0;
+}
+
+.voice-call-card--phone .voice-call-header {
+  flex: 1 1 auto;
 }
 
 .voice-call-avatar-wrap {
@@ -1501,6 +1510,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 1.25rem;
+  flex-shrink: 0;
 }
 
 .voice-call-actions--incoming {
@@ -1591,6 +1601,217 @@ body {
   font-size: 0.78rem;
   color: var(--text-secondary);
   font-weight: 600;
+}
+
+.voice-call-overlay--video {
+  background: #020617;
+}
+
+.voice-call-card--video {
+  width: min(100%, 720px);
+  max-height: min(92vh, 860px);
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.voice-call-card--video .voice-call-video-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: calc(min(92vh, 860px) - 200px);
+}
+
+.voice-call-card--video-overlay {
+  width: min(100%, 900px);
+  max-height: min(92vh, 860px);
+}
+
+.voice-call-card--video-overlay .voice-call-video-stage {
+  flex: 1 1 auto;
+  min-height: min(72vh, 640px);
+  max-height: min(92vh, 860px);
+}
+
+.voice-call-video-meta {
+  position: absolute;
+  top: 0.85rem;
+  left: 0.85rem;
+  z-index: 3;
+  max-width: min(70%, 320px);
+  padding: 0.45rem 0.7rem;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  text-align: left;
+}
+
+.voice-call-video-meta .voice-call-name {
+  margin: 0 0 0.15rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voice-call-video-meta .voice-call-status {
+  margin: 0;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.voice-call-video-controls {
+  position: absolute;
+  left: 0.85rem;
+  bottom: 0.85rem;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.voice-call-control--compact {
+  min-width: 0;
+  gap: 0;
+}
+
+.voice-call-control--compact .voice-call-control-icon {
+  width: 2.15rem;
+  height: 2.15rem;
+}
+
+.voice-call-control--compact .voice-call-control-icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.voice-call-control--compact.voice-call-control--danger .voice-call-control-icon,
+.voice-call-control--compact.voice-call-control--accept .voice-call-control-icon {
+  width: 2.35rem;
+  height: 2.35rem;
+}
+
+.voice-call-card--video-overlay .voice-call-local-video {
+  right: 0.85rem;
+  bottom: 0.85rem;
+  width: 96px;
+  height: 136px;
+}
+
+.voice-call-card--video-overlay .voice-call-camera-off-badge {
+  top: 0.85rem;
+  right: 0.85rem;
+  left: auto;
+  bottom: auto;
+}
+
+.voice-call-card:not(.voice-call-card--video):not(.voice-call-card--phone) .voice-call-actions {
+  margin-top: auto;
+}
+
+.voice-call-video-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-call-card--phone .voice-call-video-stage {
+  min-height: 48vh;
+}
+
+.voice-call-remote-video,
+.voice-call-local-video {
+  object-fit: cover;
+  background: #0f172a;
+}
+
+.voice-call-remote-video {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  transform: scaleX(-1);
+}
+
+.voice-call-local-video {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  width: 112px;
+  height: 160px;
+  border-radius: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  z-index: 2;
+  transform: scaleX(-1);
+}
+
+.voice-call-card--phone .voice-call-local-video {
+  width: 96px;
+  height: 136px;
+  right: 0.85rem;
+  bottom: 0.85rem;
+}
+
+.voice-call-video-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.voice-call-camera-off-badge {
+  position: absolute;
+  left: 1rem;
+  bottom: 1rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  z-index: 2;
+}
+
+.voice-call-card--video .voice-call-header {
+  flex: 0 0 auto;
+  padding: 1rem 1.25rem 0.25rem;
+}
+
+.voice-call-card--video .voice-call-actions {
+  flex: 0 0 auto;
+  padding: 0.75rem 1.25rem 1.25rem;
+  background: color-mix(in srgb, var(--glass-1) 92%, #020617);
+  border-top: 1px solid var(--glass-border);
+}
+
+.voice-call-card--video.voice-call-card--phone {
+  width: 100%;
+  max-height: none;
+  min-height: 100%;
+}
+
+.voice-call-control-icon svg rect {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
 }
 
 .voice-call-btn {

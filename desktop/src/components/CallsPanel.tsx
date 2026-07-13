@@ -70,7 +70,7 @@ function callIcon(category: CallHistoryItem['category']) {
 
 export function CallsPanel({ onClose, isMobile = false, onMessage }: Props) {
   const { getPresence, refreshPresence } = usePresence();
-  const { startCall } = useVoiceCall();
+  const { startVoiceCall, startVideoCall } = useVoiceCall();
   const [filter, setFilter] = useState<CallHistoryFilter>('all');
   const [items, setItems] = useState<CallHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -143,11 +143,19 @@ export function CallsPanel({ onClose, isMobile = false, onMessage }: Props) {
     setActionKey(item.id);
     setError('');
     try {
-      await startCall(item.conversationId, {
-        id: item.peer.id,
-        displayName: item.peer.displayName,
-        username: item.peer.username,
-      });
+      if (item.mediaType === 'video') {
+        await startVideoCall(item.conversationId, {
+          id: item.peer.id,
+          displayName: item.peer.displayName,
+          username: item.peer.username,
+        });
+      } else {
+        await startVoiceCall(item.conversationId, {
+          id: item.peer.id,
+          displayName: item.peer.displayName,
+          username: item.peer.username,
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start call');
     } finally {
@@ -224,6 +232,7 @@ export function CallsPanel({ onClose, isMobile = false, onMessage }: Props) {
                         <span
                           className={`call-history-label${isMissedLike ? ' call-history-label--alert' : ''}`}
                         >
+                          {item.mediaType === 'video' ? 'Video · ' : ''}
                           {item.label}
                         </span>
                         {duration && <span className="call-history-duration">{duration}</span>}

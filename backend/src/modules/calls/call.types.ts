@@ -1,10 +1,13 @@
 export type CallState = 'ringing' | 'active' | 'ended';
 
+export type CallMediaType = 'audio' | 'video';
+
 export interface ActiveCall {
   callId: string;
   conversationId: string;
   callerId: string;
   calleeId: string;
+  mediaType: CallMediaType;
   state: CallState;
   createdAt: number;
   answeredAt?: number;
@@ -20,6 +23,7 @@ export interface CallParticipantInfo {
 export interface CallIncomingPayload {
   callId: string;
   conversationId: string;
+  mediaType: CallMediaType;
   caller: CallParticipantInfo;
 }
 

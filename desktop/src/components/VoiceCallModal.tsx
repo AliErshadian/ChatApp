@@ -1,22 +1,27 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Avatar } from './Avatar';
 import { voiceCallManager } from '../services/voiceCall';
 import type { VoiceCallState } from '../types/voiceCall';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 
 function getStatusLabel(state: VoiceCallState): string {
+  const callKind = state.mediaType === 'video' ? 'video call' : 'voice call';
+
   if (state.phase === 'active') {
-    if (state.muted && state.speakerOn) return 'Muted · Speaker';
-    if (state.muted) return 'Muted';
-    if (state.speakerOn) return 'Speaker on';
-    return 'On call';
+    const parts: string[] = [];
+    if (state.muted) parts.push('Muted');
+    if (state.mediaType === 'video' && state.cameraOff) parts.push('Camera off');
+    if (state.speakerOn) parts.push('Speaker');
+    if (parts.length > 0) return parts.join(' · ');
+    return state.mediaType === 'video' ? 'On video call' : 'On call';
   }
 
   switch (state.phase) {
     case 'outgoing':
-      return 'Calling...';
+      return state.mediaType === 'video' ? 'Starting video call...' : 'Calling...';
     case 'incoming':
-      return 'Incoming voice call';
+      return `Incoming ${callKind}`;
     case 'connecting':
       return 'Connecting...';
     default:
@@ -24,7 +29,11 @@ function getStatusLabel(state: VoiceCallState): string {
   }
 }
 
-function CallIcon({ name }: { name: 'mute' | 'speaker' | 'audio' | 'end' | 'accept' | 'reject' }) {
+function CallIcon({
+  name,
+}: {
+  name: 'mute' | 'speaker' | 'audio' | 'camera' | 'end' | 'accept' | 'reject';
+}) {
   switch (name) {
     case 'mute':
       return (
@@ -33,6 +42,13 @@ function CallIcon({ name }: { name: 'mute' | 'speaker' | 'audio' | 'end' | 'acce
           <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
           <path d="M12 19v4" />
           <path d="M8 23h8" />
+        </svg>
+      );
+    case 'camera':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M23 7l-7 5 7 5V7z" />
+          <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
         </svg>
       );
     case 'speaker':
@@ -77,6 +93,7 @@ interface CallControlProps {
   disabled?: boolean;
   danger?: boolean;
   accept?: boolean;
+  compact?: boolean;
   onClick: () => void;
   children: ReactNode;
 }
@@ -87,36 +104,66 @@ function CallControl({
   disabled = false,
   danger = false,
   accept = false,
+  compact = false,
   onClick,
   children,
 }: CallControlProps) {
   return (
     <button
       type="button"
-      className={`voice-call-control${active ? ' voice-call-control--active' : ''}${
-        danger ? ' voice-call-control--danger' : ''
-      }${accept ? ' voice-call-control--accept' : ''}`}
+      className={`voice-call-control${compact ? ' voice-call-control--compact' : ''}${
+        active ? ' voice-call-control--active' : ''
+      }${danger ? ' voice-call-control--danger' : ''}${accept ? ' voice-call-control--accept' : ''}`}
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
       title={label}
     >
       <span className="voice-call-control-icon">{children}</span>
-      <span className="voice-call-control-label">{label}</span>
+      {!compact && <span className="voice-call-control-label">{label}</span>}
     </button>
   );
 }
 
 export function VoiceCallModal() {
   const [state, setState] = useState<VoiceCallState>(voiceCallManager.getState());
+  const [, setStreamTick] = useState(0);
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const isMobile = useMediaQuery('(max-width: 768px)');
+  const isVideoCall = state.mediaType === 'video';
 
   useEffect(() => {
-    const unsubscribe = voiceCallManager.subscribe(setState);
+    const unsubscribeState = voiceCallManager.subscribe(setState);
+    const unsubscribeStreams = voiceCallManager.onStreamsUpdated(() => {
+      setStreamTick((tick) => tick + 1);
+    });
     return () => {
-      unsubscribe();
+      unsubscribeState();
+      unsubscribeStreams();
     };
   }, []);
+
+  const localStream = voiceCallManager.getLocalStream();
+  const remoteStream = voiceCallManager.getRemoteStream();
+
+  useEffect(() => {
+    const localVideo = localVideoRef.current;
+    if (localVideo) {
+      localVideo.srcObject = localStream ?? null;
+      if (localStream) {
+        void localVideo.play().catch(() => undefined);
+      }
+    }
+
+    const remoteVideo = remoteVideoRef.current;
+    if (remoteVideo) {
+      remoteVideo.srcObject = remoteStream ?? null;
+      if (remoteStream) {
+        void remoteVideo.play().catch(() => undefined);
+      }
+    }
+  }, [localStream, remoteStream, state.phase, state.hasLocalVideo, state.hasRemoteVideo]);
 
   if (state.phase === 'idle' || state.phase === 'ended') {
     return null;
@@ -126,21 +173,127 @@ export function VoiceCallModal() {
   const status = state.error ?? getStatusLabel(state);
   const showInCallControls =
     state.phase === 'active' || state.phase === 'connecting' || state.phase === 'outgoing';
+  const showRemoteVideo = isVideoCall && (state.hasRemoteVideo || state.phase === 'connecting' || state.phase === 'active');
+  const showLocalPreview = isVideoCall && state.hasLocalVideo && !state.cameraOff;
+  const useVideoOverlayControls = isVideoCall && !isMobile && state.phase !== 'incoming';
 
-  return (
+  const inCallControls = showInCallControls ? (
+    <>
+      <CallControl
+        label={state.muted ? 'Unmute' : 'Mute'}
+        active={state.muted}
+        compact={useVideoOverlayControls}
+        onClick={() => voiceCallManager.toggleMute()}
+      >
+        <CallIcon name="mute" />
+      </CallControl>
+
+      {isVideoCall && (
+        <CallControl
+          label={state.cameraOff ? 'Camera on' : 'Camera off'}
+          active={state.cameraOff}
+          compact={useVideoOverlayControls}
+          onClick={() => voiceCallManager.toggleCamera()}
+        >
+          <CallIcon name="camera" />
+        </CallControl>
+      )}
+
+      {(state.speakerSupported || isMobile) && (
+        <CallControl
+          label={state.speakerOn ? 'Speaker on' : 'Speaker off'}
+          active={state.speakerOn}
+          compact={useVideoOverlayControls}
+          onClick={() => void voiceCallManager.toggleSpeaker()}
+        >
+          <CallIcon name="speaker" />
+        </CallControl>
+      )}
+
+      {state.audioOutputPickerSupported && (
+        <CallControl
+          label="Audio"
+          compact={useVideoOverlayControls}
+          onClick={() => void voiceCallManager.chooseAudioOutput()}
+        >
+          <CallIcon name="audio" />
+        </CallControl>
+      )}
+    </>
+  ) : null;
+
+  return createPortal(
     <div
-      className={`voice-call-overlay${isMobile ? ' voice-call-overlay--phone' : ''}`}
+      className={`voice-call-overlay${isMobile ? ' voice-call-overlay--phone' : ''}${
+        isVideoCall ? ' voice-call-overlay--video' : ''
+      }`}
       role="dialog"
-      aria-label="Voice call"
+      aria-label={isVideoCall ? 'Video call' : 'Voice call'}
     >
-      <div className={`voice-call-card${isMobile ? ' voice-call-card--phone' : ''}`}>
-        <div className="voice-call-header">
-          <div className="voice-call-avatar-wrap">
-            <Avatar name={peerName} size={isMobile ? 'lg' : 'lg'} />
+      <div
+        className={`voice-call-card${isMobile ? ' voice-call-card--phone' : ''}${
+          isVideoCall ? ' voice-call-card--video' : ''
+        }${useVideoOverlayControls ? ' voice-call-card--video-overlay' : ''}`}
+      >
+        {isVideoCall && (
+          <div className="voice-call-video-stage">
+            {showRemoteVideo ? (
+              <video
+                ref={remoteVideoRef}
+                className="voice-call-remote-video"
+                autoPlay
+                playsInline
+              />
+            ) : (
+              <div className="voice-call-video-placeholder">
+                <Avatar name={peerName} size="lg" />
+              </div>
+            )}
+            {showLocalPreview && (
+              <video
+                ref={localVideoRef}
+                className="voice-call-local-video"
+                autoPlay
+                playsInline
+                muted
+              />
+            )}
+            {isVideoCall && state.cameraOff && (
+              <div className="voice-call-camera-off-badge">Camera off</div>
+            )}
+            {useVideoOverlayControls && (
+              <>
+                <div className="voice-call-video-meta">
+                  <h3 className="voice-call-name">{peerName}</h3>
+                  <p className="voice-call-status">{status}</p>
+                </div>
+                <div className="voice-call-video-controls">
+                  {inCallControls}
+                  <CallControl
+                    label="End call"
+                    danger
+                    compact
+                    onClick={() => void voiceCallManager.endCall()}
+                  >
+                    <CallIcon name="end" />
+                  </CallControl>
+                </div>
+              </>
+            )}
           </div>
-          <h3 className="voice-call-name">{peerName}</h3>
-          <p className="voice-call-status">{status}</p>
-        </div>
+        )}
+
+        {!useVideoOverlayControls && (
+          <div className="voice-call-header">
+            {!isVideoCall && (
+              <div className="voice-call-avatar-wrap">
+                <Avatar name={peerName} size="lg" />
+              </div>
+            )}
+            <h3 className="voice-call-name">{peerName}</h3>
+            <p className="voice-call-status">{status}</p>
+          </div>
+        )}
 
         {state.phase === 'incoming' ? (
           <div className="voice-call-actions voice-call-actions--incoming">
@@ -151,45 +304,19 @@ export function VoiceCallModal() {
               <CallIcon name="accept" />
             </CallControl>
           </div>
-        ) : (
+        ) : !useVideoOverlayControls ? (
           <div className="voice-call-actions voice-call-actions--in-call">
             {showInCallControls && (
-              <div className="voice-call-controls-row">
-                <CallControl
-                  label={state.muted ? 'Unmute' : 'Mute'}
-                  active={state.muted}
-                  onClick={() => voiceCallManager.toggleMute()}
-                >
-                  <CallIcon name="mute" />
-                </CallControl>
-
-                {(state.speakerSupported || isMobile) && (
-                  <CallControl
-                    label={state.speakerOn ? 'Speaker on' : 'Speaker off'}
-                    active={state.speakerOn}
-                    onClick={() => void voiceCallManager.toggleSpeaker()}
-                  >
-                    <CallIcon name="speaker" />
-                  </CallControl>
-                )}
-
-                {state.audioOutputPickerSupported && (
-                  <CallControl
-                    label="Audio"
-                    onClick={() => void voiceCallManager.chooseAudioOutput()}
-                  >
-                    <CallIcon name="audio" />
-                  </CallControl>
-                )}
-              </div>
+              <div className="voice-call-controls-row">{inCallControls}</div>
             )}
 
             <CallControl label="End call" danger onClick={() => void voiceCallManager.endCall()}>
               <CallIcon name="end" />
             </CallControl>
           </div>
-        )}
+        ) : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

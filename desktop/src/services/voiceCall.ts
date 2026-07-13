@@ -4,12 +4,14 @@ import type {
   CallAcceptedEvent,
   CallEndedEvent,
   CallIncomingEvent,
+  CallMediaType,
   CallSignalEvent,
+  StartCallOptions,
   VoiceCallPeer,
   VoiceCallState,
 } from '../types/voiceCall';
 import { INITIAL_VOICE_CALL_STATE } from '../types/voiceCall';
-import { getUserAudioStream } from '../utils/mediaDevices';
+import { getUserCallMediaStream } from '../utils/mediaDevices';
 import {
   applySpeakerRoute,
   defaultSpeakerOn,
@@ -28,6 +30,7 @@ export class VoiceCallManager {
   private state: VoiceCallState = { ...INITIAL_VOICE_CALL_STATE };
   private listeners = new Set<StateListener>();
   private historyRefreshListeners = new Set<() => void>();
+  private streamListeners = new Set<() => void>();
   private pc: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
   private remoteAudio: HTMLAudioElement | null = null;
@@ -64,8 +67,39 @@ export class VoiceCallManager {
     };
   }
 
+  onStreamsUpdated(listener: () => void) {
+    this.streamListeners.add(listener);
+    return () => {
+      this.streamListeners.delete(listener);
+    };
+  }
+
+  getLocalStream() {
+    return this.localStream;
+  }
+
+  getRemoteStream() {
+    return this.remoteStream;
+  }
+
   private notifyHistoryRefresh() {
     this.historyRefreshListeners.forEach((listener) => listener());
+  }
+
+  private notifyStreamsUpdated() {
+    this.streamListeners.forEach((listener) => listener());
+  }
+
+  private wantsVideo(): boolean {
+    return this.state.mediaType === 'video';
+  }
+
+  private updateMediaTrackFlags() {
+    this.setState({
+      hasLocalVideo: Boolean(this.localStream?.getVideoTracks().some((track) => track.readyState === 'live')),
+      hasRemoteVideo: Boolean(this.remoteStream?.getVideoTracks().some((track) => track.readyState === 'live')),
+    });
+    this.notifyStreamsUpdated();
   }
 
   getState() {
@@ -92,28 +126,34 @@ export class VoiceCallManager {
     this.cleanupPeerConnection();
   }
 
-  async startCall(conversationId: string, peer: VoiceCallPeer) {
+  async startCall(conversationId: string, peer: VoiceCallPeer, options: StartCallOptions = {}) {
     if (this.state.phase !== 'idle') {
       throw new Error('Already in a call');
     }
     if (!isWebSocketTransport()) {
-      throw new Error('Voice calls require a live WebSocket connection');
+      throw new Error('Calls require a live WebSocket connection');
     }
+
+    const mediaType: CallMediaType = options.video ? 'video' : 'audio';
 
     this.setState({
       phase: 'outgoing',
       conversationId,
       peer,
       role: 'caller',
+      mediaType,
       error: null,
       endReason: null,
       muted: false,
+      cameraOff: false,
       speakerOn: defaultSpeakerOn(),
+      hasLocalVideo: false,
+      hasRemoteVideo: false,
     });
 
     try {
-      await this.ensureLocalAudio();
-      const result = await realtime.inviteCall(conversationId);
+      await this.ensureLocalMedia(mediaType === 'video');
+      const result = await realtime.inviteCall(conversationId, { video: mediaType === 'video' });
       this.setState({ callId: result.callId, phase: 'connecting' });
     } catch (error) {
       this.cleanupPeerConnection();
@@ -132,14 +172,14 @@ export class VoiceCallManager {
     }
 
     if (!isWebSocketTransport()) {
-      this.setState({ error: 'Voice calls require a live WebSocket connection' });
+      this.setState({ error: 'Calls require a live WebSocket connection' });
       return;
     }
 
     this.setState({ phase: 'connecting', error: null });
 
     try {
-      await this.ensureLocalAudio();
+      await this.ensureLocalMedia(this.wantsVideo());
       await realtime.acceptCall(this.state.callId);
     } catch (error) {
       this.cleanupPeerConnection();
@@ -190,6 +230,16 @@ export class VoiceCallManager {
     this.setState({ muted: enabled });
   }
 
+  toggleCamera() {
+    if (!this.localStream || !this.wantsVideo()) return;
+    const enabled = this.localStream.getVideoTracks()[0]?.enabled ?? true;
+    this.localStream.getVideoTracks().forEach((track) => {
+      track.enabled = !enabled;
+    });
+    this.setState({ cameraOff: enabled });
+    this.updateMediaTrackFlags();
+  }
+
   async toggleSpeaker() {
     const speakerOn = !this.state.speakerOn;
     this.setState({ speakerOn });
@@ -222,10 +272,14 @@ export class VoiceCallManager {
       conversationId: data.conversationId,
       peer: data.caller,
       role: 'callee',
+      mediaType: data.mediaType === 'video' ? 'video' : 'audio',
       error: null,
       endReason: null,
       muted: false,
+      cameraOff: false,
       speakerOn: defaultSpeakerOn(),
+      hasLocalVideo: false,
+      hasRemoteVideo: false,
     });
   }
 
@@ -282,7 +336,7 @@ export class VoiceCallManager {
       this.remoteDescriptionSet = true;
       await this.flushPendingIceCandidates();
       if (this.state.role === 'callee') {
-        const answer = await this.pc.createAnswer({ offerToReceiveAudio: true });
+        const answer = await this.pc.createAnswer(this.getSdpOptions());
         await this.pc.setLocalDescription(answer);
         if (this.state.callId && answer) {
           await realtime.sendCallSignal(this.state.callId, 'answer', answer);
@@ -345,7 +399,7 @@ export class VoiceCallManager {
 
     try {
       this.makingOffer = true;
-      const offer = await this.pc.createOffer({ offerToReceiveAudio: true });
+      const offer = await this.pc.createOffer(this.getSdpOptions());
       await this.pc.setLocalDescription(offer);
       await realtime.sendCallSignal(this.state.callId, 'offer', offer);
     } catch (error) {
@@ -397,7 +451,18 @@ export class VoiceCallManager {
       pc.addTransceiver('audio', { direction: 'recvonly' });
     }
 
+    if (this.wantsVideo() && !this.localStream?.getVideoTracks().length) {
+      pc.addTransceiver('video', { direction: 'recvonly' });
+    }
+
     this.pc = pc;
+  }
+
+  private getSdpOptions(): RTCOfferOptions {
+    return {
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: this.wantsVideo(),
+    };
   }
 
   private attachRemoteTrack(event: RTCTrackEvent) {
@@ -416,6 +481,7 @@ export class VoiceCallManager {
     }
 
     void this.playRemoteAudio(this.remoteStream);
+    this.updateMediaTrackFlags();
     this.setState({ phase: 'active' });
   }
 
@@ -442,17 +508,30 @@ export class VoiceCallManager {
     }
   }
 
-  private async ensureLocalAudio() {
-    if (this.localStream) return;
-    const stream = await getUserAudioStream();
-    const [track] = stream.getAudioTracks();
-    if (!track || track.readyState !== 'live') {
-      stream.getTracks().forEach((activeTrack) => activeTrack.stop());
-      throw new Error('Microphone is not available');
+  private async ensureLocalMedia(withVideo: boolean) {
+    if (this.localStream) {
+      const hasVideo = this.localStream.getVideoTracks().length > 0;
+      if (withVideo === hasVideo) {
+        this.updateMediaTrackFlags();
+        return;
+      }
+      this.localStream.getTracks().forEach((track) => track.stop());
+      this.localStream = null;
     }
-    track.enabled = true;
+
+    const stream = await getUserCallMediaStream({ video: withVideo });
+    const [audioTrack] = stream.getAudioTracks();
+    if (!audioTrack || audioTrack.readyState !== 'live') {
+      stream.getTracks().forEach((activeTrack) => activeTrack.stop());
+      throw new Error(withVideo ? 'Camera and microphone are not available' : 'Microphone is not available');
+    }
+    audioTrack.enabled = true;
+    stream.getVideoTracks().forEach((track) => {
+      track.enabled = true;
+    });
     this.localStream = stream;
-    this.setState({ muted: false });
+    this.setState({ muted: false, cameraOff: false });
+    this.updateMediaTrackFlags();
   }
 
   private async getIceServers(): Promise<RTCIceServer[]> {
@@ -497,6 +576,9 @@ export class VoiceCallManager {
       this.remoteAudio.remove();
       this.remoteAudio = null;
     }
+
+    this.setState({ hasLocalVideo: false, hasRemoteVideo: false });
+    this.notifyStreamsUpdated();
   }
 }
 

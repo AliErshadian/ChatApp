@@ -40,6 +40,7 @@ export interface CallHistoryItem {
   answeredAt: string | null;
   endedAt: string;
   durationSeconds: number | null;
+  mediaType: 'audio' | 'video';
 }
 
 export interface CallHistoryListResponse {
@@ -935,6 +936,14 @@ class ApiClient {
     if (options?.limit) params.set('limit', String(options.limit));
     const qs = params.toString();
     return this.request<CallHistoryListResponse>(`/calls/history${qs ? `?${qs}` : ''}`);
+  }
+
+  getUnseenMissedCallCount() {
+    return this.request<{ count: number }>('/calls/missed/unseen-count');
+  }
+
+  markMissedCallsSeen() {
+    return this.request<{ count: number }>('/calls/missed/seen', { method: 'POST' });
   }
 
   async sendMessageAttachment(

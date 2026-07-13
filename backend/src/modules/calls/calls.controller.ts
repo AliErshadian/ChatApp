@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
@@ -22,5 +22,16 @@ export class CallsController {
   @Get('history')
   listHistory(@CurrentUser() user: User, @Query() query: ListCallHistoryDto) {
     return this.historyService.list(user.id, query);
+  }
+
+  @Get('missed/unseen-count')
+  async getUnseenMissedCount(@CurrentUser() user: User) {
+    const count = await this.historyService.countUnseenMissed(user.id);
+    return { count };
+  }
+
+  @Post('missed/seen')
+  markMissedSeen(@CurrentUser() user: User) {
+    return this.historyService.markMissedSeen(user.id);
   }
 }

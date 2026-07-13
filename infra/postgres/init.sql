@@ -302,12 +302,17 @@ CREATE TABLE call_records (
     started_at TIMESTAMPTZ NOT NULL,
     answered_at TIMESTAMPTZ,
     ended_at TIMESTAMPTZ NOT NULL,
-    duration_seconds INTEGER
+    duration_seconds INTEGER,
+    media_type TEXT NOT NULL DEFAULT 'audio',
+    callee_seen_at TIMESTAMPTZ
 );
 
 CREATE INDEX idx_call_records_caller_ended ON call_records (caller_id, ended_at DESC);
 CREATE INDEX idx_call_records_callee_ended ON call_records (callee_id, ended_at DESC);
 CREATE INDEX idx_call_records_conversation ON call_records (conversation_id);
+CREATE INDEX idx_call_records_callee_unseen_missed
+  ON call_records (callee_id, ended_at DESC)
+  WHERE answered_at IS NULL AND callee_seen_at IS NULL;
 
 -- Fresh databases from init.sql are marked up-to-date for incremental migrations.
 -- Checksums are verified in CI via: npm run check:schema-drift
@@ -338,7 +343,10 @@ INSERT INTO schema_migrations (version, checksum) VALUES
     ('019_audit_logs', 'e34adae3bcc2378a0340c325c951d6325bbd400433ced38dc4ead174187f0fd0'),
     ('020_message_search_fts', '6030984121e3713524e6cee3ba9f46d93645fc55aec323a0f83d9702192c39b7'),
     ('021_attachments', '02af4f9276bbd941ec3e49024e06d57ab69c79a16e4abcc29a45c461d6bbc3d7'),
-    ('022_call_records', 'bf34a1adce6c90fa6873b276b503cee224b600f6021ae8c4d9c8a0de07c69c34')
+    ('022_call_records', 'bf34a1adce6c90fa6873b276b503cee224b600f6021ae8c4d9c8a0de07c69c34'),
+    ('023_call_media_type', '169bafa200b47d92cb5011b182b8f5ebce3f4ac61e005d53eae29b78ee0218a7'),
+    ('024_call_records_callee_seen', '2c3ab63eceb1c61352fcedbc81fc1ebd6955a34013a4a53344cd7d4e3714e33d'),
+    ('025_call_records_mark_existing_seen', '1a0e623a6e422b121404db109d9476c48d9bdf19e0b45ddf747190de9f848fec')
 ON CONFLICT (version) DO NOTHING;
 
 -- Grant app user access (required when schema is created by postgres superuser)

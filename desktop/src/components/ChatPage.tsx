@@ -47,6 +47,7 @@ import type { InAppNotification } from '../utils/inAppNotification';
 import { buildNewSessionNotificationText } from '../utils/sessionDisplay';
 import { filterConversationsBySearch, isSearchQueryActive } from '../utils/search';
 import { useVoiceCall } from '../hooks/useVoiceCall';
+import { voiceCallManager } from '../services/voiceCall';
 
 export function ChatPage() {
   const { user, logout } = useAuth();
@@ -73,12 +74,13 @@ export function ChatPage() {
   const [showProfile, setShowProfile] = useState(false);
   const [showContacts, setShowContacts] = useState(false);
   const [showCalls, setShowCalls] = useState(false);
+  const [missedCallsBadge, setMissedCallsBadge] = useState(0);
   const [showNewChatPicker, setShowNewChatPicker] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showConversationInfo, setShowConversationInfo] = useState(false);
   const [showFileManagement, setShowFileManagement] = useState(false);
   const [callError, setCallError] = useState('');
-  const { startCall } = useVoiceCall();
+  const { startVoiceCall, startVideoCall } = useVoiceCall();
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [channelName, setChannelName] = useState('');
   const [firstUnreadMessageId, setFirstUnreadMessageId] = useState<string | null>(null);
@@ -140,7 +142,7 @@ export function ChatPage() {
     if (!activeConversation || !activePeer) return;
     setCallError('');
     try {
-      await startCall(activeConversation.id, {
+      await startVoiceCall(activeConversation.id, {
         id: activePeer.userId,
         displayName: activePeer.displayName ?? activeConversation.name,
         username: activePeer.username,
@@ -148,7 +150,21 @@ export function ChatPage() {
     } catch (err) {
       setCallError(err instanceof Error ? err.message : 'Failed to start call');
     }
-  }, [activeConversation, activePeer, startCall]);
+  }, [activeConversation, activePeer, startVoiceCall]);
+
+  const handleStartVideoCall = useCallback(async () => {
+    if (!activeConversation || !activePeer) return;
+    setCallError('');
+    try {
+      await startVideoCall(activeConversation.id, {
+        id: activePeer.userId,
+        displayName: activePeer.displayName ?? activeConversation.name,
+        username: activePeer.username,
+      });
+    } catch (err) {
+      setCallError(err instanceof Error ? err.message : 'Failed to start video call');
+    }
+  }, [activeConversation, activePeer, startVideoCall]);
 
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isPanelVisible =
@@ -901,7 +917,47 @@ export function ChatPage() {
     setShowNewChatPicker(false);
     setPendingChannelInvite(null);
     setIsPanelOpen(true);
+    setMissedCallsBadge(0);
+    void api.markMissedCallsSeen().catch(() => undefined);
   }, []);
+
+  const showCallsRef = useRef(showCalls);
+  showCallsRef.current = showCalls;
+
+  const refreshMissedCallsBadge = useCallback(async () => {
+    if (showCallsRef.current) {
+      setMissedCallsBadge(0);
+      void api.markMissedCallsSeen().catch(() => undefined);
+      return;
+    }
+    try {
+      const result = await api.getUnseenMissedCallCount();
+      setMissedCallsBadge(result.count);
+    } catch {
+      // Keep the last known badge if the request fails.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setMissedCallsBadge(0);
+      return;
+    }
+
+    void refreshMissedCallsBadge();
+
+    const unsubscribeRealtime = realtime.onCallEnded(() => {
+      void refreshMissedCallsBadge();
+    });
+    const unsubscribeHistory = voiceCallManager.onHistoryRefresh(() => {
+      void refreshMissedCallsBadge();
+    });
+
+    return () => {
+      unsubscribeRealtime();
+      unsubscribeHistory();
+    };
+  }, [user?.id, refreshMissedCallsBadge]);
 
   const openNewChatPicker = useCallback(() => {
     setShowProfile(false);
@@ -1950,6 +2006,7 @@ export function ChatPage() {
           avatarUrl={user?.avatarUrl}
           chatsUnreadCount={chatsNavBadge}
           channelsUnreadCount={channelsNavBadge}
+          callsMissedCount={missedCallsBadge}
           onChats={openChats}
           onChannels={openChannels}
           onCalls={openCalls}
@@ -2212,6 +2269,7 @@ export function ChatPage() {
                 </span>
               </button>
               {activeConversation.type === 'direct' && activePeer && (
+                <>
                 <button
                   type="button"
                   className="icon-btn chat-header-call-btn"
@@ -2221,6 +2279,16 @@ export function ChatPage() {
                 >
                   📞
                 </button>
+                <button
+                  type="button"
+                  className="icon-btn chat-header-call-btn"
+                  onClick={() => void handleStartVideoCall()}
+                  title="Video call"
+                  aria-label="Video call"
+                >
+                  📹
+                </button>
+                </>
               )}
               <button
                 type="button"
@@ -2493,6 +2561,7 @@ export function ChatPage() {
           avatarUrl={user?.avatarUrl}
           chatsUnreadCount={chatsNavBadge}
           channelsUnreadCount={channelsNavBadge}
+          callsMissedCount={missedCallsBadge}
           onChats={openChats}
           onChannels={openChannels}
           onCalls={openCalls}
