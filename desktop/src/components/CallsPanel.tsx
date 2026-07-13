@@ -3,6 +3,7 @@ import { api, CallHistoryItem, CallHistoryFilter, User } from '../services/api';
 import { usePresence } from '../context/PresenceContext';
 import { useVoiceCall } from '../hooks/useVoiceCall';
 import { realtime } from '../services/realtime';
+import { voiceCallManager } from '../services/voiceCall';
 import { Avatar } from './Avatar';
 
 interface Props {
@@ -115,11 +116,16 @@ export function CallsPanel({ onClose, isMobile = false, onMessage }: Props) {
   }, [filter, loadHistory]);
 
   useEffect(() => {
-    const unsubscribe = realtime.onCallEnded(() => {
+    const refresh = () => {
       void loadHistory({ filter });
-    });
+    };
+
+    const unsubscribeRealtime = realtime.onCallEnded(refresh);
+    const unsubscribeHistory = voiceCallManager.onHistoryRefresh(refresh);
+
     return () => {
-      unsubscribe();
+      unsubscribeRealtime();
+      unsubscribeHistory();
     };
   }, [filter, loadHistory]);
 

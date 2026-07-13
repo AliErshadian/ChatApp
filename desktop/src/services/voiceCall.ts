@@ -10,6 +10,13 @@ import type {
 } from '../types/voiceCall';
 import { INITIAL_VOICE_CALL_STATE } from '../types/voiceCall';
 import { getUserAudioStream } from '../utils/mediaDevices';
+import {
+  applySpeakerRoute,
+  defaultSpeakerOn,
+  isAudioOutputPickerSupported,
+  isSpeakerRoutingSupported,
+  pickAudioOutputDevice,
+} from '../utils/audioOutput';
 
 type StateListener = (state: VoiceCallState) => void;
 
@@ -20,6 +27,7 @@ function isWebSocketTransport(): boolean {
 export class VoiceCallManager {
   private state: VoiceCallState = { ...INITIAL_VOICE_CALL_STATE };
   private listeners = new Set<StateListener>();
+  private historyRefreshListeners = new Set<() => void>();
   private pc: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
   private remoteAudio: HTMLAudioElement | null = null;
@@ -34,12 +42,30 @@ export class VoiceCallManager {
 
   constructor() {
     this.bindRealtime();
+    this.setState({
+      speakerOn: defaultSpeakerOn(),
+      speakerSupported: isSpeakerRoutingSupported(),
+      audioOutputPickerSupported: isAudioOutputPickerSupported(),
+    });
   }
 
   subscribe(listener: StateListener) {
     this.listeners.add(listener);
     listener(this.state);
-    return () => this.listeners.delete(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  onHistoryRefresh(listener: () => void) {
+    this.historyRefreshListeners.add(listener);
+    return () => {
+      this.historyRefreshListeners.delete(listener);
+    };
+  }
+
+  private notifyHistoryRefresh() {
+    this.historyRefreshListeners.forEach((listener) => listener());
   }
 
   getState() {
@@ -81,6 +107,8 @@ export class VoiceCallManager {
       role: 'caller',
       error: null,
       endReason: null,
+      muted: false,
+      speakerOn: defaultSpeakerOn(),
     });
 
     try {
@@ -132,6 +160,7 @@ export class VoiceCallManager {
     }
     this.cleanupPeerConnection();
     this.setState({ ...INITIAL_VOICE_CALL_STATE, endReason: 'rejected' });
+    this.notifyHistoryRefresh();
   }
 
   async endCall() {
@@ -149,6 +178,7 @@ export class VoiceCallManager {
     }
     this.cleanupPeerConnection();
     this.setState({ ...INITIAL_VOICE_CALL_STATE, endReason: 'ended' });
+    this.notifyHistoryRefresh();
   }
 
   toggleMute() {
@@ -158,6 +188,22 @@ export class VoiceCallManager {
       track.enabled = !enabled;
     });
     this.setState({ muted: enabled });
+  }
+
+  async toggleSpeaker() {
+    const speakerOn = !this.state.speakerOn;
+    this.setState({ speakerOn });
+    if (this.remoteAudio) {
+      await applySpeakerRoute(this.remoteAudio, speakerOn);
+    }
+  }
+
+  async chooseAudioOutput() {
+    if (!this.remoteAudio) return;
+    const selected = await pickAudioOutputDevice(this.remoteAudio);
+    if (selected) {
+      this.setState({ speakerOn: true });
+    }
   }
 
   private async handleIncoming(data: CallIncomingEvent) {
@@ -178,6 +224,8 @@ export class VoiceCallManager {
       role: 'callee',
       error: null,
       endReason: null,
+      muted: false,
+      speakerOn: defaultSpeakerOn(),
     });
   }
 
@@ -194,6 +242,7 @@ export class VoiceCallManager {
       ...INITIAL_VOICE_CALL_STATE,
       endReason: data.reason,
     });
+    this.notifyHistoryRefresh();
   }
 
   private async handleSignal(data: CallSignalEvent) {
@@ -385,6 +434,7 @@ export class VoiceCallManager {
 
     try {
       await this.remoteAudio.play();
+      await applySpeakerRoute(this.remoteAudio, this.state.speakerOn);
     } catch {
       window.setTimeout(() => {
         void this.remoteAudio?.play().catch(() => undefined);

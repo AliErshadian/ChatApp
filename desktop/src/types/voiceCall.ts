@@ -28,6 +28,9 @@ export interface VoiceCallState {
   peer: VoiceCallPeer | null;
   role: 'caller' | 'callee' | null;
   muted: boolean;
+  speakerOn: boolean;
+  speakerSupported: boolean;
+  audioOutputPickerSupported: boolean;
   error: string | null;
   endReason: VoiceCallEndReason | null;
 }
@@ -39,6 +42,9 @@ export const INITIAL_VOICE_CALL_STATE: VoiceCallState = {
   peer: null,
   role: null,
   muted: false,
+  speakerOn: false,
+  speakerSupported: false,
+  audioOutputPickerSupported: false,
   error: null,
   endReason: null,
 };
