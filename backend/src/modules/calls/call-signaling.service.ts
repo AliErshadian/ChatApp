@@ -11,6 +11,7 @@ import { ConversationType } from '../conversations/entities/conversation.entity'
 import { UsersService } from '../users/users.service';
 import { RealtimeBroadcastService } from '../realtime/realtime-broadcast.service';
 import { CallRegistryService } from './call-registry.service';
+import { CallsHistoryService } from './calls-history.service';
 import type {
   CallAcceptedPayload,
   CallEndedPayload,
@@ -25,6 +26,7 @@ export class CallSignalingService {
     private readonly usersService: UsersService,
     private readonly registry: CallRegistryService,
     private readonly broadcast: RealtimeBroadcastService,
+    private readonly history: CallsHistoryService,
   ) {}
 
   async invite(
@@ -166,12 +168,25 @@ export class CallSignalingService {
       throw new NotFoundException('Call not found');
     }
 
+    const endedAt = new Date();
     const payload: CallEndedPayload = {
       callId,
       conversationId: call.conversationId,
       reason,
       endedBy,
     };
+
+    await this.history.recordCallEnd({
+      callId: call.callId,
+      conversationId: call.conversationId,
+      callerId: call.callerId,
+      calleeId: call.calleeId,
+      endReason: reason,
+      endedBy,
+      startedAt: new Date(call.createdAt),
+      answeredAt: call.answeredAt ? new Date(call.answeredAt) : null,
+      endedAt,
+    });
 
     const targets = [call.callerId, call.calleeId];
     for (const userId of targets) {

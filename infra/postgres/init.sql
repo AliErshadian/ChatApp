@@ -291,6 +291,24 @@ CREATE INDEX IF NOT EXISTS idx_attachments_uploaded_by ON attachments(uploaded_b
 CREATE INDEX IF NOT EXISTS idx_attachments_conversation_id ON attachments(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_message_id ON attachments(message_id);
 
+CREATE TABLE call_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    call_id UUID NOT NULL UNIQUE,
+    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    caller_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    callee_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    end_reason TEXT NOT NULL,
+    ended_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    started_at TIMESTAMPTZ NOT NULL,
+    answered_at TIMESTAMPTZ,
+    ended_at TIMESTAMPTZ NOT NULL,
+    duration_seconds INTEGER
+);
+
+CREATE INDEX idx_call_records_caller_ended ON call_records (caller_id, ended_at DESC);
+CREATE INDEX idx_call_records_callee_ended ON call_records (callee_id, ended_at DESC);
+CREATE INDEX idx_call_records_conversation ON call_records (conversation_id);
+
 -- Fresh databases from init.sql are marked up-to-date for incremental migrations.
 -- Checksums are verified in CI via: npm run check:schema-drift
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -319,7 +337,8 @@ INSERT INTO schema_migrations (version, checksum) VALUES
     ('018_admin_users', '10e5ca126e794c6ff1ba3baf63fbada86cd3555795a6a17ffc5591acb9a966c2'),
     ('019_audit_logs', 'e34adae3bcc2378a0340c325c951d6325bbd400433ced38dc4ead174187f0fd0'),
     ('020_message_search_fts', '6030984121e3713524e6cee3ba9f46d93645fc55aec323a0f83d9702192c39b7'),
-    ('021_attachments', '02af4f9276bbd941ec3e49024e06d57ab69c79a16e4abcc29a45c461d6bbc3d7')
+    ('021_attachments', '02af4f9276bbd941ec3e49024e06d57ab69c79a16e4abcc29a45c461d6bbc3d7'),
+    ('022_call_records', 'bf34a1adce6c90fa6873b276b503cee224b600f6021ae8c4d9c8a0de07c69c34')
 ON CONFLICT (version) DO NOTHING;
 
 -- Grant app user access (required when schema is created by postgres superuser)

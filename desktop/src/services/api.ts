@@ -18,6 +18,36 @@ export interface Contact extends User {
   addedAt?: string;
 }
 
+export type CallHistoryFilter =
+  | 'all'
+  | 'incoming'
+  | 'outgoing'
+  | 'missed'
+  | 'cancelled'
+  | 'not_answered';
+
+export type CallHistoryCategory = Exclude<CallHistoryFilter, 'all'>;
+
+export interface CallHistoryItem {
+  id: string;
+  callId: string;
+  conversationId: string;
+  peer: User;
+  category: CallHistoryCategory;
+  label: string;
+  endReason: string;
+  startedAt: string;
+  answeredAt: string | null;
+  endedAt: string;
+  durationSeconds: number | null;
+}
+
+export interface CallHistoryListResponse {
+  items: CallHistoryItem[];
+  nextCursor: string | null;
+}
+
+
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
@@ -896,6 +926,15 @@ class ApiClient {
     return this.request<{
       iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }>;
     }>('/calls/ice-servers');
+  }
+
+  listCallHistory(options?: { filter?: CallHistoryFilter; cursor?: string; limit?: number }) {
+    const params = new URLSearchParams();
+    if (options?.filter && options.filter !== 'all') params.set('filter', options.filter);
+    if (options?.cursor) params.set('cursor', options.cursor);
+    if (options?.limit) params.set('limit', String(options.limit));
+    const qs = params.toString();
+    return this.request<CallHistoryListResponse>(`/calls/history${qs ? `?${qs}` : ''}`);
   }
 
   async sendMessageAttachment(

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, shell, session } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import {
@@ -344,6 +344,14 @@ app.on('certificate-error', (event, _webContents, url, _error, _certificate, cal
 });
 
 app.whenReady().then(() => {
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === 'media');
+  });
+
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+    return permission === 'media';
+  });
+
   createWindow();
   createTray();
 

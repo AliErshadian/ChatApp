@@ -23,6 +23,9 @@ export class VoiceCallManager {
   private pc: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
   private remoteAudio: HTMLAudioElement | null = null;
+  private remoteStream: MediaStream | null = null;
+  private pendingIceCandidates: RTCIceCandidateInit[] = [];
+  private remoteDescriptionSet = false;
   private iceServers: RTCIceServer[] | null = null;
   private unsubscribers: Array<() => void> = [];
   private makingOffer = false;
@@ -227,8 +230,10 @@ export class VoiceCallManager {
 
     try {
       await this.pc.setRemoteDescription(offer);
+      this.remoteDescriptionSet = true;
+      await this.flushPendingIceCandidates();
       if (this.state.role === 'callee') {
-        const answer = await this.pc.createAnswer();
+        const answer = await this.pc.createAnswer({ offerToReceiveAudio: true });
         await this.pc.setLocalDescription(answer);
         if (this.state.callId && answer) {
           await realtime.sendCallSignal(this.state.callId, 'answer', answer);
@@ -246,6 +251,8 @@ export class VoiceCallManager {
     try {
       this.isSettingRemoteAnswerPending = true;
       await this.pc.setRemoteDescription(answer);
+      this.remoteDescriptionSet = true;
+      await this.flushPendingIceCandidates();
       this.setState({ phase: 'active' });
     } catch (error) {
       this.failCall(error);
@@ -255,11 +262,32 @@ export class VoiceCallManager {
   }
 
   private async handleIceCandidate(candidate: RTCIceCandidateInit) {
-    if (!this.pc || !candidate) return;
+    if (!candidate) return;
+
+    if (!this.pc || !this.remoteDescriptionSet || !this.pc.remoteDescription) {
+      this.pendingIceCandidates.push(candidate);
+      return;
+    }
+
     try {
       await this.pc.addIceCandidate(candidate);
     } catch {
       // Trickle ICE can race with remote description; safe to ignore occasional failures.
+    }
+  }
+
+  private async flushPendingIceCandidates() {
+    if (!this.pc || !this.remoteDescriptionSet) return;
+
+    const pending = this.pendingIceCandidates;
+    this.pendingIceCandidates = [];
+
+    for (const candidate of pending) {
+      try {
+        await this.pc.addIceCandidate(candidate);
+      } catch {
+        // Ignore stale or duplicate candidates.
+      }
     }
   }
 
@@ -268,7 +296,7 @@ export class VoiceCallManager {
 
     try {
       this.makingOffer = true;
-      const offer = await this.pc.createOffer();
+      const offer = await this.pc.createOffer({ offerToReceiveAudio: true });
       await this.pc.setLocalDescription(offer);
       await realtime.sendCallSignal(this.state.callId, 'offer', offer);
     } catch (error) {
@@ -290,15 +318,17 @@ export class VoiceCallManager {
     };
 
     pc.ontrack = (event) => {
-      const [stream] = event.streams;
-      if (!stream) return;
-      if (!this.remoteAudio) {
-        this.remoteAudio = new Audio();
-        this.remoteAudio.autoplay = true;
+      this.attachRemoteTrack(event);
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      if (!this.pc) return;
+      if (this.pc.iceConnectionState === 'connected' || this.pc.iceConnectionState === 'completed') {
+        this.setState({ phase: 'active' });
       }
-      this.remoteAudio.srcObject = stream;
-      void this.remoteAudio.play().catch(() => undefined);
-      this.setState({ phase: 'active' });
+      if (this.pc.iceConnectionState === 'failed') {
+        void this.endCall();
+      }
     };
 
     pc.onconnectionstatechange = () => {
@@ -310,16 +340,67 @@ export class VoiceCallManager {
 
     if (this.localStream) {
       this.localStream.getTracks().forEach((track) => {
-        pc.addTrack(track, this.localStream!);
+        if (track.readyState === 'live') {
+          pc.addTrack(track, this.localStream!);
+        }
       });
+    } else {
+      pc.addTransceiver('audio', { direction: 'recvonly' });
     }
 
     this.pc = pc;
   }
 
+  private attachRemoteTrack(event: RTCTrackEvent) {
+    if (!this.remoteStream) {
+      this.remoteStream = new MediaStream();
+    }
+
+    const hasTrack = this.remoteStream
+      .getTracks()
+      .some((track) => track.id === event.track.id);
+    if (!hasTrack) {
+      this.remoteStream.addTrack(event.track);
+      event.track.onunmute = () => {
+        void this.playRemoteAudio(this.remoteStream!);
+      };
+    }
+
+    void this.playRemoteAudio(this.remoteStream);
+    this.setState({ phase: 'active' });
+  }
+
+  private async playRemoteAudio(stream: MediaStream) {
+    if (!this.remoteAudio) {
+      this.remoteAudio = document.createElement('audio');
+      this.remoteAudio.autoplay = true;
+      this.remoteAudio.setAttribute('playsinline', 'true');
+      this.remoteAudio.volume = 1;
+      this.remoteAudio.muted = false;
+      this.remoteAudio.style.display = 'none';
+      document.body.appendChild(this.remoteAudio);
+    }
+
+    this.remoteAudio.srcObject = stream;
+
+    try {
+      await this.remoteAudio.play();
+    } catch {
+      window.setTimeout(() => {
+        void this.remoteAudio?.play().catch(() => undefined);
+      }, 300);
+    }
+  }
+
   private async ensureLocalAudio() {
     if (this.localStream) return;
     const stream = await getUserAudioStream();
+    const [track] = stream.getAudioTracks();
+    if (!track || track.readyState !== 'live') {
+      stream.getTracks().forEach((activeTrack) => activeTrack.stop());
+      throw new Error('Microphone is not available');
+    }
+    track.enabled = true;
     this.localStream = stream;
     this.setState({ muted: false });
   }
@@ -347,15 +428,23 @@ export class VoiceCallManager {
     this.makingOffer = false;
     this.ignoreOffer = false;
     this.isSettingRemoteAnswerPending = false;
+    this.remoteDescriptionSet = false;
+    this.pendingIceCandidates = [];
 
     if (this.localStream) {
       this.localStream.getTracks().forEach((track) => track.stop());
       this.localStream = null;
     }
 
+    if (this.remoteStream) {
+      this.remoteStream.getTracks().forEach((track) => track.stop());
+      this.remoteStream = null;
+    }
+
     if (this.remoteAudio) {
       this.remoteAudio.pause();
       this.remoteAudio.srcObject = null;
+      this.remoteAudio.remove();
       this.remoteAudio = null;
     }
   }

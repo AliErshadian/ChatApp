@@ -8,6 +8,7 @@ import { MessageBubble } from './MessageBubble';
 import { MessageReplyQuote } from './MessageReplyQuote';
 import { ProfilePanel } from './ProfilePanel';
 import { ContactsPanel } from './ContactsPanel';
+import { CallsPanel } from './CallsPanel';
 import { ConversationInfoPanel } from './ConversationInfoPanel';
 import { FileManagementPanel } from './FileManagementPanel';
 import { VoiceCallModal } from './VoiceCallModal';
@@ -71,6 +72,7 @@ export function ChatPage() {
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showContacts, setShowContacts] = useState(false);
+  const [showCalls, setShowCalls] = useState(false);
   const [showNewChatPicker, setShowNewChatPicker] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showConversationInfo, setShowConversationInfo] = useState(false);
@@ -151,7 +153,7 @@ export function ChatPage() {
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isPanelVisible =
     isPanelOpen &&
-    (activeConversation || showProfile || showContacts || showNewChatPicker || pendingChannelInvite);
+    (activeConversation || showProfile || showContacts || showCalls || showNewChatPicker || pendingChannelInvite);
 
   const typingIndicatorText = useMemo(() => {
     if (!activeConversation || typingUsers.size === 0) return null;
@@ -877,6 +879,7 @@ export function ChatPage() {
   const openProfile = useCallback(() => {
     setShowProfile(true);
     setShowContacts(false);
+    setShowCalls(false);
     setShowNewChatPicker(false);
     setPendingChannelInvite(null);
     setIsPanelOpen(true);
@@ -885,6 +888,16 @@ export function ChatPage() {
   const openContacts = useCallback(() => {
     setShowContacts(true);
     setShowProfile(false);
+    setShowCalls(false);
+    setShowNewChatPicker(false);
+    setPendingChannelInvite(null);
+    setIsPanelOpen(true);
+  }, []);
+
+  const openCalls = useCallback(() => {
+    setShowCalls(true);
+    setShowProfile(false);
+    setShowContacts(false);
     setShowNewChatPicker(false);
     setPendingChannelInvite(null);
     setIsPanelOpen(true);
@@ -893,6 +906,7 @@ export function ChatPage() {
   const openNewChatPicker = useCallback(() => {
     setShowProfile(false);
     setShowContacts(false);
+    setShowCalls(false);
     setShowNewChatPicker(true);
     setShowConversationInfo(false);
     setShowFileManagement(false);
@@ -911,6 +925,7 @@ export function ChatPage() {
       setSidebarList(list);
       setShowProfile(false);
       setShowContacts(false);
+      setShowCalls(false);
       setShowNewChatPicker(false);
       setShowConversationInfo(false);
       setShowFileManagement(false);
@@ -954,6 +969,7 @@ export function ChatPage() {
     setIsPanelOpen(false);
     setShowProfile(false);
     setShowContacts(false);
+    setShowCalls(false);
     setShowNewChatPicker(false);
     setPendingChannelInvite(null);
     setShowConversationInfo(false);
@@ -1765,9 +1781,11 @@ export function ChatPage() {
     ? 'profile'
     : showContacts
       ? 'contacts'
-      : sidebarList === 'channels'
-        ? 'channels'
-        : 'chats';
+      : showCalls
+        ? 'calls'
+        : sidebarList === 'channels'
+          ? 'channels'
+          : 'chats';
 
   const handleDeleteChat = useCallback(
     async (conversationId: string, scope: 'me' | 'everyone') => {
@@ -1934,6 +1952,7 @@ export function ChatPage() {
           channelsUnreadCount={channelsNavBadge}
           onChats={openChats}
           onChannels={openChannels}
+          onCalls={openCalls}
           onContacts={openContacts}
           onProfile={openProfile}
           onLogout={logout}
@@ -2080,6 +2099,12 @@ export function ChatPage() {
       >
         {showProfile ? (
           <ProfilePanel onClose={closeChatPanel} isMobile={isMobile} />
+        ) : showCalls ? (
+          <CallsPanel
+            onClose={closeChatPanel}
+            isMobile={isMobile}
+            onMessage={startDM}
+          />
         ) : showContacts ? (
           <ContactsPanel
             onClose={closeChatPanel}
@@ -2470,6 +2495,7 @@ export function ChatPage() {
           channelsUnreadCount={channelsNavBadge}
           onChats={openChats}
           onChannels={openChannels}
+          onCalls={openCalls}
           onContacts={openContacts}
           onProfile={openProfile}
           onLogout={logout}

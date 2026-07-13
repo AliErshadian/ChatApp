@@ -31,7 +31,14 @@ export async function getUserAudioStream(): Promise<MediaStream> {
   }
 
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    return await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    });
   } catch (error) {
     if (error instanceof DOMException) {
       if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {

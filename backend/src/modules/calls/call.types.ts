@@ -7,6 +7,7 @@ export interface ActiveCall {
   calleeId: string;
   state: CallState;
   createdAt: number;
+  answeredAt?: number;
   ringTimeout?: ReturnType<typeof setTimeout>;
 }
 

@@ -39,6 +39,7 @@ export class CallRegistryService {
     const call = this.calls.get(callId);
     if (!call) return undefined;
     call.state = 'active';
+    call.answeredAt = Date.now();
     if (call.ringTimeout) {
       clearTimeout(call.ringTimeout);
       call.ringTimeout = undefined;
