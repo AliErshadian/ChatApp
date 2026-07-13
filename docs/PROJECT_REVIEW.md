@@ -61,11 +61,13 @@ ChatApp/
   - Shared `RealtimeActionsService` + `RealtimeBroadcastService` used by WS gateway and REST fallback
   - Redis Socket.IO adapter when Redis is available
   - Room-based fanout (`conversation:`, `user:`, `session:`)
-- **Voice calls** (`calls` module):
+- **Voice & video calls** (`calls` module):
   - **1:1 DMs only** — groups/channels rejected server-side
-  - In-memory call registry (`CallRegistryService`): ringing/active state, busy detection, 45s ring timeout
-  - WebSocket signaling: `call:invite`, `call:accept`, `call:reject`, `call:end`, `call:signal` (offer/answer/ICE)
+  - In-memory call registry (`CallRegistryService`): ringing/active state, busy detection, **15s** ring timeout
+  - WebSocket signaling: `call:invite` (`mediaType` audio|video), `call:accept`, `call:reject`, `call:end`, `call:signal` (offer/answer/ICE)
   - Server events: `call:incoming`, `call:accepted`, `call:ended`, forwarded `call:signal`
+  - **Call history** — `call_records` table (migrations `022`–`025`); `GET /calls/history` with filters (incoming/outgoing/missed/cancelled/not_answered)
+  - Unanswered timeout: **Missed** for callee, **Cancelled** for caller; `callee_seen_at` + `GET /calls/missed/unseen-count` / `POST /calls/missed/seen` for nav badge
   - `GET /calls/ice-servers` — STUN from `WEBRTC_STUN_URLS`; optional TURN via `TURN_*` env
   - **Requires WebSocket** — not available when client falls back to SSE
 - **Audit** (`audit` module, global):
@@ -91,7 +93,7 @@ ChatApp/
   - `GET /api/v1/health`
 - **DB**:
   - `infra/postgres/init.sql` for new databases (includes `schema_migrations` seed)
-  - Incremental SQL migrations in `infra/postgres/migrations/` (002–021)
+  - Incremental SQL migrations in `infra/postgres/migrations/` (002–025)
   - **Auto-applied** via `npm run migrate` / Compose `migrate` → `api`
   - **Drift check**: `npm run check:schema-drift` (CI) keeps `init.sql` aligned with migrations
 
@@ -114,7 +116,7 @@ ChatApp/
   - In-app toast notifications (mentions, new DM, added to group/channel, new device login)
   - Profile, contacts, conversation info, forward modal, attachment viewers (API content proxy + IndexedDB cache via `storageUrl.ts` / `mediaCache.ts`)
   - **File management** (per DM/group/channel): header 📁 button or conversation info → filter tabs (All, My uploads, Shared, Images, Videos, Documents, Audio, Voice); jump to message, preview, download
-  - **Voice calls** (DMs only): 📞 in DM header; `VoiceCallModal` for incoming/active calls; WebRTC audio via `voiceCall.ts`; mute; mic permission handling (`mediaDevices.ts` with HTTPS/LAN guidance)
+  - **Voice & video calls** (DMs only): 📞 / 📹 in DM header; `VoiceCallModal` (mute, speaker, camera; desktop video corner controls); WebRTC via `voiceCall.ts`; `CallsPanel` history + filters; missed-call badge on Calls nav; mic/camera permission handling (`mediaDevices.ts` with HTTPS/LAN guidance)
   - **Search**:
     - Sidebar: split panel (conversations on top, message content hits below)
     - Global: `Ctrl+K` / `Cmd+K` modal (chats, channels, people, messages)
@@ -138,7 +140,7 @@ ChatApp/
 - **Admin & audit** — separate admin app, storage visibility, append-only audit trail
 - **Search UX** — unified conversation + message content search with jump-to-message
 - **File management** — per-conversation shared files browser with media-type filters and jump-to-message
-- **1:1 voice calls** — WebRTC + Socket.IO signaling for DMs; ICE endpoint; HTTPS dev for LAN microphone access
+- **1:1 voice & video calls** — WebRTC + Socket.IO signaling for DMs; call history + missed badge; ICE endpoint; HTTPS dev for LAN media access
 - **Session management** — practical Telegram-style device list with push logout
 
 ## Cons / risks (what can bite you in production)
@@ -152,13 +154,16 @@ ChatApp/
 
 - **No automated tests** — auth, ACL, messaging, session, storage, and call signaling flows are untested in CI
 - **Some gateway paths** still use per-member emits where room broadcast would suffice — watch fanout cost in large channels
-- **Voice calls**: in-memory call registry is not shared across API instances; TURN not bundled (needed for some NAT/firewall setups)
+- **Voice/video calls**: in-memory call registry is not shared across API instances; TURN not bundled (needed for some NAT/firewall setups)
 
 
 ## Recently addressed (2026-07)
 
-- **1:1 voice calls (DMs)** — `calls` module (signaling, ICE servers, in-memory registry); desktop `voiceCall.ts`, `VoiceCallModal`, WebSocket `call:*` events; WebRTC audio with STUN/TURN env config; **WebSocket required** (not SSE)
-- **HTTPS LAN dev for microphone** — Vite `@vitejs/plugin-basic-ssl` + proxy `/api` and `/socket.io`; `mediaDevices.ts` friendly errors; `endpoints.ts` same-origin proxy on `https://<LAN-IP>:5173`, direct `:3000` on localhost/Electron
+- **Call history + missed badge** — `call_records` (migrations `022`–`025`); history filters; unseen missed count on Calls nav; open Calls marks seen
+- **15s unanswered ring timeout** — auto hang-up; Missed for receiver, Cancelled for caller
+- **1:1 video calls** — `mediaType` on invite/incoming; camera toggle; mirrored video preview; desktop overlay controls
+- **1:1 voice calls (DMs)** — `calls` module (signaling, ICE servers, in-memory registry); desktop `voiceCall.ts`, `VoiceCallModal`, WebSocket `call:*` events; WebRTC with STUN/TURN env config; **WebSocket required** (not SSE)
+- **HTTPS LAN dev for microphone/camera** — Vite `@vitejs/plugin-basic-ssl` + proxy `/api` and `/socket.io`; `mediaDevices.ts` friendly errors; `endpoints.ts` same-origin proxy on `https://<LAN-IP>:5173`, direct `:3000` on localhost/Electron
 - **Per-chat file management** — `GET /conversations/:id/attachments` with kind filters (`mine`, `shared`, `image`, `video`, etc.) and cursor pagination; `FileManagementPanel` in desktop client (header + conversation info entry points)
 - **API-proxied media downloads** — `GET /attachments/:id/content` streams from MinIO through the API; clients use JWT + same host as chat (works on LAN/mobile without MinIO port exposure)
 - **Client offline cache** — IndexedDB blob cache (`mediaCache.ts`); Profile → Offline cache (size + clear)
@@ -201,8 +206,8 @@ ChatApp/
 ### P2 (polish and scale)
 
 - Room-only fanout audit in gateway (remove remaining per-member loops)
-- **TURN server** (e.g. coturn in Compose) for reliable voice calls behind symmetric NAT
-- **Redis-backed call registry** if scaling voice signaling across multiple API instances
+- **TURN server** (e.g. coturn in Compose) for reliable voice/video calls behind symmetric NAT
+- **Redis-backed call registry** if scaling call signaling across multiple API instances
 
 ## Suggested “definition of done” for production readiness
 
@@ -239,7 +244,7 @@ ChatApp/
 | `S3_BUCKET_*` | Bucket names per media category |
 | `S3_PRESIGNED_URL_EXPIRES_SECONDS` | Presigned `/download` URL TTL (default `120`; optional external use) |
 | `STORAGE_MAX_*_MB` | Upload size limits per category |
-| `WEBRTC_STUN_URLS` | Comma-separated STUN URLs for voice calls |
+| `WEBRTC_STUN_URLS` | Comma-separated STUN URLs for voice/video calls |
 | `TURN_URL` / `TURN_USERNAME` / `TURN_PASSWORD` | Optional TURN for restrictive NAT |
 
 See `backend/.env.example` for defaults. Required in production (`NODE_ENV=production`).

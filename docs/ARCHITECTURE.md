@@ -115,7 +115,7 @@ The MVP ships as a **modular monolith** with clean boundaries:
 | `contacts` | Contact list | Contacts Service |
 | `conversations` | DMs, channels, groups, invites, membership ACL | Conversation Service |
 | `messages` | Persistence, ordering, sanitization, mentions, attachments, reactions, **content search** | Messaging Service |
-| `calls` | 1:1 DM voice call signaling (in-memory registry), ICE server config | Calls / Signaling Service |
+| `calls` | 1:1 DM voice/video signaling (in-memory registry), call history, unseen missed badge, ICE config | Calls / Signaling Service |
 | `storage` | S3-compatible object storage (upload, delete, stream content, presigned URLs, `attachments` metadata) | Storage Service |
 | `audit` | Append-only audit trail for user and admin actions | Audit Service |
 | `admin` | Admin-only stats, user management, storage metrics, audit log API | Admin API |
@@ -367,13 +367,13 @@ Sent to other devices when a new session is created:
 
 Client clears local auth and returns to login.
 
-### Voice call signaling (1:1 DMs, WebSocket only)
+### Voice / video call signaling (1:1 DMs, WebSocket only)
 
 **Client → Server** (with ack callbacks):
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `call:invite` | `{ conversationId }` | Start outbound call; server returns `callId` |
+| `call:invite` | `{ conversationId, mediaType? }` | Start outbound call (`mediaType`: `audio` default, or `video`); server returns `callId` |
 | `call:accept` | `{ callId }` | Callee accepts |
 | `call:reject` | `{ callId }` | Callee declines |
 | `call:end` | `{ callId }` | Hang up active or cancel ringing call |
@@ -383,14 +383,23 @@ Client clears local auth and returns to login.
 
 | Event | Description |
 |-------|-------------|
-| `call:incoming` | Ringing notification to callee (`caller` profile) |
+| `call:incoming` | Ringing notification to callee (`caller` profile, `mediaType`) |
 | `call:accepted` | Caller notified that callee joined |
 | `call:ended` | Call finished (`reason`: ended, rejected, cancelled, busy, timeout, unavailable) |
 | `call:signal` | Forwarded SDP/ICE from peer |
 
-**REST:** `GET /api/v1/calls/ice-servers` returns STUN/TURN list from env (`WEBRTC_STUN_URLS`, optional `TURN_*`).
+**REST:**
 
-**Constraints:** DM conversations only; one active call per user; 45s ring timeout; in-memory call registry (single-instance friendly; Redis-backed registry would be needed for multi-instance call state). **Not available over SSE fallback** — clients must use WebSocket.
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/calls/ice-servers` | STUN/TURN list from env (`WEBRTC_STUN_URLS`, optional `TURN_*`) |
+| GET | `/api/v1/calls/history` | Paginated call history (`filter`, `cursor`, `limit`) |
+| GET | `/api/v1/calls/missed/unseen-count` | Unseen missed-call count for nav badge |
+| POST | `/api/v1/calls/missed/seen` | Mark missed calls seen (`call_records.callee_seen_at`) |
+
+**Persistence:** each completed call is written to `call_records` (migrations `022`–`025`) with `media_type`, `end_reason`, timestamps, and optional duration. Category helpers map per viewer: unanswered timeout → **Missed** for callee, **Cancelled** for caller; `callee_seen_at` tracks the unseen badge.
+
+**Constraints:** DM conversations only; one active call per user; **15s** ring timeout; in-memory call registry (single-instance friendly; Redis-backed registry would be needed for multi-instance call state). **Not available over SSE fallback** — clients must use WebSocket.
 
 ## 11. Database Schema Summary
 
@@ -406,7 +415,8 @@ users ─────────────┬──── conversation_member
                    │
                    ├──── user_contacts
                    ├──── refresh_tokens (session_family_id)
-                   └──── user_sessions
+                   ├──── user_sessions
+                   └──── call_records (1:1 DM call history; caller/callee, media_type, end_reason, callee_seen_at)
 
 direct_conversation_pairs ── conversations (DM uniqueness)
 channel_invites ── conversations
@@ -426,6 +436,8 @@ Key indexes:
 - `messages(search_vector)` GIN — full-text message search
 - `messages(conversation_id, sender_id, client_message_id)` — idempotent sends
 - `attachments(conversation_id, created_at DESC)` — per-chat file listing
+- `call_records(caller_id, ended_at DESC)`, `call_records(callee_id, ended_at DESC)` — call history
+- `call_records` partial index on unseen missed (`answered_at IS NULL AND callee_seen_at IS NULL`)
 - `audit_logs(created_at DESC)`, `audit_logs(action)` — admin audit queries
 - `user_sessions(user_id)` partial where not revoked
 - `refresh_tokens(user_id, session_family_id)` — session token lookup
@@ -478,10 +490,11 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 │ storageUrl.ts   API content proxy fetch + blob URL resolution │
 │ mediaCache.ts   IndexedDB LRU cache for offline media         │
 │ realtime.ts     Socket.IO event handlers (+ call signaling)     │
-│ voiceCall.ts    WebRTC RTCPeerConnection, mic stream, ICE       │
-│ mediaDevices.ts Microphone access; HTTPS/LAN error messages     │
+│ voiceCall.ts    WebRTC RTCPeerConnection, audio/video tracks, ICE │
+│ mediaDevices.ts Mic/camera access; HTTPS/LAN error messages       │
 │ FileManagementPanel  per-chat files (filter tabs, preview)    │
-│ VoiceCallModal  incoming/active call UI (mute, hang up)         │
+│ CallsPanel      call history filters + callback                │
+│ VoiceCallModal  voice/video UI (mute, speaker, camera, end)    │
 │ ConversationInfoPanel  details + link to shared files           │
 │ SidebarSearchPanel / GlobalSearchModal                  │
 │   → filter conversations + GET /messages/search         │
@@ -506,19 +519,21 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 3. `GET /conversations/:id/attachments` with `kind` + cursor pagination
 4. Thumbnails for images/videos; preview modals; **Jump** scrolls to source message; **Save** downloads via cached blob URL
 
-**Voice call flow (DM only):**
+**Voice / video call flow (DM only):**
 
-1. Caller taps 📞 in DM header → `call:invite` → server validates DM membership, busy state, emits `call:incoming` to callee
-2. Client fetches `GET /calls/ice-servers`, acquires mic via `getUserMedia` (`mediaDevices.ts`)
+1. Caller taps 📞 (audio) or 📹 (video) in DM header → `call:invite` (`mediaType`) → server validates DM membership, busy state, emits `call:incoming` to callee
+2. Client fetches `GET /calls/ice-servers`, acquires mic (and camera for video) via `getUserMedia` (`mediaDevices.ts`)
 3. WebRTC offer/answer + trickle ICE exchanged through `call:signal` (server forwards to peer, excluding sender session)
 4. Callee accepts via `VoiceCallModal` → `call:accept` → media flows peer-to-peer (STUN; TURN optional for hard NAT)
-5. Hang up / reject / timeout → `call:end` or server timeout → `call:ended` → cleanup tracks and `RTCPeerConnection`
+5. Active UI: mobile full-screen phone layout; desktop video overlays compact corner controls on the stream (local preview mirrored)
+6. Hang up / reject / **15s unanswered timeout** → `call:end` or server timeout → persist `call_records` → `call:ended` → cleanup tracks and `RTCPeerConnection`
+7. Calls tab (`CallsPanel`) loads `GET /calls/history`; opening Calls marks missed as seen (`POST /calls/missed/seen`) and clears the nav badge (`GET /calls/missed/unseen-count`)
 
 **Dev HTTPS / LAN:**
 
 - Vite dev (`desktop/vite.config.ts`): `@vitejs/plugin-basic-ssl`, `host: true`, proxies `/api` and `/socket.io` to `http://127.0.0.1:3000`
 - `endpoints.ts`: on `https://` + non-localhost host (LAN phone/laptop), API/WS use same origin (through Vite proxy); on `localhost` / Electron, direct `http://localhost:3000`
-- Microphone APIs require secure context — `http://192.168.x.x` is blocked; use `https://192.168.x.x:5173`
+- Microphone/camera APIs require secure context — `http://192.168.x.x` is blocked; use `https://192.168.x.x:5173`
 
 ### Admin client (`admin/` — `chatapp-admin`)
 
@@ -666,7 +681,7 @@ All delegate to `StorageService.upload()`.
 | `S3_BUCKET_*` | Bucket names per media type | see §15 |
 | `S3_PRESIGNED_URL_EXPIRES_SECONDS` | Download URL TTL | `120` |
 | `STORAGE_MAX_*_MB` | Per-category upload size limits | see `backend/.env.example` |
-| `WEBRTC_STUN_URLS` | Comma-separated STUN URLs for voice calls | Google public STUN (dev) |
+| `WEBRTC_STUN_URLS` | Comma-separated STUN URLs for voice/video calls | Google public STUN (dev) |
 | `TURN_URL` | Optional TURN server URL | unset |
 | `TURN_USERNAME` / `TURN_PASSWORD` | TURN credentials (all three required to enable) | unset |
 
@@ -747,4 +762,4 @@ Accept: text/event-stream
 
 `desktop/src/services/realtime.ts` tries **WebSocket first** (~8s timeout). On failure it connects via **EventSource** to `/realtime/stream` and routes outbound operations to the REST endpoints above (`api.sendRealtimeMessage`, etc.).
 
-SSE mode is automatic; no user configuration required. **Voice calls are disabled in SSE mode** — WebSocket is required for `call:*` signaling and WebRTC setup.
+SSE mode is automatic; no user configuration required. **Voice and video calls are disabled in SSE mode** — WebSocket is required for `call:*` signaling and WebRTC setup.

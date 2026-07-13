@@ -94,10 +94,10 @@ Set `S3_ENDPOINT=127.0.0.1` in `backend/.env` (see `backend/.env.example`). Buck
 **Browser-only client** (no Electron): start the API (`npm run dev:backend`), then `npm run dev:desktop` from the repo root.
 
 - **This machine**: open `https://localhost:5173` (Vite dev uses a self-signed certificate via `@vitejs/plugin-basic-ssl`; accept the browser warning).
-- **Another device on LAN**: open `https://<your-LAN-IP>:5173` (not `http://`). Microphone access (voice calls, voice messages) requires a **secure context** — plain HTTP on a LAN IP is blocked by browsers.
+- **Another device on LAN**: open `https://<your-LAN-IP>:5173` (not `http://`). Microphone/camera access (voice/video calls, voice messages) requires a **secure context** — plain HTTP on a LAN IP is blocked by browsers.
 - On LAN HTTPS, the Vite dev server proxies `/api` and `/socket.io` to the backend on port 3000 (avoids mixed-content issues). On `localhost`, the client talks to `http://localhost:3000` directly.
 - Auth persists in `localStorage`. API/WebSocket URLs are resolved in `desktop/src/config/endpoints.ts`. Media downloads use the API proxy, so MinIO does not need to be reachable from other devices.
-- If WebSocket is blocked, the client automatically falls back to SSE + REST (text chat only — **voice calls require WebSocket**).
+- If WebSocket is blocked, the client automatically falls back to SSE + REST (text chat only — **voice/video calls require WebSocket**).
 
 ## Technology Choices
 
@@ -131,7 +131,7 @@ ChatApp/
 │       │   ├── contacts/
 │       │   ├── conversations/  # DMs, channels, groups, invites
 │       │   ├── messages/       # Text, attachments, mentions, reactions, search
-│       │   ├── calls/          # 1:1 DM voice calls (WebRTC signaling, ICE config)
+│       │   ├── calls/          # 1:1 DM voice/video calls (WebRTC signaling, history, ICE)
 │       │   ├── admin/          # Admin-only REST (stats, users, storage)
 │       │   ├── presence/
 │       │   └── realtime/       # WebSocket gateway, SSE stream, event bus, REST fallback
@@ -150,11 +150,12 @@ ChatApp/
 │   └── src/
 │       ├── components/
 │       │   ├── FileManagementPanel.tsx  # Per-chat shared files UI
-│       │   └── VoiceCallModal.tsx       # 1:1 voice call overlay
+│       │   ├── CallsPanel.tsx           # Call history (filters, callback)
+│       │   └── VoiceCallModal.tsx       # Voice/video call overlay
 │       ├── services/
 │       │   └── voiceCall.ts             # WebRTC peer connection manager
 │       └── utils/
-│           └── mediaDevices.ts          # Mic access + HTTPS/LAN error messages
+│           └── mediaDevices.ts          # Mic/camera access + HTTPS/LAN error messages
 ├── admin/                      # Admin dashboard (Vite + React, port 5174)
 │   └── src/
 │       ├── pages/              # Dashboard, users, user detail, audit log
@@ -162,7 +163,7 @@ ChatApp/
 │       └── components/
 ├── infra/postgres/
 │   ├── init.sql                # Full schema for new databases
-│   └── migrations/             # Incremental SQL migrations (002–021+)
+│   └── migrations/             # Incremental SQL migrations (002–025+)
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── PROJECT_REVIEW.md
@@ -223,13 +224,16 @@ Access tokens include a `sid` claim (session id). Refresh tokens are SHA-256 has
 | POST | `/contacts` | Add contact |
 | GET | `/users/search` | Partial user search (username, display name, email) |
 
-### Voice calls (1:1 DMs only)
+### Voice & video calls (1:1 DMs only)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/calls/ice-servers` | STUN/TURN ICE server list for WebRTC (`WEBRTC_STUN_URLS`, optional `TURN_*` in `backend/.env`) |
+| GET | `/calls/history` | Call history (`filter`, `cursor`, `limit`; filters: all/incoming/outgoing/missed/cancelled/not_answered) |
+| GET | `/calls/missed/unseen-count` | Count of unseen missed calls for the current user (nav badge) |
+| POST | `/calls/missed/seen` | Mark all missed calls as seen (clears badge when opening Calls) |
 
-Signaling is over WebSocket only (not SSE). DM membership is enforced server-side; groups and channels are not supported.
+Signaling is over WebSocket only (not SSE). DM membership is enforced server-side; groups and channels are not supported. Unanswered rings auto-end after **15s** (`timeout`): history shows **Missed** for the callee and **Cancelled** for the caller.
 
 ### Attachments (object storage)
 
@@ -263,9 +267,9 @@ Connect with `auth: { token: <accessToken> }`. Clients join `user:{userId}` and 
 | `session:created` | Server → Client | New login on another device |
 | `session:terminated` | Server → Client | Force logout (session revoked) |
 | `presence:heartbeat` | Client → Server | Keep-alive |
-| `call:invite` / `call:accept` / `call:reject` / `call:end` | Client → Server | 1:1 voice call signaling (DM only) |
+| `call:invite` / `call:accept` / `call:reject` / `call:end` | Client → Server | 1:1 voice/video call signaling (DM only; invite may include `mediaType`: `audio` \| `video`) |
 | `call:signal` | Client → Server | WebRTC offer/answer/ICE trickle |
-| `call:incoming` / `call:accepted` / `call:ended` | Server → Client | Call state sync |
+| `call:incoming` / `call:accepted` / `call:ended` | Server → Client | Call state sync (`incoming` includes `mediaType`) |
 | `call:signal` | Server → Client | Forwarded WebRTC SDP/ICE to peer |
 
 ### SSE fallback (`/realtime/*`)
@@ -305,13 +309,13 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 - Profile avatars, conversation pins, contact list
 - **Search**: sidebar filter (chats/groups/channels + message content); global search (`Ctrl+K` / `Cmd+K`); click result to jump and scroll to message
 - **File management**: per-chat shared files panel (📁 in header or conversation info); tabs for All, My uploads, Shared, Images, Videos, Documents, Audio, Voice; preview, download, jump to message
-- **Voice calls** (DMs only): 📞 button in DM header; WebRTC audio with Socket.IO signaling; incoming call modal; mute; 45s ring timeout; requires WebSocket (not SSE fallback)
+- **Voice & video calls** (DMs only): 📞 / 📹 in DM header; WebRTC audio/video with Socket.IO signaling; phone-style controls (mute, speaker, camera); desktop video overlay with compact corner controls; **15s** ring timeout; call history tab (`CallsPanel`) with filters; unseen missed-call badge on Calls nav; requires WebSocket (not SSE fallback)
 - **Devices** (Profile → Devices): Telegram-style session list, terminate device, terminate all others
 - **Offline cache** (Profile → Offline cache): IndexedDB blob cache for avatars/attachments; view size and clear cache
 - **Realtime fallback**: automatic SSE + REST when WebSocket cannot connect
 - Electron: system tray, native notifications, encrypted refresh-token store, deep links (`chatapp://`); dev loads `https://localhost:5173` with self-signed cert trust
 
-### LAN / microphone (dev)
+### LAN / microphone & camera (dev)
 
 Browsers only expose `navigator.mediaDevices` in secure contexts (`https://` or `localhost`). The Vite dev server serves HTTPS (`@vitejs/plugin-basic-ssl`) with `host: true` so other devices can open `https://<LAN-IP>:5173`. Optional TURN (`TURN_URL`, `TURN_USERNAME`, `TURN_PASSWORD` in `backend/.env`) helps when peers are behind restrictive NAT.
 
