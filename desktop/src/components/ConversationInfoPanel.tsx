@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, Conversation, User } from '../services/api';
 import { Avatar } from './Avatar';
+import { Icon } from './Icon';
 import { ContactInfoPrompt } from './ContactInfoPrompt';
 import { ChatDeleteSection } from './ChatDeleteSection';
 import { ChannelInviteSection } from './ChannelInviteSection';
@@ -9,6 +10,7 @@ import { AddParticipantsModal } from './AddParticipantsModal';
 import { ConfirmModal } from './ConfirmModal';
 import { usePresence } from '../context/PresenceContext';
 import { canManageParticipants, getChannelOwner, isChannelOwner, sortChannelMembers } from '../utils/conversation';
+import { faArrowLeft } from '@fortawesome/free-solid-svg-icons';
 
 interface Props {
   conversation: Conversation;
@@ -140,7 +142,7 @@ export function ConversationInfoPanel({
     <div className="conversation-info-panel">
       <header className="conversation-info-header">
         <button className="icon-btn back-btn" onClick={onClose} aria-label="Back to chat">
-          ←
+          <Icon icon={faArrowLeft} />
         </button>
         <h3>{isDirect ? 'Contact Info' : isGroup ? 'Group Info' : 'Channel Info'}</h3>
       </header>

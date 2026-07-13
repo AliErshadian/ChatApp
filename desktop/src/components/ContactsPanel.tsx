@@ -3,6 +3,8 @@ import { api, Contact, User } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
 import { Avatar } from './Avatar';
+import { Icon } from './Icon';
+import { faArrowLeft, faXmark } from '@fortawesome/free-solid-svg-icons';
 
 interface Props {
   onClose: () => void;
@@ -33,7 +35,7 @@ export function ContactsPanel({
     : isPicker
       ? 'Close new chat'
       : 'Close contacts';
-  const closeIcon = isMobile ? '←' : '✕';
+  const closeIcon = isMobile ? <Icon icon={faArrowLeft} /> : <Icon icon={faXmark} />;
   const panelTitle = isPicker ? 'New Chat' : 'Contacts';
 
   const contactIds = useMemo(

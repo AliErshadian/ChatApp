@@ -8,6 +8,8 @@ import {
 import { claimVoicePlayer, releaseVoicePlayer } from '../utils/voicePlayerRegistry';
 import { decodeAudioBlob, isUsableDuration } from '../utils/voiceWaveform';
 import { VoiceWaveform } from './VoiceWaveform';
+import { Icon } from './Icon';
+import { faPause, faPlay } from '@fortawesome/free-solid-svg-icons';
 
 interface Props {
   messageId: string;
@@ -218,7 +220,7 @@ export function VoiceMessageBubble({
         }}
         aria-label={playing ? 'Pause voice message' : 'Play voice message'}
       >
-        {playing ? '❚❚' : '▶'}
+        <Icon icon={playing ? faPause : faPlay} />
       </button>
       <div className="voice-message-body">
         <div

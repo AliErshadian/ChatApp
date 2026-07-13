@@ -1,9 +1,19 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Avatar } from './Avatar';
+import { Icon } from './Icon';
 import { voiceCallManager } from '../services/voiceCall';
 import type { VoiceCallState } from '../types/voiceCall';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import {
+  faMicrophoneSlash,
+  faPhone,
+  faPhoneSlash,
+  faVideo,
+  faVideoSlash,
+  faVolumeHigh,
+  faVolumeLow,
+} from '@fortawesome/free-solid-svg-icons';
 
 function getStatusLabel(state: VoiceCallState): string {
   const callKind = state.mediaType === 'video' ? 'video call' : 'voice call';
@@ -32,56 +42,24 @@ function getStatusLabel(state: VoiceCallState): string {
 function CallIcon({
   name,
 }: {
-  name: 'mute' | 'speaker' | 'audio' | 'camera' | 'end' | 'accept' | 'reject';
+  name: 'mute' | 'speaker' | 'audio' | 'camera' | 'camera-off' | 'end' | 'accept' | 'reject';
 }) {
   switch (name) {
     case 'mute':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-          <path d="M12 19v4" />
-          <path d="M8 23h8" />
-        </svg>
-      );
+      return <Icon icon={faMicrophoneSlash} />;
     case 'camera':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M23 7l-7 5 7 5V7z" />
-          <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-        </svg>
-      );
+      return <Icon icon={faVideo} />;
+    case 'camera-off':
+      return <Icon icon={faVideoSlash} />;
     case 'speaker':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M11 5 6 9H2v6h4l5 4V5z" />
-          <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-          <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-        </svg>
-      );
+      return <Icon icon={faVolumeHigh} />;
     case 'audio':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M3 18v-6h3l4-4V3l7 7-7 7v-2l-4-4H6v5H3z" />
-          <path d="M16 8.82v6.36" />
-          <path d="M19 6v12" />
-        </svg>
-      );
+      return <Icon icon={faVolumeLow} />;
     case 'end':
     case 'reject':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.58 2.81.7A2 2 0 0 1 22 16.92z" />
-          <path d="m15 9-6 6" />
-          <path d="m9 9 6 6" />
-        </svg>
-      );
+      return <Icon icon={faPhoneSlash} />;
     case 'accept':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.58 2.81.7A2 2 0 0 1 22 16.92z" />
-        </svg>
-      );
+      return <Icon icon={faPhone} />;
     default:
       return null;
   }
@@ -195,7 +173,7 @@ export function VoiceCallModal() {
           compact={useVideoOverlayControls}
           onClick={() => voiceCallManager.toggleCamera()}
         >
-          <CallIcon name="camera" />
+          <CallIcon name={state.cameraOff ? 'camera-off' : 'camera'} />
         </CallControl>
       )}
 

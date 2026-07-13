@@ -5,6 +5,8 @@ import { useVoiceCall } from '../hooks/useVoiceCall';
 import { realtime } from '../services/realtime';
 import { voiceCallManager } from '../services/voiceCall';
 import { Avatar } from './Avatar';
+import { Icon } from './Icon';
+import { faArrowLeft, faXmark } from '@fortawesome/free-solid-svg-icons';
 
 interface Props {
   onClose: () => void;
@@ -172,7 +174,7 @@ export function CallsPanel({ onClose, isMobile = false, onMessage }: Props) {
           aria-label={closeLabel}
           title={closeLabel}
         >
-          {isMobile ? '←' : '✕'}
+          {isMobile ? <Icon icon={faArrowLeft} /> : <Icon icon={faXmark} />}
         </button>
         <h3>Calls</h3>
       </header>

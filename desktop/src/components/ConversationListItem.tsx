@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Conversation } from '../services/api';
 import { Avatar } from './Avatar';
+import { Icon } from './Icon';
 import { ConfirmModal } from './ConfirmModal';
 import { getDirectPeer } from '../utils/conversation';
 import { usePresence } from '../context/PresenceContext';
@@ -11,6 +12,7 @@ import { ChannelLeaveModal } from './ChannelLeaveModal';
 import { formatRelativeTime } from '../utils/time';
 import { clearTextSelection, usePreventTouchSelection } from '../hooks/usePreventTouchSelection';
 import { useGhostClickGuard } from '../hooks/useGhostClickGuard';
+import { faThumbtack } from '@fortawesome/free-solid-svg-icons';
 
 interface Props {
   conversation: Conversation;
@@ -261,12 +263,7 @@ export function ConversationListItem({
             <span className="conv-name">
               {conversation.isPinned && (
                 <span className="conv-pin-icon" aria-label="Pinned" title="Pinned">
-                  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-                    <path
-                      fill="currentColor"
-                      d="M9.5 1.5 8.8 3H6.2L5.5 1.5 4 2l.9 2.1L3 6v1.5l2.5.7V14h5V8.2L13 7.5V6l-2.9-.9L11 3l-1.5-.5z"
-                    />
-                  </svg>
+                  <Icon icon={faThumbtack} />
                 </span>
               )}
               {conversation.name}

@@ -1,10 +1,12 @@
 import type { ActiveSession } from '../services/api';
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
+import { faDesktop, faGlobe, faMobileScreen } from '@fortawesome/free-solid-svg-icons';
 import { formatRelativeTime } from './time';
 
-export function sessionIcon(session: ActiveSession): string {
-  if (session.appName === 'ChatApp') return '💻';
-  if (session.platform?.match(/iOS|Android/i)) return '📱';
-  return '🌐';
+export function sessionIcon(session: ActiveSession): IconDefinition {
+  if (session.appName === 'ChatApp') return faDesktop;
+  if (session.platform?.match(/iOS|Android/i)) return faMobileScreen;
+  return faGlobe;
 }
 
 export function sessionStatusLabel(session: ActiveSession, isCurrent: boolean): string {

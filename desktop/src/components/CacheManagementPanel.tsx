@@ -49,18 +49,16 @@ export function CacheManagementPanel() {
 
   return (
     <section className="profile-section">
-      <div className="profile-section-header">
-        <h4>Offline cache</h4>
-      </div>
+      <h4>Offline cache</h4>
       <p className="profile-cache-intro">
         Downloaded avatars and attachments are saved locally so they load faster and use less data.
       </p>
-      <dl className="profile-details profile-cache-stats">
-        <div className="profile-detail-row">
+      <dl className="profile-list profile-cache-stats">
+        <div className="profile-list-row">
           <dt>Cached files</dt>
           <dd>{loading ? '…' : stats.count.toLocaleString()}</dd>
         </div>
-        <div className="profile-detail-row">
+        <div className="profile-list-row">
           <dt>Cache size</dt>
           <dd>{loading ? '…' : formatCacheSize(stats.bytes)}</dd>
         </div>

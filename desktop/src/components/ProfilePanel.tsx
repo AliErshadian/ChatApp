@@ -1,11 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, User } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { Avatar } from './Avatar';
+import { Icon } from './Icon';
 import { ConfirmModal } from './ConfirmModal';
 import { SessionsPanel } from './SessionsPanel';
 import { CacheManagementPanel } from './CacheManagementPanel';
 import { getLogoutConfirm } from '../utils/deleteChatConfirm';
+import {
+  faArrowLeft,
+  faCamera,
+  faMoon,
+  faRightFromBracket,
+  faSun,
+  faXmark,
+} from '@fortawesome/free-solid-svg-icons';
 
 interface Props {
   onClose: () => void;
@@ -23,6 +33,7 @@ function formatDate(value?: string) {
 
 export function ProfilePanel({ onClose, isMobile = false }: Props) {
   const { user: authUser, logout, updateUser } = useAuth();
+  const { theme, setTheme } = useTheme();
   const [profile, setProfile] = useState<User | null>(authUser);
   const [loading, setLoading] = useState(!authUser);
   const [uploading, setUploading] = useState(false);
@@ -71,14 +82,14 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
   };
 
   const closeLabel = isMobile ? 'Back to conversations' : 'Close profile';
-  const closeIcon = isMobile ? '←' : '✕';
+  const closeIcon = isMobile ? <Icon icon={faArrowLeft} /> : <Icon icon={faXmark} />;
 
   if (!profile && loading) {
     return (
       <div className="profile-panel">
         <header className="profile-header">
           <button className="icon-btn close-chat-btn" onClick={onClose} aria-label={closeLabel} title={closeLabel}>{closeIcon}</button>
-          <h3>My Profile</h3>
+          <h3>Profile</h3>
         </header>
         <div className="profile-loading">Loading profile...</div>
       </div>
@@ -90,7 +101,7 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
       <div className="profile-panel">
         <header className="profile-header">
           <button className="icon-btn close-chat-btn" onClick={onClose} aria-label={closeLabel} title={closeLabel}>{closeIcon}</button>
-          <h3>My Profile</h3>
+          <h3>Profile</h3>
         </header>
         <div className="profile-error">{error || 'Profile unavailable'}</div>
       </div>
@@ -101,20 +112,22 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
     <div className="profile-panel">
       <header className="profile-header">
         <button className="icon-btn close-chat-btn" onClick={onClose} aria-label={closeLabel} title={closeLabel}>{closeIcon}</button>
-        <h3>My Profile</h3>
+        <h3>Profile</h3>
       </header>
 
       <div className="profile-content">
         <div className="profile-hero">
-          <div className="profile-avatar-wrap">
+          <div className="profile-avatar-stage">
             <Avatar name={profile.displayName} avatarUrl={profile.avatarUrl} size="lg" />
             <button
               type="button"
-              className="avatar-upload-btn"
+              className="profile-avatar-edit"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
+              aria-label={uploading ? 'Uploading photo' : 'Change photo'}
+              title={uploading ? 'Uploading…' : 'Change photo'}
             >
-              {uploading ? 'Uploading...' : 'Change photo'}
+              <Icon icon={faCamera} />
             </button>
             <input
               ref={fileInputRef}
@@ -130,27 +143,53 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
         </div>
 
         <section className="profile-section">
-          <h4>Account Details</h4>
-          <dl className="profile-details">
-            <div className="profile-detail-row">
+          <h4>Appearance</h4>
+          <div className="profile-pref-card">
+            <div className="theme-toggle" role="group" aria-label="Color theme">
+              <button
+                type="button"
+                className={`theme-toggle-btn${theme === 'dark' ? ' active' : ''}`}
+                onClick={() => setTheme('dark')}
+                aria-pressed={theme === 'dark'}
+              >
+                <Icon icon={faMoon} />
+                <span>Dark</span>
+              </button>
+              <button
+                type="button"
+                className={`theme-toggle-btn${theme === 'light' ? ' active' : ''}`}
+                onClick={() => setTheme('light')}
+                aria-pressed={theme === 'light'}
+              >
+                <Icon icon={faSun} />
+                <span>Light</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="profile-section">
+          <h4>Account</h4>
+          <dl className="profile-list">
+            <div className="profile-list-row">
               <dt>Email</dt>
               <dd>{profile.email}</dd>
             </div>
-            <div className="profile-detail-row">
+            <div className="profile-list-row">
               <dt>Username</dt>
               <dd>@{profile.username}</dd>
             </div>
-            <div className="profile-detail-row">
-              <dt>Display Name</dt>
+            <div className="profile-list-row">
+              <dt>Display name</dt>
               <dd>{profile.displayName}</dd>
             </div>
-            <div className="profile-detail-row">
+            <div className="profile-list-row">
+              <dt>Member since</dt>
+              <dd>{formatDate(profile.createdAt)}</dd>
+            </div>
+            <div className="profile-list-row profile-list-row--mono">
               <dt>User ID</dt>
               <dd className="profile-mono">{profile.id}</dd>
-            </div>
-            <div className="profile-detail-row">
-              <dt>Member Since</dt>
-              <dd>{formatDate(profile.createdAt)}</dd>
             </div>
           </dl>
         </section>
@@ -164,7 +203,8 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
 
         <div className="profile-actions">
           <button className="profile-logout-btn" onClick={() => setLogoutConfirmOpen(true)}>
-            Sign Out
+            <Icon icon={faRightFromBracket} />
+            <span>Sign out</span>
           </button>
         </div>
       </div>

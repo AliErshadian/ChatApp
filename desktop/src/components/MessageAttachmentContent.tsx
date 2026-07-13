@@ -11,6 +11,8 @@ import { LinkifiedMessageText } from './LinkifiedMessageText';
 import { ImageViewerModal } from './ImageViewerModal';
 import { VideoViewerModal } from './VideoViewerModal';
 import { VoiceMessageBubble } from './VoiceMessageBubble';
+import { Icon } from './Icon';
+import { faFile, faPlay } from '@fortawesome/free-solid-svg-icons';
 
 interface Props {
   message: Message;
@@ -72,7 +74,7 @@ export function MessageAttachmentContent({ message, isOwn = false }: Props) {
               playsInline
             />
             <span className="message-attachment-play-icon" aria-hidden>
-              ▶
+              <Icon icon={faPlay} />
             </span>
           </button>
           <VideoViewerModal
@@ -110,7 +112,7 @@ export function MessageAttachmentContent({ message, isOwn = false }: Props) {
           className="message-attachment-document"
         >
           <span className="message-attachment-document-icon" aria-hidden>
-            📄
+            <Icon icon={faFile} />
           </span>
           <span className="message-attachment-document-meta">
             <span className="message-attachment-filename">{message.fileName ?? 'Document'}</span>

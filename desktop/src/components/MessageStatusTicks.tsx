@@ -1,4 +1,6 @@
 import type { MessageStatus } from '../services/api';
+import { Icon } from './Icon';
+import { faCheck, faCheckDouble, faSpinner } from '@fortawesome/free-solid-svg-icons';
 
 interface Props {
   status: MessageStatus;
@@ -6,15 +8,17 @@ interface Props {
 
 export function MessageStatusTicks({ status }: Props) {
   if (status === 'sending') {
-    return <span className="msg-status sending" title="Sending">◷</span>;
+    return (
+      <span className="msg-status sending" title="Sending">
+        <Icon icon={faSpinner} spin />
+      </span>
+    );
   }
 
   if (status === 'sent') {
     return (
       <span className="msg-status sent" title="Sent">
-        <svg viewBox="0 0 16 11" width="16" height="11" aria-hidden>
-          <path d="M1 5.5L5.5 10L15 1" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <Icon icon={faCheck} />
       </span>
     );
   }
@@ -23,10 +27,7 @@ export function MessageStatusTicks({ status }: Props) {
 
   return (
     <span className={`msg-status ${isRead ? 'read' : 'delivered'}`} title={isRead ? 'Read' : 'Delivered'}>
-      <svg viewBox="0 0 20 11" width="18" height="11" aria-hidden>
-        <path d="M1 5.5L4 8.5L10 2" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M6 5.5L9.5 9L17 1.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      <Icon icon={faCheckDouble} />
     </span>
   );
 }

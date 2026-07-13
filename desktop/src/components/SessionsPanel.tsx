@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ActiveSession } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { sessionIcon, sessionStatusLabel } from '../utils/sessionDisplay';
+import { Icon } from './Icon';
 
 export function SessionsPanel() {
   const { logout } = useAuth();
@@ -91,7 +92,7 @@ export function SessionsPanel() {
               className={`profile-session-row${isCurrent ? ' profile-session-row-current' : ''}`}
             >
               <div className="profile-session-icon" aria-hidden>
-                {sessionIcon(session)}
+                <Icon icon={sessionIcon(session)} />
               </div>
               <div className="profile-session-info">
                 <div className="profile-session-title">

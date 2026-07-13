@@ -1,3 +1,6 @@
+import { Icon } from './Icon';
+import { faUser } from '@fortawesome/free-solid-svg-icons';
+
 interface Props {
   displayName: string;
   ignored: boolean;
@@ -17,7 +20,7 @@ export function ContactInfoPrompt({
     <section className="contact-info-prompt">
       <div className="contact-info-prompt-card">
         <div className="contact-info-prompt-icon" aria-hidden>
-          👤
+          <Icon icon={faUser} />
         </div>
         <div className="contact-info-prompt-body">
           <p className="contact-info-prompt-title">
@@ -45,7 +48,7 @@ export function ContactInfoPrompt({
               onClick={onAdd}
               disabled={busy}
             >
-              {busy ? 'Adding...' : 'Add contact'}
+              {busy ? 'Please wait...' : 'Add to contacts'}
             </button>
           </div>
         </div>

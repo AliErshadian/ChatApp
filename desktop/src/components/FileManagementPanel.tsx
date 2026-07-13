@@ -13,6 +13,17 @@ import { downloadMedia } from '../utils/downloadMedia';
 import { useStorageUrl } from '../utils/storageUrl';
 import { ImageViewerModal } from './ImageViewerModal';
 import { VideoViewerModal } from './VideoViewerModal';
+import { Icon } from './Icon';
+import {
+  faArrowLeft,
+  faFile,
+  faFileAudio,
+  faFileImage,
+  faFileVideo,
+  faFolder,
+  faMicrophone,
+  faPlay,
+} from '@fortawesome/free-solid-svg-icons';
 
 interface Props {
   conversationId: string;
@@ -43,15 +54,15 @@ function formatDate(value: string) {
 function FileKindIcon({ kind }: { kind: ReturnType<typeof getAttachmentMediaKind> }) {
   switch (kind) {
     case 'image':
-      return <span className="file-kind-icon" aria-hidden>🖼️</span>;
+      return <Icon icon={faFileImage} className="file-kind-icon" />;
     case 'video':
-      return <span className="file-kind-icon" aria-hidden>🎬</span>;
+      return <Icon icon={faFileVideo} className="file-kind-icon" />;
     case 'voice':
-      return <span className="file-kind-icon" aria-hidden>🎤</span>;
+      return <Icon icon={faMicrophone} className="file-kind-icon" />;
     case 'audio':
-      return <span className="file-kind-icon" aria-hidden>🎵</span>;
+      return <Icon icon={faFileAudio} className="file-kind-icon" />;
     default:
-      return <span className="file-kind-icon" aria-hidden>📄</span>;
+      return <Icon icon={faFile} className="file-kind-icon" />;
   }
 }
 
@@ -77,7 +88,9 @@ function FileThumbnail({
     return (
       <button type="button" className="file-thumb file-thumb--video" onClick={onPreview}>
         <video src={mediaUrl} preload="metadata" muted playsInline />
-        <span className="file-thumb-play" aria-hidden>▶</span>
+        <span className="file-thumb-play" aria-hidden>
+          <Icon icon={faPlay} />
+        </span>
       </button>
     );
   }
@@ -239,7 +252,7 @@ export function FileManagementPanel({
     <div className="conversation-info-panel file-management-panel">
       <header className="conversation-info-header">
         <button className="icon-btn back-btn" onClick={onClose} aria-label="Back to chat">
-          ←
+          <Icon icon={faArrowLeft} />
         </button>
         <h3>Files</h3>
       </header>
@@ -266,7 +279,9 @@ export function FileManagementPanel({
           <div className="profile-error">{error}</div>
         ) : items.length === 0 ? (
           <div className="file-management-empty">
-            <div className="file-management-empty-icon" aria-hidden>📁</div>
+            <div className="file-management-empty-icon" aria-hidden>
+              <Icon icon={faFolder} />
+            </div>
             <p>No files in this category yet.</p>
             <p className="file-management-empty-hint">
               Photos, videos, documents, and other attachments shared in this chat will appear here.

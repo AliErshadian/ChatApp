@@ -1,5 +1,21 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { Avatar } from './Avatar';
+import { Icon } from './Icon';
+import {
+  faArrowDown,
+  faArrowLeft,
+  faComments,
+  faFolder,
+  faHashtag,
+  faMagnifyingGlass,
+  faPaperclip,
+  faPhone,
+  faPlus,
+  faUserGroup,
+  faUserPlus,
+  faVideo,
+  faXmark,
+} from '@fortawesome/free-solid-svg-icons';
 import { api, Conversation, Message, MessageSearchResult, MessageStatus, User, ConversationUpdatedEvent } from '../services/api';
 import { realtime } from '../services/realtime';
 import { useAuth } from '../context/AuthContext';
@@ -2018,17 +2034,53 @@ export function ChatPage() {
 
       <div className="chat-layout-body">
       <aside className="sidebar">
-        <header className="sidebar-header">
-          <h2>{sidebarList === 'channels' ? 'Channels' : 'Chats'}</h2>
-          <button
-            type="button"
-            className="icon-btn sidebar-search-btn"
-            onClick={() => setShowGlobalSearch(true)}
-            title="Search (Ctrl+K)"
-            aria-label="Search"
-          >
-            ⌕
-          </button>
+        <header className="sidebar-chrome">
+          <div className="sidebar-chrome-heading">
+            <h2>{sidebarList === 'channels' ? 'Channels' : 'Chats'}</h2>
+          </div>
+          <div className="sidebar-chrome-actions">
+            <button
+              type="button"
+              className="icon-btn sidebar-chrome-btn"
+              onClick={() => setShowGlobalSearch(true)}
+              title="Search (Ctrl+K)"
+              aria-label="Search"
+            >
+              <Icon icon={faMagnifyingGlass} className="sidebar-chrome-icon" />
+            </button>
+            {sidebarList === 'channels' ? (
+              <button
+                type="button"
+                className="icon-btn sidebar-chrome-btn sidebar-chrome-btn--primary"
+                onClick={() => setShowNewChannel(true)}
+                title="New channel"
+                aria-label="New channel"
+              >
+                <Icon icon={faPlus} className="sidebar-chrome-icon" />
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="icon-btn sidebar-chrome-btn"
+                  onClick={() => setShowNewGroup(true)}
+                  title="New group"
+                  aria-label="New group"
+                >
+                  <Icon icon={faUserGroup} className="sidebar-chrome-icon" />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn sidebar-chrome-btn sidebar-chrome-btn--primary"
+                  onClick={openNewChatPicker}
+                  title="New chat"
+                  aria-label="New chat"
+                >
+                  <Icon icon={faUserPlus} className="sidebar-chrome-icon" />
+                </button>
+              </>
+            )}
+          </div>
         </header>
 
         <div className="sidebar-search">
@@ -2036,7 +2088,7 @@ export function ChatPage() {
             type="search"
             value={sidebarSearch}
             onChange={(e) => setSidebarSearch(e.target.value)}
-            placeholder="Search chats, groups, channels, messages..."
+            placeholder="Filter conversations and messages..."
             aria-label="Search chats, groups, channels, and messages"
           />
           {sidebarSearchActive && (
@@ -2046,25 +2098,8 @@ export function ChatPage() {
               onClick={() => setSidebarSearch('')}
               aria-label="Clear search"
             >
-              ✕
+              <Icon icon={faXmark} />
             </button>
-          )}
-        </div>
-
-        <div className="sidebar-actions">
-          {sidebarList === 'channels' ? (
-            <button className="sidebar-action-primary" onClick={() => setShowNewChannel(true)}>
-              + Channel
-            </button>
-          ) : (
-            <div className="sidebar-actions-row">
-              <button className="sidebar-action-primary" onClick={openNewChatPicker}>
-                + New Chat
-              </button>
-              <button className="sidebar-action-secondary" onClick={() => setShowNewGroup(true)}>
-                + New Group
-              </button>
-            </div>
           )}
         </div>
 
@@ -2122,7 +2157,7 @@ export function ChatPage() {
           ) : sidebarConversations.length === 0 ? (
             <div className="conversation-list-empty">
               <p>No conversations yet</p>
-              <span>Use New Chat or New Group to start messaging</span>
+              <span>Start a chat or create a group from the toolbar</span>
             </div>
           ) : filteredSidebarConversations.length === 0 ? (
             <div className="conversation-list-empty">
@@ -2131,7 +2166,7 @@ export function ChatPage() {
           ) : (
             <>
               <div className="conversation-list-header">
-                <span>Chats</span>
+                <span>Recent</span>
                 <span className="conversation-count">{filteredSidebarConversations.length}</span>
               </div>
               {filteredSidebarConversations.map((c) => renderSidebarItem(c))}
@@ -2178,23 +2213,28 @@ export function ChatPage() {
         ) : pendingChannelInvite ? (
           <>
             <header className="chat-header">
-              <button
-                className="icon-btn close-chat-btn"
-                onClick={dismissChannelInvite}
-                title={isMobile ? 'Back to conversations' : 'Close'}
-                aria-label={isMobile ? 'Back to conversations' : 'Close'}
-              >
-                {isMobile ? '←' : '✕'}
-              </button>
-              <div className="chat-header-info">
-                <h3>
-                  {pendingChannelInvite.conversationType === 'group' ? '' : '#'}
-                  {pendingChannelInvite.channelName}
-                </h3>
-                <span className="member-count">
-                  {pendingChannelInvite.conversationType === 'group' ? 'Group invite' : 'Channel invite'}
-                </span>
+              <div className="chat-header-leading">
+                <button
+                  className="icon-btn close-chat-btn"
+                  onClick={dismissChannelInvite}
+                  title={isMobile ? 'Back to conversations' : 'Close'}
+                  aria-label={isMobile ? 'Back to conversations' : 'Close'}
+                >
+                  {isMobile ? <Icon icon={faArrowLeft} /> : <Icon icon={faXmark} />}
+                </button>
               </div>
+              <div className="chat-header-center">
+                <div className="chat-header-info">
+                  <h3>
+                    {pendingChannelInvite.conversationType === 'group' ? '' : '#'}
+                    {pendingChannelInvite.channelName}
+                  </h3>
+                  <span className="member-count">
+                    {pendingChannelInvite.conversationType === 'group' ? 'Group invite' : 'Channel invite'}
+                  </span>
+                </div>
+              </div>
+              <div className="chat-header-trailing" aria-hidden="true" />
             </header>
 
             <div className="chat-body">
@@ -2206,7 +2246,7 @@ export function ChatPage() {
               />
               <div className="channel-invite-preview-empty">
                 <div className="empty-state-icon">
-                  {pendingChannelInvite.conversationType === 'group' ? '👥' : '#'}
+                  <Icon icon={pendingChannelInvite.conversationType === 'group' ? faUserGroup : faHashtag} />
                 </div>
                 <h3>
                   {pendingChannelInvite.conversationType === 'group' ? '' : '#'}
@@ -2223,82 +2263,88 @@ export function ChatPage() {
         ) : isPanelOpen && activeConversation ? (
           <>
             <header className="chat-header">
-              <button
-                className="icon-btn close-chat-btn"
-                onClick={closeChatPanel}
-                title={isMobile ? 'Back to conversations' : 'Close chat'}
-                aria-label={isMobile ? 'Back to conversations' : 'Close chat'}
-              >
-                {isMobile ? '←' : '✕'}
-              </button>
-              {activeConversation.type === 'direct' ? (
-                <Avatar
-                  name={activePeer?.displayName ?? activeConversation.name}
-                  avatarUrl={activePeer?.avatarUrl}
-                  size="sm"
-                  presence={activePeer ? getPresence(activePeer.userId) : undefined}
-                />
-              ) : (
-                <Avatar
-                  name={activeConversation.name}
-                  avatarUrl={activeConversation.avatarUrl}
-                  size="sm"
-                />
-              )}
-              <button
-                type="button"
-                className="chat-header-info chat-header-btn"
-                onClick={() => setShowConversationInfo(true)}
-                title="View details"
-              >
-                <h3>
-                  {activeConversation.type === 'channel' ? '#' : ''}
-                  {activeConversation.name}
-                </h3>
-                <span
-                  className={[
-                    'member-count',
-                    directChatSubtitle === 'Online' ? 'member-count--online' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
+              <div className="chat-header-leading">
+                <button
+                  className="icon-btn close-chat-btn"
+                  onClick={closeChatPanel}
+                  title={isMobile ? 'Back to conversations' : 'Close chat'}
+                  aria-label={isMobile ? 'Back to conversations' : 'Close chat'}
                 >
-                  {activeConversation.type === 'direct'
-                    ? directChatSubtitle
-                    : `${activeConversation.members.length} members`}
-                </span>
-              </button>
-              {activeConversation.type === 'direct' && activePeer && (
-                <>
+                  {isMobile ? <Icon icon={faArrowLeft} /> : <Icon icon={faXmark} />}
+                </button>
+                {activeConversation.type === 'direct' ? (
+                  <Avatar
+                    name={activePeer?.displayName ?? activeConversation.name}
+                    avatarUrl={activePeer?.avatarUrl}
+                    size="sm"
+                    presence={activePeer ? getPresence(activePeer.userId) : undefined}
+                  />
+                ) : (
+                  <Avatar
+                    name={activeConversation.name}
+                    avatarUrl={activeConversation.avatarUrl}
+                    size="sm"
+                  />
+                )}
+              </div>
+              <div className="chat-header-center">
                 <button
                   type="button"
-                  className="icon-btn chat-header-call-btn"
-                  onClick={() => void handleStartVoiceCall()}
-                  title="Voice call"
-                  aria-label="Voice call"
+                  className="chat-header-info chat-header-btn"
+                  onClick={() => setShowConversationInfo(true)}
+                  title="View details"
                 >
-                  📞
+                  <h3>
+                    {activeConversation.type === 'channel' ? '#' : ''}
+                    {activeConversation.name}
+                  </h3>
+                  <span
+                    className={[
+                      'member-count',
+                      directChatSubtitle === 'Online' ? 'member-count--online' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
+                    {activeConversation.type === 'direct'
+                      ? directChatSubtitle
+                      : `${activeConversation.members.length} members`}
+                  </span>
                 </button>
+              </div>
+              <div className="chat-header-trailing">
+                {activeConversation.type === 'direct' && activePeer && (
+                  <>
+                    <button
+                      type="button"
+                      className="icon-btn chat-header-call-btn"
+                      onClick={() => void handleStartVoiceCall()}
+                      title="Voice call"
+                      aria-label="Voice call"
+                    >
+                      <Icon icon={faPhone} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn chat-header-call-btn"
+                      onClick={() => void handleStartVideoCall()}
+                      title="Video call"
+                      aria-label="Video call"
+                    >
+                      <Icon icon={faVideo} />
+                    </button>
+                  </>
+                )}
                 <button
                   type="button"
-                  className="icon-btn chat-header-call-btn"
-                  onClick={() => void handleStartVideoCall()}
-                  title="Video call"
-                  aria-label="Video call"
+                  className="icon-btn chat-header-files-btn"
+                  onClick={() => setShowFileManagement(true)}
+                  title="Shared files"
+                  aria-label="Shared files"
                 >
-                  📹
+                  <Icon icon={faFolder} />
                 </button>
-                </>
-              )}
-              <button
-                type="button"
-                className="icon-btn chat-header-files-btn"
-                onClick={() => setShowFileManagement(true)}
-                title="Shared files"
-                aria-label="Shared files"
-              >
-                📁
-              </button>
+              </div>
             </header>
 
             <div className="chat-body">
@@ -2338,7 +2384,7 @@ export function ChatPage() {
                   aria-label={`${pendingBelowCount} new messages below`}
                 >
                   <span className="new-messages-fab-arrow" aria-hidden>
-                    ↓
+                    <Icon icon={faArrowDown} />
                   </span>
                   <span className="new-messages-fab-count">
                     {pendingBelowCount > 99 ? '99+' : pendingBelowCount}
@@ -2348,6 +2394,7 @@ export function ChatPage() {
             )}
 
             <footer className="composer">
+              <div className="composer-dock">
               {canSendInActiveChat ? (
                 <>
                   {editingMessageId && (
@@ -2403,7 +2450,7 @@ export function ChatPage() {
                           aria-label="Attach file"
                           title="Attach photo, video, audio, or document"
                         >
-                          📎
+                          <Icon icon={faPaperclip} />
                         </button>
                         <input
                           ref={attachmentInputRef}
@@ -2474,6 +2521,7 @@ export function ChatPage() {
                 </p>
               )}
               {sendError && <p className="composer-error">{sendError}</p>}
+              </div>
             </footer>
 
               {showFileManagement && (
@@ -2525,7 +2573,7 @@ export function ChatPage() {
           </>
         ) : (
           <div className="empty-state">
-            <div className="empty-state-icon">💬</div>
+            <div className="empty-state-icon"><Icon icon={faComments} /></div>
             <h3>Welcome to ChatApp</h3>
             <p>Select a conversation from the sidebar to start chatting</p>
             {activeId && !isPanelOpen && (
@@ -2635,7 +2683,7 @@ export function ChatPage() {
         <div className="voice-call-error-toast" role="alert">
           <span>{callError}</span>
           <button type="button" className="voice-call-error-dismiss" onClick={() => setCallError('')}>
-            ✕
+            <Icon icon={faXmark} />
           </button>
         </div>
       )}
