@@ -132,6 +132,7 @@ ChatApp/
 │       │   ├── conversations/  # DMs, channels, groups, invites
 │       │   ├── messages/       # Text, attachments, mentions, reactions, threads, polls, search
 │       │   ├── calls/          # 1:1 DM voice/video calls (WebRTC signaling, history, ICE)
+│       │   ├── tasks/          # Tasks with assignment acceptance, unread invites, realtime
 │       │   ├── admin/          # Admin-only REST (stats, users, storage)
 │       │   ├── presence/
 │       │   └── realtime/       # WebSocket gateway, SSE stream, event bus, REST fallback
@@ -154,6 +155,9 @@ ChatApp/
 │       │   ├── MessagePoll.tsx          # In-chat poll card (tap-to-vote, close)
 │       │   ├── FileManagementPanel.tsx  # Per-chat shared files UI
 │       │   ├── CallsPanel.tsx           # Call history (filters, callback)
+│       │   ├── TasksPanel.tsx           # Tasks (open/pending/completed, accept/reject, assign)
+│       │   ├── CreateTaskModal.tsx      # Manual task create + assign
+│       │   ├── AssigneePicker.tsx       # Shared assignee search picker
 │       │   └── VoiceCallModal.tsx       # Voice/video call overlay
 │       ├── services/
 │       │   └── voiceCall.ts             # WebRTC peer connection manager
@@ -167,7 +171,7 @@ ChatApp/
 │       └── components/
 ├── infra/postgres/
 │   ├── init.sql                # Full schema for new databases
-│   └── migrations/             # Incremental SQL migrations (002–028+)
+│   └── migrations/             # Incremental SQL migrations (002–030+)
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── PROJECT_REVIEW.md
@@ -207,7 +211,7 @@ Base URL: `http://localhost:3000/api/v1`
 
 The **admin dashboard** (`admin/`, port 5174) includes Dashboard (stats + collapsible storage panel with MinIO bucket usage), Users (filters, avatars, detail, sessions), and Audit log (expandable rows, date/action filters).
 
-The **audit trail** records sign-in/out, messages, conversations, contacts, profile changes, and admin actions. Apply migration `019_audit_logs.sql` on existing databases.
+The **audit trail** records sign-in/out, messages, conversations, contacts, tasks, profile changes, and admin actions. Apply migration `019_audit_logs.sql` on existing databases.
 
 Access tokens include a `sid` claim (session id). Refresh tokens are SHA-256 hashed at rest and grouped by `session_family_id` / `user_sessions.id`.
 
@@ -245,6 +249,24 @@ Access tokens include a `sid` claim (session id). Refresh tokens are SHA-256 has
 
 Signaling is over WebSocket only (not SSE). DM membership is enforced server-side; groups and channels are not supported. Unanswered rings auto-end after **15s** (`timeout`): history shows **Missed** for the callee and **Cancelled** for the caller.
 
+### Tasks
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/tasks` | List tasks (`status`: `open` \| `completed` \| `all` \| `pending`; optional `conversationId`) |
+| GET | `/tasks/pending/unseen-count` | Unread pending-assignment count for nav badge |
+| POST | `/tasks/pending/seen` | Mark pending invites seen (clears badge when opening Tasks) |
+| POST | `/tasks` | Create task manually (`title`, optional `description`, `assignedTo`, `dueAt`, `conversationId`) |
+| POST | `/tasks/from-message` | Create task from message (`messageId` + optional overrides) |
+| POST | `/tasks/:id/assign` | Assign / reassign / unassign (`assigneeId`, optional `version` for race safety) |
+| POST | `/tasks/:id/accept` | Accept pending assignment (recipient only) |
+| POST | `/tasks/:id/reject` | Reject pending assignment (recipient only) |
+| POST | `/tasks/:id/cancel-assignment` | Cancel pending offer (creator only) |
+| PATCH | `/tasks/:id` | Update title, description, due date, completed |
+| DELETE | `/tasks/:id` | Delete task (creator only) |
+
+**Assignment flow:** assigning another user creates a **pending invitation** — they must **Accept** before the task appears in their Open list. Self-assign and unassigned tasks skip pending. Reassignment keeps the current assignee until the new recipient accepts; rejection leaves the prior assignment unchanged. Unread pending invites drive the Tasks nav badge; opening Tasks marks them seen.
+
 ### Attachments (object storage)
 
 | Method | Endpoint | Description |
@@ -281,6 +303,8 @@ Connect with `auth: { token: <accessToken> }`. Clients join `user:{userId}` and 
 | `call:signal` | Client → Server | WebRTC offer/answer/ICE trickle |
 | `call:incoming` / `call:accepted` / `call:ended` | Server → Client | Call state sync (`incoming` includes `mediaType`) |
 | `call:signal` | Server → Client | Forwarded WebRTC SDP/ICE to peer |
+| `task:updated` | Server → Client | Task created/updated/assigned/accepted/rejected/completed (full `TaskItem` payload) |
+| `task:deleted` | Server → Client | Task removed (`{ taskId }`) |
 
 ### SSE fallback (`/realtime/*`)
 
@@ -324,6 +348,7 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 - **Search**: sidebar filter (chats/groups/channels + message content); global search (`Ctrl+K` / `Cmd+K`); click result to jump and scroll to message
 - **File management**: per-chat shared files panel (📁 in header or conversation info); tabs for All, My uploads, Shared, Images, Videos, Documents, Audio, Voice; preview, download, jump to message
 - **Voice & video calls** (DMs only): 📞 / 📹 in DM header; WebRTC audio/video with Socket.IO signaling; phone-style controls (mute, speaker, camera); desktop video overlay with compact corner controls; **15s** ring timeout; call history tab (`CallsPanel`) with filters; unseen missed-call badge on Calls nav; requires WebSocket (not SSE fallback)
+- **Tasks**: nav tab with pending-invite badge; create manually or **Convert to Task** from message menu; assign with **acceptance required**; Pending tab (count + Accept/Reject); Open/Completed filters; due date, complete toggle, reassign (creator), delete (creator); live updates via `task:updated` / `task:deleted` (WebSocket + SSE)
 - **Devices** (Profile → Devices): Telegram-style session list, terminate device, terminate all others
 - **Offline cache** (Profile → Offline cache): IndexedDB blob cache for avatars/attachments; view size and clear cache
 - **Realtime fallback**: automatic SSE + REST when WebSocket cannot connect

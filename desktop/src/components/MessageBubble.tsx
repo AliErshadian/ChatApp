@@ -28,6 +28,7 @@ interface Props {
   onReply?: (message: Message) => void;
   onOpenThread?: (message: Message) => void;
   onForward?: (message: Message) => void;
+  onConvertToTask?: (message: Message) => void;
   onScrollToMessage?: (messageId: string) => void;
   onDelete: (messageId: string, scope: 'me' | 'everyone') => Promise<void>;
   onReaction: (messageId: string, emoji: string) => Promise<void>;
@@ -48,6 +49,7 @@ export function MessageBubble({
   onReply,
   onOpenThread,
   onForward,
+  onConvertToTask,
   onScrollToMessage,
   onDelete,
   onReaction,
@@ -86,6 +88,10 @@ export function MessageBubble({
     return message.caption?.trim() ?? '';
   })();
   const canCopy = copyText.length > 0;
+  const canConvertToTask =
+    !message.deletedForEveryone &&
+    Boolean(onConvertToTask) &&
+    (canCopy || isAttachmentMessage(message) || isPollMessage(message));
   const replyCount = message.replyCount ?? 0;
   const showThreadChip = !message.threadRootId && (replyCount > 0 || Boolean(onOpenThread));
   const showMenu = allowMessageMenu;
@@ -453,6 +459,17 @@ export function MessageBubble({
             }}
           >
             Forward
+          </button>
+        )}
+        {canConvertToTask && (
+          <button
+            type="button"
+            onClick={() => {
+              onConvertToTask?.(message);
+              setMenuOpen(false);
+            }}
+          >
+            Convert to Task
           </button>
         )}
         {canEdit && (

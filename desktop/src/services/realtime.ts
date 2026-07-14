@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { api } from './api';
 import { createClientMessageId } from '../utils/uuid';
-import type { Message, MessageReaction, MessageStatus, Conversation, ConversationUpdatedEvent } from './api';
+import type { Message, MessageReaction, MessageStatus, Conversation, ConversationUpdatedEvent, TaskItem } from './api';
 
 type MessageHandler = (message: Message) => void;
 type TypingHandler = (data: { conversationId: string; userId: string; isTyping: boolean }) => void;
@@ -79,6 +79,9 @@ type CallSignalHandler = (data: {
   fromUserId: string;
 }) => void;
 
+type TaskUpdatedHandler = (task: TaskItem) => void;
+type TaskDeletedHandler = (data: { taskId: string }) => void;
+
 interface PendingSend {
   resolve: (message: Message) => void;
   reject: (error: Error) => void;
@@ -103,6 +106,8 @@ const SSE_EVENTS = [
   'user:typing',
   'user:presence',
   'presence:sync',
+  'task:updated',
+  'task:deleted',
 ] as const;
 
 const WS_CONNECT_TIMEOUT_MS = 8_000;
@@ -157,6 +162,8 @@ class RealtimeClient {
   private callAcceptedHandlers = new Set<CallAcceptedHandler>();
   private callEndedHandlers = new Set<CallEndedHandler>();
   private callSignalHandlers = new Set<CallSignalHandler>();
+  private taskUpdatedHandlers = new Set<TaskUpdatedHandler>();
+  private taskDeletedHandlers = new Set<TaskDeletedHandler>();
   private connectHandlers = new Set<ConnectHandler>();
   private presenceChangeHandlers = new Set<PresenceChangeHandler>();
   private pendingSends = new Map<string, PendingSend>();
@@ -368,6 +375,14 @@ class RealtimeClient {
       this.callSignalHandlers.forEach((handler) => handler(data));
     });
 
+    this.socket.on('task:updated', (task: TaskItem) => {
+      this.taskUpdatedHandlers.forEach((handler) => handler(task));
+    });
+
+    this.socket.on('task:deleted', (data: { taskId: string }) => {
+      this.taskDeletedHandlers.forEach((handler) => handler(data));
+    });
+
     this.socket.on('connect', () => {
       this.startHeartbeat();
       this.flushPendingPresenceQueries();
@@ -466,6 +481,14 @@ class RealtimeClient {
         break;
       case 'presence:sync':
         this.dispatchPresenceBatch(data as PresenceInfo[]);
+        break;
+      case 'task:updated':
+        this.taskUpdatedHandlers.forEach((handler) => handler(data as TaskItem));
+        break;
+      case 'task:deleted':
+        this.taskDeletedHandlers.forEach((handler) =>
+          handler(data as { taskId: string }),
+        );
         break;
       default:
         break;
@@ -1015,6 +1038,16 @@ class RealtimeClient {
   onCallSignal(handler: CallSignalHandler) {
     this.callSignalHandlers.add(handler);
     return () => this.callSignalHandlers.delete(handler);
+  }
+
+  onTaskUpdated(handler: TaskUpdatedHandler) {
+    this.taskUpdatedHandlers.add(handler);
+    return () => this.taskUpdatedHandlers.delete(handler);
+  }
+
+  onTaskDeleted(handler: TaskDeletedHandler) {
+    this.taskDeletedHandlers.add(handler);
+    return () => this.taskDeletedHandlers.delete(handler);
   }
 
   onMessage(handler: MessageHandler) {

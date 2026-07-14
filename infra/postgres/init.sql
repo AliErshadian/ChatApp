@@ -373,6 +373,64 @@ CREATE INDEX idx_call_records_callee_unseen_missed
   ON call_records (callee_id, ended_at DESC)
   WHERE answered_at IS NULL AND callee_seen_at IS NULL;
 
+CREATE TABLE tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title TEXT NOT NULL,
+    description TEXT,
+    conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL,
+    source_message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
+    created_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    assigned_to UUID REFERENCES users(id) ON DELETE SET NULL,
+    pending_assignee_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    assignment_version INTEGER NOT NULL DEFAULT 0,
+    assignment_offered_at TIMESTAMPTZ,
+    assignment_responded_at TIMESTAMPTZ,
+    due_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT tasks_title_not_empty CHECK (length(trim(title)) > 0),
+    CONSTRAINT tasks_pending_differs_from_assigned CHECK (
+        pending_assignee_id IS NULL
+        OR assigned_to IS NULL
+        OR pending_assignee_id <> assigned_to
+    )
+);
+
+CREATE INDEX idx_tasks_created_by
+    ON tasks (created_by, created_at DESC);
+
+CREATE INDEX idx_tasks_assigned_to
+    ON tasks (assigned_to, due_at ASC NULLS LAST)
+    WHERE assigned_to IS NOT NULL;
+
+CREATE INDEX idx_tasks_conversation
+    ON tasks (conversation_id)
+    WHERE conversation_id IS NOT NULL;
+
+CREATE INDEX idx_tasks_open
+    ON tasks (created_by, assigned_to)
+    WHERE completed_at IS NULL;
+
+CREATE INDEX idx_tasks_pending_assignee
+    ON tasks (pending_assignee_id, assignment_offered_at DESC)
+    WHERE pending_assignee_id IS NOT NULL AND completed_at IS NULL;
+
+CREATE INDEX idx_tasks_pending_unread_assignee
+    ON tasks (pending_assignee_id)
+    WHERE pending_assignee_id IS NOT NULL
+      AND completed_at IS NULL;
+
+CREATE TABLE task_user_reads (
+    task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    last_read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (task_id, user_id)
+);
+
+CREATE INDEX idx_task_user_reads_user
+    ON task_user_reads (user_id, last_read_at DESC);
+
 -- Fresh databases from init.sql are marked up-to-date for incremental migrations.
 -- Checksums are verified in CI via: npm run check:schema-drift
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -408,7 +466,9 @@ INSERT INTO schema_migrations (version, checksum) VALUES
     ('025_call_records_mark_existing_seen', '1a0e623a6e422b121404db109d9476c48d9bdf19e0b45ddf747190de9f848fec'),
     ('026_message_threads', '72bedc2f95598e29ec36262cf075da171e9267c101407144ed2cf20cbfb0f669'),
     ('027_message_thread_reads', '9a61e8893c2108fe7ce8f1c68eaaf64c5b0a8a97578c9065fd4100b25bb2ebba'),
-    ('028_polls', 'd6f92cd7cfd8d6b3272865c1ceb8a1076180103e01d2323dbfbc1edf5287d544')
+    ('028_polls', 'd6f92cd7cfd8d6b3272865c1ceb8a1076180103e01d2323dbfbc1edf5287d544'),
+    ('029_tasks', '3bd91f1bae7ec10b8985e4dfb887dbbf85294e8602ffc0e19a7a9568c87bc476'),
+    ('030_task_assignment_acceptance', 'af9f274b3e46f0e19df6a78f688f34144a80c32fc069071a058a7335615d4cc5')
 ON CONFLICT (version) DO NOTHING;
 
 -- Grant app user access (required when schema is created by postgres superuser)

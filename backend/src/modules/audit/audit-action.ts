@@ -31,6 +31,15 @@ export const AuditAction = {
   ATTACHMENT_UPLOAD: 'attachment.upload',
   ATTACHMENT_DOWNLOAD: 'attachment.download',
   ATTACHMENT_DELETE: 'attachment.delete',
+  TASK_CREATE: 'task.create',
+  TASK_UPDATE: 'task.update',
+  TASK_COMPLETE: 'task.complete',
+  TASK_REOPEN: 'task.reopen',
+  TASK_DELETE: 'task.delete',
+  TASK_ASSIGN: 'task.assign',
+  TASK_ACCEPT: 'task.accept',
+  TASK_REJECT: 'task.reject',
+  TASK_CANCEL_ASSIGNMENT: 'task.cancel_assignment',
 } as const;
 
 export type AuditActionType = (typeof AuditAction)[keyof typeof AuditAction];

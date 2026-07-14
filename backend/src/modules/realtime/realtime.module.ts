@@ -6,6 +6,7 @@ import { ConversationsModule } from '../conversations/conversations.module';
 import { PresenceModule } from '../presence/presence.module';
 import { AuthModule } from '../auth/auth.module';
 import { CallsModule } from '../calls/calls.module';
+import { TasksModule } from '../tasks/tasks.module';
 import { WsJwtGuard } from './guards/ws-jwt.guard';
 import { WsRateLimitGuard } from '../../observability/ws-rate-limit.guard';
 import { RealtimeEventBusService } from './realtime-event-bus.service';
@@ -14,7 +15,14 @@ import { RealtimeActionsService } from './realtime-actions.service';
 import { RealtimeSseService } from './realtime-sse.service';
 
 @Module({
-  imports: [AuthModule, MessagesModule, ConversationsModule, PresenceModule, forwardRef(() => CallsModule)],
+  imports: [
+    AuthModule,
+    MessagesModule,
+    ConversationsModule,
+    PresenceModule,
+    forwardRef(() => CallsModule),
+    TasksModule,
+  ],
   controllers: [RealtimeController],
   providers: [
     RealtimeGateway,

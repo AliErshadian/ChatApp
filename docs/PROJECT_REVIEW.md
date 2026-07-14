@@ -1,4 +1,4 @@
-# ChatApp — Project Review (2026-07-14)
+# ChatApp — Project Review (2026-07-15)
 
 This document summarizes the current codebase, highlights strengths and weaknesses, and proposes a prioritized improvement roadmap.
 
@@ -33,7 +33,7 @@ ChatApp/
 
 ### Backend (NestJS)
 
-- **Modules**: `auth`, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`, `audit`, `admin`, **`storage`**, **`calls`**
+- **Modules**: `auth`, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`, `audit`, `admin`, **`storage`**, **`calls`**, **`tasks`**
 - **Auth & sessions**:
   - JWT access tokens (15m) with required `sid` claim; validated against `user_sessions` on every REST and WebSocket request
   - Rotating refresh tokens (SHA-256 hashed, grouped by `session_family_id`)
@@ -74,9 +74,18 @@ ChatApp/
   - Unanswered timeout: **Missed** for callee, **Cancelled** for caller; `callee_seen_at` + `GET /calls/missed/unseen-count` / `POST /calls/missed/seen` for nav badge
   - `GET /calls/ice-servers` — STUN from `WEBRTC_STUN_URLS`; optional TURN via `TURN_*` env
   - **Requires WebSocket** — not available when client falls back to SSE
+- **Tasks** (`tasks` module):
+  - Personal/shared tasks with optional `conversation_id` and `source_message_id` (migrations `029`–`030`)
+  - Create manually or from message (`POST /tasks/from-message`); title, description, due date, complete/reopen
+  - **Assignment acceptance** — external assignee gets `pending_assignee_id`; must **Accept** before task appears in Open list; self-assign skips pending
+  - Reassign keeps current assignee until new recipient accepts; `assignment_version` for race-safe accept/reject
+  - APIs: assign, accept, reject, cancel-assignment, patch, delete (creator-only assign/delete)
+  - **Unread pending invites** — `task_user_reads` + `GET /tasks/pending/unseen-count` / `POST /tasks/pending/seen` for nav badge
+  - **Realtime** — `task:updated` / `task:deleted` via `TaskRealtimePublisher` → `emitToUsers` (WebSocket + SSE)
+  - Audit actions: `task.create`, `task.update`, `task.complete`, `task.reopen`, `task.delete`, `task.assign`, `task.accept`, `task.reject`, `task.cancel_assignment`
 - **Audit** (`audit` module, global):
   - Append-only `audit_logs` table (migration `019`)
-  - Records auth, messages, conversations, contacts, profile, and admin actions
+  - Records auth, messages, conversations, contacts, profile, tasks, and admin actions
   - `GET /admin/audit-logs` with filters (user, action, category, date range, text)
 - **Admin** (`admin` module):
   - `AdminGuard` — requires `users.is_admin` (migration `018`)
@@ -97,7 +106,7 @@ ChatApp/
   - `GET /api/v1/health`
 - **DB**:
   - `infra/postgres/init.sql` for new databases (includes `schema_migrations` seed)
-  - Incremental SQL migrations in `infra/postgres/migrations/` (002–028)
+  - Incremental SQL migrations in `infra/postgres/migrations/` (002–030)
   - **Auto-applied** via `npm run migrate` / Compose `migrate` → `api`
   - **Drift check**: `npm run check:schema-drift` (CI) keeps `init.sql` aligned with migrations
 
@@ -125,6 +134,7 @@ ChatApp/
   - **Group polls** (`CreatePollModal` / `MessagePoll`): composer entry in groups; Anonymous + Multiple choice; tap-to-vote; Close Poll for sender; list preview `Poll: …`
   - **File management** (per DM/group/channel): header 📁 button or conversation info → filter tabs (All, My uploads, Shared, Images, Videos, Documents, Audio, Voice); jump to message, preview, download
   - **Voice & video calls** (DMs only): 📞 / 📹 in DM header; `VoiceCallModal` (mute, speaker, camera; desktop video corner controls); WebRTC via `voiceCall.ts`; `CallsPanel` history + filters; missed-call badge on Calls nav; mic/camera permission handling (`mediaDevices.ts` with HTTPS/LAN guidance)
+  - **Tasks** (`TasksPanel` / `CreateTaskModal` / `AssigneePicker`): nav tab with pending-invite badge; create manually or **Convert to Task** from message menu; Open / Pending (count + Accept/Reject) / Completed / All; assign with acceptance required; due date, complete toggle, reassign (creator), delete (creator); live merge via `task:updated` / `task:deleted` (WebSocket + SSE)
   - **Search**:
     - Sidebar: split panel (conversations on top, message content hits below)
     - Global: `Ctrl+K` / `Cmd+K` modal (chats, channels, people, messages)
@@ -151,6 +161,7 @@ ChatApp/
 - **Slack-style threads** — timeline roots + side-panel replies; per-thread search/files/reactions; unread thread bar and first-unread scroll
 - **Group polls** — create in groups; tap-to-vote; anonymous/multi; sender-only close; live tallies
 - **1:1 voice & video calls** — WebRTC + Socket.IO signaling for DMs; call history + missed badge; ICE endpoint; HTTPS dev for LAN media access
+- **Tasks with assignment acceptance** — pending invites, accept/reject flow, unread nav badge, realtime sync (SSE-compatible)
 - **Session management** — practical Telegram-style device list with push logout
 
 ## Cons / risks (what can bite you in production)
@@ -169,6 +180,7 @@ ChatApp/
 
 ## Recently addressed (2026-07)
 
+- **Tasks + assignment acceptance** — migrations `029`/`030`; `tasks` module (CRUD, assign/accept/reject/cancel, pending unseen badge); `TasksPanel` with Open/Pending/Completed; **Convert to Task** from messages; `task:updated` / `task:deleted` realtime (WebSocket + SSE)
 - **Call history + missed badge** — `call_records` (migrations `022`–`025`); history filters; unseen missed count on Calls nav; open Calls marks seen
 - **15s unanswered ring timeout** — auto hang-up; Missed for receiver, Cancelled for caller
 - **1:1 video calls** — `mediaType` on invite/incoming; camera toggle; mirrored video preview; desktop overlay controls
@@ -208,7 +220,7 @@ ChatApp/
 
 ### P0 (before real production)
 
-- **Automated tests**: auth + refresh rotation, membership ACL, message send/edit/delete, session revoke
+- **Automated tests**: auth + refresh rotation, membership ACL, message send/edit/delete, session revoke, task assignment acceptance
 
 ### P1 (high value next)
 

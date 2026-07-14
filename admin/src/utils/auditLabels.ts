@@ -28,6 +28,15 @@ const ACTION_LABELS: Record<string, string> = {
   'admin.user_update': 'Admin updated user',
   'admin.session_revoke': 'Admin revoked session',
   'admin.session_revoke_all': 'Admin revoked all sessions',
+  'task.create': 'Created task',
+  'task.update': 'Updated task',
+  'task.complete': 'Completed task',
+  'task.reopen': 'Reopened task',
+  'task.delete': 'Deleted task',
+  'task.assign': 'Assigned task',
+  'task.accept': 'Accepted task',
+  'task.reject': 'Rejected task',
+  'task.cancel_assignment': 'Cancelled task assignment',
 };
 
 export const AUDIT_ACTIONS = Object.entries(ACTION_LABELS).map(([value, label]) => ({
@@ -62,6 +71,7 @@ export const AUDIT_CATEGORIES = [
   { value: 'contact', label: 'Contacts' },
   { value: 'conversation', label: 'Conversations' },
   { value: 'message', label: 'Messages' },
+  { value: 'task', label: 'Tasks' },
   { value: 'admin', label: 'Admin actions' },
 ];
 

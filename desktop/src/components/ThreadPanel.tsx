@@ -56,6 +56,7 @@ interface Props {
   onDelete: (messageId: string, scope: 'me' | 'everyone') => Promise<void>;
   onReaction: (messageId: string, emoji: string) => Promise<void>;
   onForward?: (message: Message) => void;
+  onConvertToTask?: (message: Message) => void;
   onStartEdit?: (messageId: string, content: string) => void;
 }
 
@@ -74,6 +75,7 @@ export function ThreadPanel({
   onDelete,
   onReaction,
   onForward,
+  onConvertToTask,
   onStartEdit,
 }: Props) {
   const [tab, setTab] = useState<ThreadTab>('replies');
@@ -589,6 +591,7 @@ export function ThreadPanel({
                 persistThreadDraft(input, message);
               }}
               onForward={onForward}
+              onConvertToTask={onConvertToTask}
               onScrollToMessage={scrollToThreadMessage}
               onDelete={onDelete}
               onReaction={onReaction}
@@ -611,6 +614,7 @@ export function ThreadPanel({
                   persistThreadDraft(input, message);
                 }}
                 onForward={onForward}
+                onConvertToTask={onConvertToTask}
                 onScrollToMessage={scrollToThreadMessage}
                 onDelete={onDelete}
                 onReaction={onReaction}

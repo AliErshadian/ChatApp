@@ -26,6 +26,7 @@ import { MessageReplyQuote } from './MessageReplyQuote';
 import { ProfilePanel } from './ProfilePanel';
 import { ContactsPanel } from './ContactsPanel';
 import { CallsPanel } from './CallsPanel';
+import { TasksPanel } from './TasksPanel';
 import { ConversationInfoPanel } from './ConversationInfoPanel';
 import { FileManagementPanel } from './FileManagementPanel';
 import { ThreadPanel } from './ThreadPanel';
@@ -35,6 +36,7 @@ import { mergeMessageStatus, mergeOutgoingServerMessage } from '../utils/message
 import { ConversationListItem } from './ConversationListItem';
 import { NewGroupModal } from './NewGroupModal';
 import { CreatePollModal } from './CreatePollModal';
+import { CreateTaskModal, CreateTaskInput } from './CreateTaskModal';
 import { AppNav } from './AppNav';
 import { ForwardDestinationModal } from './ForwardDestinationModal';
 import { GlobalSearchModal } from './GlobalSearchModal';
@@ -106,12 +108,17 @@ export function ChatPage() {
   const [showProfile, setShowProfile] = useState(false);
   const [showContacts, setShowContacts] = useState(false);
   const [showCalls, setShowCalls] = useState(false);
+  const [showTasks, setShowTasks] = useState(false);
   const [missedCallsBadge, setMissedCallsBadge] = useState(0);
+  const [tasksUnreadBadge, setTasksUnreadBadge] = useState(0);
   const [showNewChatPicker, setShowNewChatPicker] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showCreatePoll, setShowCreatePoll] = useState(false);
   const [pollBusy, setPollBusy] = useState(false);
   const [pollError, setPollError] = useState('');
+  const [convertingMessage, setConvertingMessage] = useState<Message | null>(null);
+  const [taskBusy, setTaskBusy] = useState(false);
+  const [taskError, setTaskError] = useState('');
   const [showConversationInfo, setShowConversationInfo] = useState(false);
   const [showFileManagement, setShowFileManagement] = useState(false);
   const [callError, setCallError] = useState('');
@@ -207,7 +214,13 @@ export function ChatPage() {
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isPanelVisible =
     isPanelOpen &&
-    (activeConversation || showProfile || showContacts || showCalls || showNewChatPicker || pendingChannelInvite);
+    (activeConversation ||
+      showProfile ||
+      showContacts ||
+      showCalls ||
+      showTasks ||
+      showNewChatPicker ||
+      pendingChannelInvite);
 
   const typingIndicatorText = useMemo(() => {
     if (!activeConversation || typingUsers.size === 0) return null;
@@ -688,6 +701,41 @@ export function ChatPage() {
     setForwardingMessage(message);
   }, []);
 
+  const startConvertToTask = useCallback((message: Message) => {
+    setTaskError('');
+    setConvertingMessage(message);
+  }, []);
+
+  const handleConvertToTask = useCallback(
+    async (input: CreateTaskInput) => {
+      if (!convertingMessage) return;
+      setTaskBusy(true);
+      setTaskError('');
+      try {
+        await api.createTaskFromMessage({
+          messageId: convertingMessage.id,
+          title: input.title,
+          description: input.description,
+          assignedTo: input.assignedTo,
+          dueAt: input.dueAt,
+        });
+        setConvertingMessage(null);
+        setShowTasks(true);
+        setShowProfile(false);
+        setShowContacts(false);
+        setShowCalls(false);
+        setShowNewChatPicker(false);
+        setPendingChannelInvite(null);
+        setIsPanelOpen(true);
+      } catch (err) {
+        setTaskError(err instanceof Error ? err.message : 'Failed to create task');
+      } finally {
+        setTaskBusy(false);
+      }
+    },
+    [convertingMessage],
+  );
+
   const handleForwardMessage = useCallback(
     async (targetConversationIds: string[]) => {
       if (!forwardingMessage || !activeId) return;
@@ -950,6 +998,8 @@ export function ChatPage() {
   ) => {
     setShowProfile(false);
     setShowContacts(false);
+    setShowCalls(false);
+    setShowTasks(false);
     setShowNewChatPicker(false);
     setShowConversationInfo(false);
     setShowFileManagement(false);
@@ -985,6 +1035,8 @@ export function ChatPage() {
       if (item.kind === 'new_session') {
         setShowProfile(true);
         setShowContacts(false);
+        setShowCalls(false);
+        setShowTasks(false);
         setShowNewChatPicker(false);
         setShowConversationInfo(false);
         setShowFileManagement(false);
@@ -1020,6 +1072,8 @@ export function ChatPage() {
         const status = await api.getInviteStatus(token);
         setShowProfile(false);
         setShowContacts(false);
+        setShowCalls(false);
+        setShowTasks(false);
         setShowNewChatPicker(false);
         setShowConversationInfo(false);
         setShowFileManagement(false);
@@ -1101,6 +1155,7 @@ export function ChatPage() {
     setShowProfile(true);
     setShowContacts(false);
     setShowCalls(false);
+    setShowTasks(false);
     setShowNewChatPicker(false);
     setPendingChannelInvite(null);
     setIsPanelOpen(true);
@@ -1110,6 +1165,7 @@ export function ChatPage() {
     setShowContacts(true);
     setShowProfile(false);
     setShowCalls(false);
+    setShowTasks(false);
     setShowNewChatPicker(false);
     setPendingChannelInvite(null);
     setIsPanelOpen(true);
@@ -1119,6 +1175,7 @@ export function ChatPage() {
     setShowCalls(true);
     setShowProfile(false);
     setShowContacts(false);
+    setShowTasks(false);
     setShowNewChatPicker(false);
     setPendingChannelInvite(null);
     setIsPanelOpen(true);
@@ -1126,8 +1183,23 @@ export function ChatPage() {
     void api.markMissedCallsSeen().catch(() => undefined);
   }, []);
 
+  const openTasks = useCallback(() => {
+    setShowTasks(true);
+    setShowProfile(false);
+    setShowContacts(false);
+    setShowCalls(false);
+    setShowNewChatPicker(false);
+    setPendingChannelInvite(null);
+    setIsPanelOpen(true);
+    setTasksUnreadBadge(0);
+    void api.markTasksSeen().catch(() => undefined);
+  }, []);
+
   const showCallsRef = useRef(showCalls);
   showCallsRef.current = showCalls;
+
+  const showTasksRef = useRef(showTasks);
+  showTasksRef.current = showTasks;
 
   const refreshMissedCallsBadge = useCallback(async () => {
     if (showCallsRef.current) {
@@ -1138,6 +1210,20 @@ export function ChatPage() {
     try {
       const result = await api.getUnseenMissedCallCount();
       setMissedCallsBadge(result.count);
+    } catch {
+      // Keep the last known badge if the request fails.
+    }
+  }, []);
+
+  const refreshTasksBadge = useCallback(async () => {
+    if (showTasksRef.current) {
+      setTasksUnreadBadge(0);
+      void api.markTasksSeen().catch(() => undefined);
+      return;
+    }
+    try {
+      const result = await api.getUnseenTaskCount();
+      setTasksUnreadBadge(result.count);
     } catch {
       // Keep the last known badge if the request fails.
     }
@@ -1164,10 +1250,32 @@ export function ChatPage() {
     };
   }, [user?.id, refreshMissedCallsBadge]);
 
+  useEffect(() => {
+    if (!user?.id) {
+      setTasksUnreadBadge(0);
+      return;
+    }
+
+    void refreshTasksBadge();
+
+    const unsubUpdated = realtime.onTaskUpdated(() => {
+      void refreshTasksBadge();
+    });
+    const unsubDeleted = realtime.onTaskDeleted(() => {
+      void refreshTasksBadge();
+    });
+
+    return () => {
+      unsubUpdated();
+      unsubDeleted();
+    };
+  }, [user?.id, refreshTasksBadge]);
+
   const openNewChatPicker = useCallback(() => {
     setShowProfile(false);
     setShowContacts(false);
     setShowCalls(false);
+    setShowTasks(false);
     setShowNewChatPicker(true);
     setShowConversationInfo(false);
     setShowFileManagement(false);
@@ -1187,6 +1295,7 @@ export function ChatPage() {
       setShowProfile(false);
       setShowContacts(false);
       setShowCalls(false);
+      setShowTasks(false);
       setShowNewChatPicker(false);
       setShowConversationInfo(false);
       setShowFileManagement(false);
@@ -1231,6 +1340,7 @@ export function ChatPage() {
     setShowProfile(false);
     setShowContacts(false);
     setShowCalls(false);
+    setShowTasks(false);
     setShowNewChatPicker(false);
     setPendingChannelInvite(null);
     setShowConversationInfo(false);
@@ -2247,9 +2357,11 @@ export function ChatPage() {
       ? 'contacts'
       : showCalls
         ? 'calls'
-        : sidebarList === 'channels'
-          ? 'channels'
-          : 'chats';
+        : showTasks
+          ? 'tasks'
+          : sidebarList === 'channels'
+            ? 'channels'
+            : 'chats';
 
   const handleDeleteChat = useCallback(
     async (conversationId: string, scope: 'me' | 'everyone') => {
@@ -2415,10 +2527,12 @@ export function ChatPage() {
           chatsUnreadCount={chatsNavBadge}
           channelsUnreadCount={channelsNavBadge}
           callsMissedCount={missedCallsBadge}
+          tasksUnreadCount={tasksUnreadBadge}
           onChats={openChats}
           onChannels={openChannels}
           onCalls={openCalls}
           onContacts={openContacts}
+          onTasks={openTasks}
           onProfile={openProfile}
           onLogout={logout}
         />
@@ -2588,6 +2702,12 @@ export function ChatPage() {
             onClose={closeChatPanel}
             isMobile={isMobile}
             onMessage={startDM}
+          />
+        ) : showTasks ? (
+          <TasksPanel
+            onClose={closeChatPanel}
+            isMobile={isMobile}
+            onBadgeChange={refreshTasksBadge}
           />
         ) : showContacts ? (
           <ContactsPanel
@@ -2781,6 +2901,7 @@ export function ChatPage() {
                   onReply={startReplyMessage}
                   onOpenThread={openThread}
                   onForward={startForwardMessage}
+                  onConvertToTask={startConvertToTask}
                   onScrollToMessage={scrollToMessage}
                   onDelete={handleDeleteMessage}
                   onReaction={handleReactionMessage}
@@ -2978,6 +3099,7 @@ export function ChatPage() {
                   onDelete={handleDeleteMessage}
                   onReaction={handleReactionMessage}
                   onForward={startForwardMessage}
+                  onConvertToTask={startConvertToTask}
                   onStartEdit={startEditMessage}
                 />
               )}
@@ -3061,10 +3183,12 @@ export function ChatPage() {
           chatsUnreadCount={chatsNavBadge}
           channelsUnreadCount={channelsNavBadge}
           callsMissedCount={missedCallsBadge}
+          tasksUnreadCount={tasksUnreadBadge}
           onChats={openChats}
           onChannels={openChannels}
           onCalls={openCalls}
           onContacts={openContacts}
+          onTasks={openTasks}
           onProfile={openProfile}
           onLogout={logout}
         />
@@ -3089,6 +3213,25 @@ export function ChatPage() {
           }
         }}
         onSubmit={handleCreatePoll}
+      />
+
+      <CreateTaskModal
+        open={Boolean(convertingMessage)}
+        busy={taskBusy}
+        error={taskError}
+        title="Convert to Task"
+        initialTitle={
+          convertingMessage
+            ? getMessagePreviewText(convertingMessage).slice(0, 500)
+            : ''
+        }
+        onClose={() => {
+          if (!taskBusy) {
+            setConvertingMessage(null);
+            setTaskError('');
+          }
+        }}
+        onSubmit={handleConvertToTask}
       />
 
       {showNewChannel && (

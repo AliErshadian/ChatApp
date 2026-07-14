@@ -18,6 +18,39 @@ export interface Contact extends User {
   addedAt?: string;
 }
 
+export type TaskStatusFilter = 'open' | 'completed' | 'all' | 'pending';
+
+export type TaskAssignmentStatus = 'unassigned' | 'pending' | 'assigned';
+
+export interface TaskUserRef {
+  id: string;
+  email?: string;
+  username?: string;
+  displayName?: string;
+  avatarUrl?: string;
+}
+
+export interface TaskItem {
+  id: string;
+  title: string;
+  description: string | null;
+  conversationId: string | null;
+  sourceMessageId: string | null;
+  createdBy: TaskUserRef;
+  assignedTo: TaskUserRef | null;
+  pendingAssignee: TaskUserRef | null;
+  assignmentStatus: TaskAssignmentStatus;
+  assignmentVersion: number;
+  assignmentOfferedAt: string | null;
+  assignmentRespondedAt: string | null;
+  dueAt: string | null;
+  completedAt: string | null;
+  completed: boolean;
+  isUnread?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type CallHistoryFilter =
   | 'all'
   | 'incoming'
@@ -1158,6 +1191,103 @@ class ApiClient {
 
   removeContact(userId: string) {
     return this.request<{ removed: boolean }>(`/contacts/${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  listTasks(params?: { status?: TaskStatusFilter; conversationId?: string }) {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set('status', params.status);
+    if (params?.conversationId) qs.set('conversationId', params.conversationId);
+    const query = qs.toString();
+    return this.request<TaskItem[]>(`/tasks${query ? `?${query}` : ''}`);
+  }
+
+  createTask(input: {
+    title: string;
+    description?: string;
+    assignedTo?: string;
+    dueAt?: string;
+    conversationId?: string;
+  }) {
+    return this.request<TaskItem>('/tasks', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  createTaskFromMessage(input: {
+    messageId: string;
+    title?: string;
+    description?: string;
+    assignedTo?: string;
+    dueAt?: string;
+  }) {
+    return this.request<TaskItem>('/tasks/from-message', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  updateTask(
+    taskId: string,
+    input: {
+      title?: string;
+      description?: string | null;
+      dueAt?: string | null;
+      completed?: boolean;
+    },
+  ) {
+    return this.request<TaskItem>(`/tasks/${taskId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  }
+
+  assignTask(taskId: string, assigneeId: string | null, version?: number) {
+    return this.request<TaskItem>(`/tasks/${taskId}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ assigneeId, version }),
+    });
+  }
+
+  acceptTask(taskId: string, version?: number) {
+    return this.request<TaskItem>(`/tasks/${taskId}/accept`, {
+      method: 'POST',
+      body: JSON.stringify({ version }),
+    });
+  }
+
+  rejectTask(taskId: string, version?: number) {
+    return this.request<{ rejected: boolean; taskId: string } | TaskItem>(
+      `/tasks/${taskId}/reject`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ version }),
+      },
+    );
+  }
+
+  cancelTaskAssignment(taskId: string) {
+    return this.request<TaskItem>(`/tasks/${taskId}/cancel-assignment`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  }
+
+  getUnseenTaskCount() {
+    return this.request<{ count: number }>('/tasks/pending/unseen-count');
+  }
+
+  markTasksSeen() {
+    return this.request<{ count: number }>('/tasks/pending/seen', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  }
+
+  deleteTask(taskId: string) {
+    return this.request<{ removed: boolean }>(`/tasks/${taskId}`, {
       method: 'DELETE',
     });
   }

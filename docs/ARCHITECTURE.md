@@ -116,6 +116,7 @@ The MVP ships as a **modular monolith** with clean boundaries:
 | `conversations` | DMs, channels, groups, invites, membership ACL | Conversation Service |
 | `messages` | Persistence, ordering, sanitization, mentions, attachments, reactions, **Slack-style threads**, **group polls**, **content search** | Messaging Service |
 | `calls` | 1:1 DM voice/video signaling (in-memory registry), call history, unseen missed badge, ICE config | Calls / Signaling Service |
+| `tasks` | Task CRUD, assignment acceptance (`pending_assignee_id`), per-user read state, realtime fanout | Tasks Service |
 | `storage` | S3-compatible object storage (upload, delete, stream content, presigned URLs, `attachments` metadata) | Storage Service |
 | `audit` | Append-only audit trail for user and admin actions | Audit Service |
 | `admin` | Admin-only stats, user management, storage metrics, audit log API | Admin API |
@@ -331,6 +332,39 @@ POST /api/v1/conversations/{id}/polls/{pollId}/close
 - **Realtime**: vote/close broadcast viewer-specific `message:updated` (correct `votedByMe` / `canClose` per member)
 - Anonymous polls never expose voter identities to clients (aggregates only)
 
+### Tasks (assignment acceptance)
+
+Personal/shared tasks with optional conversation and message links. Migrations `029_tasks`, `030_task_assignment_acceptance`.
+
+| Column / table | Purpose |
+|----------------|---------|
+| `tasks` | `title`, `description`, `conversation_id`, `source_message_id`, `created_by`, `assigned_to`, `pending_assignee_id`, `assignment_version`, `assignment_offered_at`, `assignment_responded_at`, `due_at`, `completed_at` |
+| `task_user_reads` | Per-user read cursor for pending invites (`last_read_at` vs `assignment_offered_at`) |
+
+**Assignment states** (derived, not stored):
+
+| Status | Condition |
+|--------|-----------|
+| `unassigned` | No `assigned_to` and no `pending_assignee_id` |
+| `pending` | `pending_assignee_id` set (awaiting accept/reject) |
+| `assigned` | `assigned_to` set, no pending offer |
+
+```http
+POST /api/v1/tasks
+POST /api/v1/tasks/from-message
+POST /api/v1/tasks/:id/assign
+POST /api/v1/tasks/:id/accept
+POST /api/v1/tasks/:id/reject
+GET  /api/v1/tasks/pending/unseen-count
+POST /api/v1/tasks/pending/seen
+```
+
+- **Create with external assignee**: sets `pending_assignee_id`; recipient sees task in **Pending** only until accept
+- **Self-assign**: `assigned_to = creator` immediately
+- **Reassign**: creator offers to new user; current `assigned_to` kept until accept; `assignment_version` bumps for race-safe accept/reject
+- **Access**: creator, accepted assignee, or pending recipient
+- **Realtime**: `TaskRealtimePublisher` → `emitToUsers` on `task:updated` / `task:deleted` (WebSocket + SSE via Redis `rt:user:*`)
+
 ### List Conversation Attachments (file management)
 
 ```http
@@ -450,6 +484,15 @@ Client clears local auth and returns to login.
 
 **Constraints:** DM conversations only; one active call per user; **15s** ring timeout; in-memory call registry (single-instance friendly; Redis-backed registry would be needed for multi-instance call state). **Not available over SSE fallback** — clients must use WebSocket.
 
+### Task events (WebSocket + SSE)
+
+| Event | Direction | Payload |
+|-------|-----------|---------|
+| `task:updated` | Server → Client | Full `TaskItem` (create, edit, assign, accept, reject, complete, reassign) |
+| `task:deleted` | Server → Client | `{ taskId }` |
+
+Recipients: creator, accepted assignee, pending assignee, and prior assignee when access is removed. Delivered to `user:{userId}` rooms and SSE `rt:user:{userId}` channels.
+
 ## 11. Database Schema Summary
 
 ```
@@ -466,6 +509,7 @@ users ─────────────┬──── conversation_member
                    │    └── message_thread_reads (per-user thread cursor)
                    │
                    ├──── user_contacts
+                   ├──── tasks ── task_user_reads (pending invite read state)
                    ├──── refresh_tokens (session_family_id)
                    ├──── user_sessions
                    └──── call_records (1:1 DM call history; caller/callee, media_type, end_reason, callee_seen_at)
@@ -493,6 +537,8 @@ Key indexes:
 - `attachments(conversation_id, created_at DESC)` — per-chat file listing
 - `call_records(caller_id, ended_at DESC)`, `call_records(callee_id, ended_at DESC)` — call history
 - `call_records` partial index on unseen missed (`answered_at IS NULL AND callee_seen_at IS NULL`)
+- `tasks(pending_assignee_id, assignment_offered_at DESC)` partial — pending offers
+- `task_user_reads(user_id, last_read_at DESC)` — unread pending count
 - `audit_logs(created_at DESC)`, `audit_logs(action)` — admin audit queries
 - `user_sessions(user_id)` partial where not revoked
 - `refresh_tokens(user_id, session_family_id)` — session token lookup
@@ -552,6 +598,8 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 │ CreatePollModal / MessagePoll  group polls (tap-to-vote, close) │
 │ FileManagementPanel  per-chat files (filter tabs, preview)    │
 │ CallsPanel      call history filters + callback                │
+│ TasksPanel      tasks (open/pending/completed, accept/reject)  │
+│ CreateTaskModal / AssigneePicker  task create + assign         │
 │ VoiceCallModal  voice/video UI (mute, speaker, camera, end)    │
 │ ConversationInfoPanel  details + link to shared files           │
 │ SidebarSearchPanel / GlobalSearchModal                  │
@@ -606,6 +654,14 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 5. Active UI: mobile full-screen phone layout; desktop video overlays compact corner controls on the stream (local preview mirrored)
 6. Hang up / reject / **15s unanswered timeout** → `call:end` or server timeout → persist `call_records` → `call:ended` → cleanup tracks and `RTCPeerConnection`
 7. Calls tab (`CallsPanel`) loads `GET /calls/history`; opening Calls marks missed as seen (`POST /calls/missed/seen`) and clears the nav badge (`GET /calls/missed/unseen-count`)
+
+**Task flow:**
+
+1. Create manually (`CreateTaskModal`) or **Convert to Task** from message context menu (`POST /tasks/from-message`)
+2. External assignee → pending invitation (`pending_assignee_id`); recipient sees **Pending** tab with count; must **Accept** to join Open list
+3. Creator can reassign, cancel pending invite, or delete; accepted assignee can edit/complete (not reassign)
+4. Nav badge = unread pending invites (`GET /tasks/pending/unseen-count`); opening Tasks clears via `POST /tasks/pending/seen`
+5. Realtime: `task:updated` / `task:deleted` merge into `TasksPanel` without refresh (SSE-compatible)
 
 **Dev HTTPS / LAN:**
 

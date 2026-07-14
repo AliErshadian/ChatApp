@@ -30,6 +30,7 @@ import { WsRateLimitGuard } from '../../observability/ws-rate-limit.guard';
 import { RealtimeBroadcastService } from './realtime-broadcast.service';
 import { RealtimeActionsService } from './realtime-actions.service';
 import { CallSignalingService } from '../calls/call-signaling.service';
+import { TaskRealtimePublisher } from '../tasks/task-realtime.publisher';
 
 interface AuthenticatedSocket extends Socket {
   data: { userId: string; email: string; sessionId: string };
@@ -60,6 +61,7 @@ export class RealtimeGateway
     private readonly broadcast: RealtimeBroadcastService,
     private readonly actions: RealtimeActionsService,
     private readonly callSignaling: CallSignalingService,
+    private readonly taskPublisher: TaskRealtimePublisher,
   ) {}
 
   onModuleInit() {
@@ -83,6 +85,9 @@ export class RealtimeGateway
     );
     this.sessionPublisher.setCreatedEmitter((userId, payload, exceptSessionId) =>
       this.broadcast.broadcastSessionCreated(userId, payload, exceptSessionId),
+    );
+    this.taskPublisher.setEmitter((event, userIds, data) =>
+      this.broadcast.emitToUsers(userIds, event, data),
     );
   }
 

@@ -8,12 +8,13 @@ import {
   faHashtag,
   faPhone,
   faUserGroup,
+  faListCheck,
   faRightFromBracket,
 } from '@fortawesome/free-solid-svg-icons';
 
 const APP_LOGO_URL = '/logo.png';
 
-export type AppNavTab = 'chats' | 'channels' | 'calls' | 'contacts' | 'profile';
+export type AppNavTab = 'chats' | 'channels' | 'calls' | 'contacts' | 'tasks' | 'profile';
 
 interface Props {
   variant: 'rail' | 'bottom';
@@ -23,10 +24,12 @@ interface Props {
   chatsUnreadCount?: number;
   channelsUnreadCount?: number;
   callsMissedCount?: number;
+  tasksUnreadCount?: number;
   onChats: () => void;
   onChannels: () => void;
   onCalls: () => void;
   onContacts: () => void;
+  onTasks: () => void;
   onProfile: () => void;
   onLogout: () => void;
 }
@@ -49,10 +52,12 @@ export function AppNav({
   chatsUnreadCount = 0,
   channelsUnreadCount = 0,
   callsMissedCount = 0,
+  tasksUnreadCount = 0,
   onChats,
   onChannels,
   onCalls,
   onContacts,
+  onTasks,
   onProfile,
   onLogout,
 }: Props) {
@@ -146,6 +151,25 @@ export function AppNav({
           >
             <Icon icon={faUserGroup} />
             {isBottom && <span className="nav-rail-label">Contacts</span>}
+          </button>
+
+          <button
+            type="button"
+            className={`nav-rail-btn${activeTab === 'tasks' ? ' active' : ''}`}
+            onClick={onTasks}
+            title="Tasks"
+            aria-label={
+              tasksUnreadCount > 0
+                ? `Tasks, ${tasksUnreadCount} unread invitations`
+                : 'Tasks'
+            }
+            aria-current={activeTab === 'tasks' ? 'page' : undefined}
+          >
+            <span className="nav-rail-btn-icon">
+              <Icon icon={faListCheck} />
+              <NavTabBadge count={tasksUnreadCount} />
+            </span>
+            {isBottom && <span className="nav-rail-label">Tasks</span>}
           </button>
         </div>
 
