@@ -11,6 +11,7 @@ import { MessageReplyQuote } from './MessageReplyQuote';
 import { MessageForwardedHeader } from './MessageForwardedHeader';
 import { MessageAttachmentContent, isAttachmentMessage } from './MessageAttachmentContent';
 import { isTextMessage } from '../utils/messageMedia';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 interface Props {
   message: Message;
@@ -76,6 +77,12 @@ export function MessageBubble({
     !message.deletedForEveryone &&
     Boolean(onReply || onOpenThread);
   const canForward = !message.deletedForEveryone && Boolean(onForward);
+  const copyText = (() => {
+    if (message.deletedForEveryone) return '';
+    if (isTextMessage(message)) return message.content?.trim() ? message.content : '';
+    return message.caption?.trim() ?? '';
+  })();
+  const canCopy = copyText.length > 0;
   const replyCount = message.replyCount ?? 0;
   const showThreadChip = !message.threadRootId && (replyCount > 0 || Boolean(onOpenThread));
   const showMenu = allowMessageMenu;
@@ -232,6 +239,16 @@ export function MessageBubble({
       setMenuOpen(false);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!canCopy) return;
+    try {
+      await copyTextToClipboard(copyText);
+      setMenuOpen(false);
+    } catch {
+      // Clipboard may be unavailable; leave menu open so the user can retry.
     }
   };
 
@@ -410,6 +427,11 @@ export function MessageBubble({
             }}
           >
             {onOpenThread ? 'Reply in thread' : 'Reply'}
+          </button>
+        )}
+        {canCopy && (
+          <button type="button" onClick={() => void handleCopy()} disabled={busy}>
+            Copy
           </button>
         )}
         {canForward && (
