@@ -33,7 +33,7 @@ ChatApp/
 
 ### Backend (NestJS)
 
-- **Modules**: `auth`, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`, `audit`, `admin`, **`storage`**, **`calls`**, **`tasks`**
+- **Modules**: `auth`, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`, `audit`, `admin`, **`storage`**, **`calls`**, **`tasks`**, **`notes`**
 - **Auth & sessions**:
   - JWT access tokens (15m) with required `sid` claim; validated against `user_sessions` on every REST and WebSocket request
   - Rotating refresh tokens (SHA-256 hashed, grouped by `session_family_id`)
@@ -83,9 +83,17 @@ ChatApp/
   - **Unread pending invites** — `task_user_reads` + `GET /tasks/pending/unseen-count` / `POST /tasks/pending/seen` for nav badge
   - **Realtime** — `task:updated` / `task:deleted` via `TaskRealtimePublisher` → `emitToUsers` (WebSocket + SSE)
   - Audit actions: `task.create`, `task.update`, `task.complete`, `task.reopen`, `task.delete`, `task.assign`, `task.accept`, `task.reject`, `task.cancel_assignment`
+- **Notes** (`notes` module):
+  - Personal and shared notes with optional body text (migration `031`)
+  - Member roles: `owner`, `contributor` (edit), `reader` (view only)
+  - Optimistic concurrency via `version`; `409 Conflict` on stale update
+  - Revision history in `note_revisions` (`changed_fields`, editor, version); owner can clear history
+  - APIs: CRUD, list (`scope`: all/mine/shared), members (add/update/remove), history list/clear
+  - **Realtime** — `note:updated` / `note:deleted` via `NoteRealtimePublisher` → `emitToUsers` (WebSocket + SSE)
+  - Audit actions: `note.create`, `note.update`, `note.delete`, `note.share`, `note.unshare`, `note.permission_change`, `note.clear_history`
 - **Audit** (`audit` module, global):
   - Append-only `audit_logs` table (migration `019`)
-  - Records auth, messages, conversations, contacts, profile, tasks, and admin actions
+  - Records auth, messages, conversations, contacts, profile, tasks, notes, and admin actions
   - `GET /admin/audit-logs` with filters (user, action, category, date range, text)
 - **Admin** (`admin` module):
   - `AdminGuard` — requires `users.is_admin` (migration `018`)
@@ -106,7 +114,7 @@ ChatApp/
   - `GET /api/v1/health`
 - **DB**:
   - `infra/postgres/init.sql` for new databases (includes `schema_migrations` seed)
-  - Incremental SQL migrations in `infra/postgres/migrations/` (002–030)
+  - Incremental SQL migrations in `infra/postgres/migrations/` (002–031)
   - **Auto-applied** via `npm run migrate` / Compose `migrate` → `api`
   - **Drift check**: `npm run check:schema-drift` (CI) keeps `init.sql` aligned with migrations
 
@@ -135,6 +143,7 @@ ChatApp/
   - **File management** (per DM/group/channel): header 📁 button or conversation info → filter tabs (All, My uploads, Shared, Images, Videos, Documents, Audio, Voice); jump to message, preview, download
   - **Voice & video calls** (DMs only): 📞 / 📹 in DM header; `VoiceCallModal` (mute, speaker, camera; desktop video corner controls); WebRTC via `voiceCall.ts`; `CallsPanel` history + filters; missed-call badge on Calls nav; mic/camera permission handling (`mediaDevices.ts` with HTTPS/LAN guidance)
   - **Tasks** (`TasksPanel` / `CreateTaskModal` / `AssigneePicker`): nav tab with pending-invite badge; create manually or **Convert to Task** from message menu; Open / Pending (count + Accept/Reject) / Completed / All; assign with acceptance required; due date, complete toggle, reassign (creator), delete (creator); live merge via `task:updated` / `task:deleted` (WebSocket + SSE)
+  - **Notes** (`NotesPanel`): nav tab (desktop rail; mobile **More** ⋮ menu with Tasks and Profile); personal + shared notes; filters All/Mine/Shared; editor with save/delete; share panel (reader/contributor roles, people search); change history with GitHub-style line diff; owner clear history; live merge via `note:updated` / `note:deleted` (WebSocket + SSE)
   - **Search**:
     - Sidebar: split panel (conversations on top, message content hits below)
     - Global: `Ctrl+K` / `Cmd+K` modal (chats, channels, people, messages)
@@ -162,6 +171,7 @@ ChatApp/
 - **Group polls** — create in groups; tap-to-vote; anonymous/multi; sender-only close; live tallies
 - **1:1 voice & video calls** — WebRTC + Socket.IO signaling for DMs; call history + missed badge; ICE endpoint; HTTPS dev for LAN media access
 - **Tasks with assignment acceptance** — pending invites, accept/reject flow, unread nav badge, realtime sync (SSE-compatible)
+- **Notes** — personal/shared notes with reader/contributor roles, revision history with diff UI, share panel, realtime sync (SSE-compatible); mobile nav groups Tasks/Notes/Profile under **More**
 - **Session management** — practical Telegram-style device list with push logout
 
 ## Cons / risks (what can bite you in production)
@@ -180,6 +190,7 @@ ChatApp/
 
 ## Recently addressed (2026-07)
 
+- **Notes** — migration `031`; `notes` module (CRUD, share with reader/contributor roles, revision history, clear history, optimistic `version`); `NotesPanel` with share side panel, GitHub-style history diff, mobile **More** nav (Tasks + Notes + Profile); `note:updated` / `note:deleted` realtime (WebSocket + SSE)
 - **Tasks + assignment acceptance** — migrations `029`/`030`; `tasks` module (CRUD, assign/accept/reject/cancel, pending unseen badge); `TasksPanel` with Open/Pending/Completed; **Convert to Task** from messages; `task:updated` / `task:deleted` realtime (WebSocket + SSE)
 - **Call history + missed badge** — `call_records` (migrations `022`–`025`); history filters; unseen missed count on Calls nav; open Calls marks seen
 - **15s unanswered ring timeout** — auto hang-up; Missed for receiver, Cancelled for caller
@@ -220,7 +231,7 @@ ChatApp/
 
 ### P0 (before real production)
 
-- **Automated tests**: auth + refresh rotation, membership ACL, message send/edit/delete, session revoke, task assignment acceptance
+- **Automated tests**: auth + refresh rotation, membership ACL, message send/edit/delete, session revoke, task assignment acceptance, note sharing and revision ACL
 
 ### P1 (high value next)
 

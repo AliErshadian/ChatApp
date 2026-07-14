@@ -40,6 +40,13 @@ export const AuditAction = {
   TASK_ACCEPT: 'task.accept',
   TASK_REJECT: 'task.reject',
   TASK_CANCEL_ASSIGNMENT: 'task.cancel_assignment',
+  NOTE_CREATE: 'note.create',
+  NOTE_UPDATE: 'note.update',
+  NOTE_DELETE: 'note.delete',
+  NOTE_SHARE: 'note.share',
+  NOTE_UNSHARE: 'note.unshare',
+  NOTE_PERMISSION_CHANGE: 'note.permission_change',
+  NOTE_CLEAR_HISTORY: 'note.clear_history',
 } as const;
 
 export type AuditActionType = (typeof AuditAction)[keyof typeof AuditAction];

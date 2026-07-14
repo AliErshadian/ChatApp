@@ -20,6 +20,53 @@ export interface Contact extends User {
 
 export type TaskStatusFilter = 'open' | 'completed' | 'all' | 'pending';
 
+export type NoteScopeFilter = 'all' | 'mine' | 'shared';
+
+export type NoteMemberRole = 'owner' | 'contributor' | 'reader';
+
+export interface NoteUserRef {
+  id: string;
+  email?: string;
+  username?: string;
+  displayName?: string;
+  avatarUrl?: string;
+}
+
+export interface NoteItem {
+  id: string;
+  title: string;
+  body: string | null;
+  version: number;
+  createdBy: NoteUserRef;
+  myRole: NoteMemberRole;
+  memberCount: number;
+  isShared: boolean;
+  canEdit: boolean;
+  lastEditedBy: NoteUserRef | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NoteRevisionItem {
+  id: string;
+  noteId: string;
+  version: number;
+  title: string;
+  body: string | null;
+  changedFields: string[];
+  editedBy: NoteUserRef;
+  createdAt: string;
+}
+
+export interface NoteMemberItem {
+  userId: string;
+  role: NoteMemberRole;
+  user: NoteUserRef;
+  invitedBy: string | null;
+  inviter: NoteUserRef | null;
+  joinedAt: string;
+}
+
 export type TaskAssignmentStatus = 'unassigned' | 'pending' | 'assigned';
 
 export interface TaskUserRef {
@@ -1290,6 +1337,75 @@ class ApiClient {
     return this.request<{ removed: boolean }>(`/tasks/${taskId}`, {
       method: 'DELETE',
     });
+  }
+
+  listNotes(params?: { scope?: NoteScopeFilter }) {
+    const qs = new URLSearchParams();
+    if (params?.scope) qs.set('scope', params.scope);
+    const query = qs.toString();
+    return this.request<NoteItem[]>(`/notes${query ? `?${query}` : ''}`);
+  }
+
+  getNote(noteId: string) {
+    return this.request<NoteItem>(`/notes/${noteId}`);
+  }
+
+  createNote(input: { title: string; body?: string }) {
+    return this.request<NoteItem>('/notes', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  updateNote(
+    noteId: string,
+    input: { title?: string; body?: string | null; version?: number },
+  ) {
+    return this.request<NoteItem>(`/notes/${noteId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  }
+
+  deleteNote(noteId: string) {
+    return this.request<{ removed: boolean }>(`/notes/${noteId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  getNoteHistory(noteId: string) {
+    return this.request<NoteRevisionItem[]>(`/notes/${noteId}/history`);
+  }
+
+  clearNoteHistory(noteId: string) {
+    return this.request<{ cleared: number }>(`/notes/${noteId}/history`, {
+      method: 'DELETE',
+    });
+  }
+
+  getNoteMembers(noteId: string) {
+    return this.request<NoteMemberItem[]>(`/notes/${noteId}/members`);
+  }
+
+  addNoteMember(noteId: string, input: { userId: string; role: 'reader' | 'contributor' }) {
+    return this.request<NoteItem>(`/notes/${noteId}/members`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  updateNoteMember(noteId: string, userId: string, role: 'reader' | 'contributor') {
+    return this.request<NoteItem>(`/notes/${noteId}/members/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    });
+  }
+
+  removeNoteMember(noteId: string, userId: string) {
+    return this.request<NoteItem | { removed: boolean; noteId: string }>(
+      `/notes/${noteId}/members/${userId}`,
+      { method: 'DELETE' },
+    );
   }
 
   getUser(id: string) {

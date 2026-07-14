@@ -1,6 +1,6 @@
 import { Icon } from './Icon';
 import { Avatar } from './Avatar';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ConfirmModal } from './ConfirmModal';
 import { getLogoutConfirm } from '../utils/deleteChatConfirm';
 import {
@@ -9,12 +9,14 @@ import {
   faPhone,
   faUserGroup,
   faListCheck,
+  faNoteSticky,
+  faEllipsisVertical,
   faRightFromBracket,
 } from '@fortawesome/free-solid-svg-icons';
 
 const APP_LOGO_URL = '/logo.png';
 
-export type AppNavTab = 'chats' | 'channels' | 'calls' | 'contacts' | 'tasks' | 'profile';
+export type AppNavTab = 'chats' | 'channels' | 'calls' | 'contacts' | 'tasks' | 'notes' | 'profile';
 
 interface Props {
   variant: 'rail' | 'bottom';
@@ -30,6 +32,7 @@ interface Props {
   onCalls: () => void;
   onContacts: () => void;
   onTasks: () => void;
+  onNotes: () => void;
   onProfile: () => void;
   onLogout: () => void;
 }
@@ -58,13 +61,149 @@ export function AppNav({
   onCalls,
   onContacts,
   onTasks,
+  onNotes,
   onProfile,
   onLogout,
 }: Props) {
   const isBottom = variant === 'bottom';
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
   const [logoFailed, setLogoFailed] = useState(false);
   const logoutConfirm = getLogoutConfirm();
+  const moreMenuActive = activeTab === 'tasks' || activeTab === 'notes' || activeTab === 'profile';
+
+  useEffect(() => {
+    if (!moreMenuOpen) return;
+
+    const onPointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (moreMenuRef.current?.contains(target)) return;
+      setMoreMenuOpen(false);
+    };
+
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+    };
+  }, [moreMenuOpen]);
+
+  useEffect(() => {
+    if (moreMenuActive) return;
+    setMoreMenuOpen(false);
+  }, [moreMenuActive]);
+
+  const closeMoreMenu = () => setMoreMenuOpen(false);
+
+  const tasksNotesButtons = (
+    <>
+      <button
+        type="button"
+        className={`nav-rail-btn${activeTab === 'tasks' ? ' active' : ''}`}
+        onClick={onTasks}
+        title="Tasks"
+        aria-label={
+          tasksUnreadCount > 0
+            ? `Tasks, ${tasksUnreadCount} unread invitations`
+            : 'Tasks'
+        }
+        aria-current={activeTab === 'tasks' ? 'page' : undefined}
+      >
+        <span className="nav-rail-btn-icon">
+          <Icon icon={faListCheck} />
+          <NavTabBadge count={tasksUnreadCount} />
+        </span>
+        {isBottom && <span className="nav-rail-label">Tasks</span>}
+      </button>
+
+      <button
+        type="button"
+        className={`nav-rail-btn${activeTab === 'notes' ? ' active' : ''}`}
+        onClick={onNotes}
+        title="Notes"
+        aria-label="Notes"
+        aria-current={activeTab === 'notes' ? 'page' : undefined}
+      >
+        <Icon icon={faNoteSticky} />
+        {isBottom && <span className="nav-rail-label">Notes</span>}
+      </button>
+    </>
+  );
+
+  const mobileMoreButton = (
+    <div className="nav-more-wrap" ref={moreMenuRef}>
+      <button
+        type="button"
+        className={`nav-rail-btn nav-rail-btn--more${moreMenuActive || moreMenuOpen ? ' active' : ''}`}
+        onClick={() => setMoreMenuOpen((open) => !open)}
+        title="More"
+        aria-label={
+          tasksUnreadCount > 0
+            ? `More, ${tasksUnreadCount} unread task invitations`
+            : 'More'
+        }
+        aria-expanded={moreMenuOpen}
+        aria-haspopup="menu"
+      >
+        <span className="nav-rail-btn-icon">
+          <Icon icon={faEllipsisVertical} />
+          <NavTabBadge count={tasksUnreadCount} />
+        </span>
+        {isBottom && <span className="nav-rail-label">More</span>}
+      </button>
+
+      {moreMenuOpen && (
+        <div className="nav-more-menu" role="menu" aria-label="More navigation">
+          <button
+            type="button"
+            role="menuitem"
+            className={`nav-more-menu-item${activeTab === 'tasks' ? ' active' : ''}`}
+            onClick={() => {
+              closeMoreMenu();
+              onTasks();
+            }}
+          >
+            <Icon icon={faListCheck} />
+            <span>Tasks</span>
+            {tasksUnreadCount > 0 && (
+              <span className="nav-more-menu-badge">
+                {tasksUnreadCount > 99 ? '99+' : tasksUnreadCount}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={`nav-more-menu-item${activeTab === 'notes' ? ' active' : ''}`}
+            onClick={() => {
+              closeMoreMenu();
+              onNotes();
+            }}
+          >
+            <Icon icon={faNoteSticky} />
+            <span>Notes</span>
+          </button>
+          {displayName && (
+            <button
+              type="button"
+              role="menuitem"
+              className={`nav-more-menu-item${activeTab === 'profile' ? ' active' : ''}`}
+              onClick={() => {
+                closeMoreMenu();
+                onProfile();
+              }}
+            >
+              <Avatar name={displayName} avatarUrl={avatarUrl} size="sm" />
+              <span>Profile</span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <>
@@ -153,28 +292,12 @@ export function AppNav({
             {isBottom && <span className="nav-rail-label">Contacts</span>}
           </button>
 
-          <button
-            type="button"
-            className={`nav-rail-btn${activeTab === 'tasks' ? ' active' : ''}`}
-            onClick={onTasks}
-            title="Tasks"
-            aria-label={
-              tasksUnreadCount > 0
-                ? `Tasks, ${tasksUnreadCount} unread invitations`
-                : 'Tasks'
-            }
-            aria-current={activeTab === 'tasks' ? 'page' : undefined}
-          >
-            <span className="nav-rail-btn-icon">
-              <Icon icon={faListCheck} />
-              <NavTabBadge count={tasksUnreadCount} />
-            </span>
-            {isBottom && <span className="nav-rail-label">Tasks</span>}
-          </button>
+          {isBottom ? mobileMoreButton : tasksNotesButtons}
         </div>
 
         {!isBottom && <div className="nav-rail-spacer" />}
 
+        {!isBottom && (
         <div className="nav-rail-account">
           {displayName && (
             <button
@@ -186,22 +309,20 @@ export function AppNav({
               aria-current={activeTab === 'profile' ? 'page' : undefined}
             >
               <Avatar name={displayName} avatarUrl={avatarUrl} size="sm" />
-              {isBottom && <span className="nav-rail-label">Profile</span>}
             </button>
           )}
 
-          {!isBottom && (
-            <button
-              type="button"
-              className="nav-rail-btn nav-rail-btn--logout"
-              onClick={() => setLogoutConfirmOpen(true)}
-              title="Logout"
-              aria-label="Logout"
-            >
-              <Icon icon={faRightFromBracket} />
-            </button>
-          )}
+          <button
+            type="button"
+            className="nav-rail-btn nav-rail-btn--logout"
+            onClick={() => setLogoutConfirmOpen(true)}
+            title="Logout"
+            aria-label="Logout"
+          >
+            <Icon icon={faRightFromBracket} />
+          </button>
         </div>
+        )}
       </nav>
 
       <ConfirmModal

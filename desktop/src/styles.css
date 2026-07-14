@@ -167,14 +167,25 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+html {
+  height: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   font-family: 'Manrope', 'Segoe UI', sans-serif;
   font-feature-settings: 'ss01' on;
   background: var(--chat-wash);
   color: var(--text-primary);
-  height: 100vh;
+  height: 100%;
   height: 100dvh;
   overflow: hidden;
+  overscroll-behavior: none;
+  position: fixed;
+  inset: 0;
+  width: 100%;
   -webkit-tap-highlight-color: transparent;
   letter-spacing: -0.014em;
   font-size: 15px;
@@ -197,8 +208,10 @@ body::before {
 }
 
 #root {
-  height: 100vh;
+  height: 100%;
   height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
   position: relative;
   z-index: 1;
 }
@@ -469,13 +482,21 @@ body::before {
 }
 
 /* Chat Layout */
-.chat-layout { display: flex; height: 100vh; height: 100dvh; }
+.chat-layout {
+  display: flex;
+  height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  min-height: 0;
+}
 
 .chat-layout-body {
   flex: 1;
   display: flex;
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .nav-rail {
@@ -633,6 +654,88 @@ body::before {
   line-height: 1;
 }
 
+.nav-more-wrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  max-width: 5.5rem;
+}
+
+.nav-more-wrap .nav-rail-btn--more {
+  width: 100%;
+}
+
+.nav-more-menu {
+  position: absolute;
+  bottom: calc(100% + 0.45rem);
+  right: 0;
+  min-width: 10.5rem;
+  background: color-mix(in srgb, var(--glass-2) 88%, transparent);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  backdrop-filter: var(--blur-2);
+  -webkit-backdrop-filter: var(--blur-2);
+  z-index: 120;
+  padding: 0.25rem;
+}
+
+.nav-more-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nav-more-menu-item:hover,
+.nav-more-menu-item.active {
+  background: color-mix(in srgb, var(--glass-3) 55%, transparent);
+}
+
+.nav-more-menu-item svg,
+.nav-more-menu-item .fa-icon {
+  width: 1rem;
+  height: 1rem;
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+}
+
+.nav-more-menu-item .profile-avatar-sm,
+.nav-more-menu-item .profile-avatar-img.profile-avatar-sm {
+  width: 1.25rem;
+  height: 1.25rem;
+  font-size: 0.62rem;
+  flex-shrink: 0;
+}
+
+.nav-more-menu-item span {
+  flex: 1;
+}
+
+.nav-more-menu-badge {
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--c-danger);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .sidebar {
   width: 340px;
   background: var(--surface-chatlist);
@@ -640,6 +743,7 @@ body::before {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar-chrome {
@@ -1453,6 +1557,8 @@ body::before {
   flex-direction: column;
   background: var(--surface-chat);
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chat-header {
@@ -4606,17 +4712,89 @@ body::before {
   object-fit: cover;
 }
 
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.95rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  transition: background 0.14s ease, opacity 0.14s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .btn-secondary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.4rem;
   padding: 0.5rem 0.85rem;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-tertiary);
   color: var(--text-primary);
   cursor: pointer;
+  font-family: inherit;
   font-size: 0.85rem;
+  font-weight: 600;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.btn-secondary.active {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: var(--accent-soft);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-danger-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--error) 40%, transparent);
+  background: transparent;
+  color: var(--error);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.btn-danger-ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+  border-color: var(--error);
+}
+
+.btn-danger-ghost:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .btn-link {
@@ -6337,21 +6515,24 @@ body::before {
 
   .chat-layout {
     flex-direction: column;
+    overflow: hidden;
   }
 
   .chat-layout-body {
     flex-direction: column;
     position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
 
 .nav-rail--bottom {
   width: 100%;
   flex-direction: row;
   align-items: stretch;
-  justify-content: space-around;
-  gap: 0.15rem;
-  padding: 0.35rem 0.5rem;
-  padding-bottom: max(0.35rem, env(safe-area-inset-bottom));
+  gap: 0;
+  padding: 0.3rem 0.25rem;
+  padding-bottom: max(0.3rem, env(safe-area-inset-bottom));
   border-right: none;
   border-top: 1px solid var(--glass-border);
   flex-shrink: 0;
@@ -6363,12 +6544,13 @@ body::before {
 .nav-rail--bottom .nav-rail-account {
   flex-direction: row;
   align-items: stretch;
-  gap: 0.15rem;
+  gap: 0;
 }
 
 .nav-rail--bottom .nav-rail-primary {
   flex: 1;
-  justify-content: space-around;
+  width: 100%;
+  justify-content: space-between;
 }
 
 .nav-rail--bottom .nav-rail-account {
@@ -6376,15 +6558,16 @@ body::before {
 }
 
   .nav-rail--bottom .nav-rail-btn {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
     flex-direction: column;
     width: auto;
     height: auto;
     min-height: 3.25rem;
     gap: 0.2rem;
     border-radius: 10px;
-    max-width: 5.5rem;
-    padding: 0.2rem 0;
+    max-width: none;
+    padding: 0.2rem 0.1rem;
   }
 
   .nav-rail--bottom .nav-rail-btn svg,
@@ -6413,6 +6596,22 @@ body::before {
 
   .nav-rail--bottom .nav-rail-label {
     color: inherit;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nav-rail--bottom .nav-more-wrap {
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .nav-rail--bottom .nav-more-menu {
+    right: 0;
+    left: auto;
+    min-width: 11.5rem;
   }
 
   .chat-layout.panel-open {
@@ -6853,5 +7052,472 @@ button,
 
   .composer {
     padding-bottom: max(0.85rem, env(safe-area-inset-bottom));
+  }
+}
+
+.notes-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.note-list-row {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.8rem 0.85rem;
+  background: color-mix(in srgb, var(--glass-2) 70%, transparent);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.note-list-row:hover {
+  background: var(--bg-hover);
+}
+
+.note-list-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.note-list-preview {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.note-badge {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.notes-editor-layout {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.notes-editor-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem 1.5rem;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.notes-title-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: inherit;
+  padding: 0;
+}
+
+.notes-title-input:focus {
+  outline: none;
+}
+
+.notes-body-input {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  resize: none;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--glass-2) 70%, transparent);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  padding: 0.85rem 1rem;
+  overflow-y: auto;
+}
+
+.notes-editor-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.notes-editor-actions .btn-primary,
+.notes-editor-actions .btn-secondary {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.notes-editor-actions .notes-delete-btn {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.notes-editor-error {
+  margin: 0;
+}
+
+.notes-side-panel {
+  width: min(320px, 100%);
+  border-left: 1px solid var(--glass-border);
+  background: color-mix(in srgb, var(--glass-2) 55%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem 1rem;
+  overflow-y: auto;
+}
+
+.notes-side-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.notes-side-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.notes-clear-history-btn {
+  font-size: 0.78rem;
+  padding: 0.35rem 0.55rem;
+  white-space: nowrap;
+}
+
+.notes-side-header h4,
+.notes-members-list h5 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.notes-share-role {
+  display: flex;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+}
+
+.notes-share-role label {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--glass-border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--glass-2) 45%, transparent);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.notes-share-role label:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--glass-border));
+}
+
+.notes-share-role label:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.notes-share-role input {
+  accent-color: var(--accent);
+}
+
+.notes-share-search-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.notes-share-search-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  pointer-events: none;
+}
+
+.notes-share-search {
+  width: 100%;
+  padding: 0.55rem 0.75rem 0.55rem 2.15rem;
+  border: 1px solid var(--glass-border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--glass-2) 65%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.88rem;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.notes-share-search::placeholder {
+  color: var(--text-secondary);
+}
+
+.notes-share-search:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--glass-border));
+  background: color-mix(in srgb, var(--glass-2) 85%, transparent);
+}
+
+.notes-share-search:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.notes-share-results,
+.notes-members-list ul,
+.notes-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.notes-share-person,
+.notes-member-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  border-radius: 9px;
+}
+
+.notes-share-person {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.notes-share-person:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--glass-2) 70%, transparent);
+}
+
+.notes-share-person:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.notes-share-person span,
+.notes-member-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.notes-share-person span,
+.notes-member-info span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notes-share-person small,
+.notes-member-info small {
+  color: var(--text-secondary);
+  text-transform: capitalize;
+}
+
+.notes-members-list {
+  margin-top: 0.35rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--glass-border);
+}
+
+.notes-member-row {
+  justify-content: space-between;
+}
+
+.notes-member-row .avatar {
+  flex-shrink: 0;
+}
+
+.notes-member-info {
+  flex: 1;
+}
+
+.notes-history-item {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--glass-2) 70%, transparent);
+}
+
+.notes-history-top {
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+}
+
+.notes-history-top div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.85rem;
+}
+
+.notes-history-meta {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.notes-history-diff {
+  margin-top: 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.notes-diff-block {
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.notes-diff-label {
+  padding: 0.35rem 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--glass-3) 65%, transparent);
+  border-bottom: 1px solid var(--glass-border);
+  font-family: 'Manrope', 'Segoe UI', sans-serif;
+}
+
+.notes-diff-lines {
+  display: flex;
+  flex-direction: column;
+}
+
+.notes-diff-line {
+  display: flex;
+  gap: 0.45rem;
+  padding: 0.2rem 0.55rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.notes-diff-prefix {
+  flex-shrink: 0;
+  width: 0.85rem;
+  text-align: center;
+  font-weight: 700;
+  user-select: none;
+}
+
+.notes-diff-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.notes-diff-line--remove {
+  background: color-mix(in srgb, var(--error) 18%, transparent);
+  color: color-mix(in srgb, var(--error) 72%, var(--text-primary));
+}
+
+.notes-diff-line--remove .notes-diff-prefix {
+  color: var(--error);
+}
+
+.notes-diff-line--add {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: color-mix(in srgb, var(--success) 70%, var(--text-primary));
+}
+
+.notes-diff-line--add .notes-diff-prefix {
+  color: var(--success);
+}
+
+.notes-diff-line--same {
+  background: color-mix(in srgb, var(--glass-2) 55%, transparent);
+  color: var(--text-secondary);
+}
+
+.notes-history-snippet {
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+@media (max-width: 768px) {
+  .notes-editor-layout {
+    flex-direction: column;
+  }
+
+  .notes-side-panel {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--glass-border);
+    max-height: 45vh;
+  }
+
+  .notes-editor-actions {
+    flex-wrap: nowrap;
+    gap: 0.4rem;
+  }
+
+  .notes-editor-actions .btn-primary,
+  .notes-editor-actions .btn-secondary {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .notes-editor-actions .notes-delete-btn {
+    flex: 0 0 auto;
+    margin-left: 0;
+    padding-left: 0.65rem;
+    padding-right: 0.65rem;
+  }
+
+  .notes-editor-actions .notes-delete-btn .notes-delete-label {
+    display: none;
   }
 }

@@ -133,6 +133,7 @@ ChatApp/
 │       │   ├── messages/       # Text, attachments, mentions, reactions, threads, polls, search
 │       │   ├── calls/          # 1:1 DM voice/video calls (WebRTC signaling, history, ICE)
 │       │   ├── tasks/          # Tasks with assignment acceptance, unread invites, realtime
+│       │   ├── notes/          # Personal/shared notes, roles, revision history, realtime
 │       │   ├── admin/          # Admin-only REST (stats, users, storage)
 │       │   ├── presence/
 │       │   └── realtime/       # WebSocket gateway, SSE stream, event bus, REST fallback
@@ -158,11 +159,13 @@ ChatApp/
 │       │   ├── TasksPanel.tsx           # Tasks (open/pending/completed, accept/reject, assign)
 │       │   ├── CreateTaskModal.tsx      # Manual task create + assign
 │       │   ├── AssigneePicker.tsx       # Shared assignee search picker
+│       │   ├── NotesPanel.tsx           # Notes (personal/shared, share, history diff)
 │       │   └── VoiceCallModal.tsx       # Voice/video call overlay
 │       ├── services/
 │       │   └── voiceCall.ts             # WebRTC peer connection manager
 │       └── utils/
 │           ├── messageScroll.ts         # First-unread / bottom scroll helpers
+│           ├── noteDiff.ts              # Line diff for note revision history
 │           └── mediaDevices.ts          # Mic/camera access + HTTPS/LAN error messages
 ├── admin/                      # Admin dashboard (Vite + React, port 5174)
 │   └── src/
@@ -171,7 +174,7 @@ ChatApp/
 │       └── components/
 ├── infra/postgres/
 │   ├── init.sql                # Full schema for new databases
-│   └── migrations/             # Incremental SQL migrations (002–030+)
+│   └── migrations/             # Incremental SQL migrations (002–031+)
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── PROJECT_REVIEW.md
@@ -211,7 +214,7 @@ Base URL: `http://localhost:3000/api/v1`
 
 The **admin dashboard** (`admin/`, port 5174) includes Dashboard (stats + collapsible storage panel with MinIO bucket usage), Users (filters, avatars, detail, sessions), and Audit log (expandable rows, date/action filters).
 
-The **audit trail** records sign-in/out, messages, conversations, contacts, tasks, profile changes, and admin actions. Apply migration `019_audit_logs.sql` on existing databases.
+The **audit trail** records sign-in/out, messages, conversations, contacts, tasks, notes, profile changes, and admin actions. Apply migration `019_audit_logs.sql` on existing databases.
 
 Access tokens include a `sid` claim (session id). Refresh tokens are SHA-256 hashed at rest and grouped by `session_family_id` / `user_sessions.id`.
 
@@ -267,6 +270,24 @@ Signaling is over WebSocket only (not SSE). DM membership is enforced server-sid
 
 **Assignment flow:** assigning another user creates a **pending invitation** — they must **Accept** before the task appears in their Open list. Self-assign and unassigned tasks skip pending. Reassignment keeps the current assignee until the new recipient accepts; rejection leaves the prior assignment unchanged. Unread pending invites drive the Tasks nav badge; opening Tasks marks them seen.
 
+### Notes
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/notes` | List notes (`scope`: `all` \| `mine` \| `shared`) |
+| POST | `/notes` | Create note (`title`, optional `body`) |
+| GET | `/notes/:id` | Get note (membership required) |
+| PATCH | `/notes/:id` | Update title/body (`version` optional for optimistic concurrency) |
+| DELETE | `/notes/:id` | Delete note (owner only) |
+| GET | `/notes/:id/history` | Revision history (who changed what) |
+| DELETE | `/notes/:id/history` | Clear revision history (owner only) |
+| GET | `/notes/:id/members` | List members and roles |
+| POST | `/notes/:id/members` | Share note (`userId`, `role`: `reader` \| `contributor`) |
+| PATCH | `/notes/:id/members/:userId` | Change member role (owner only) |
+| DELETE | `/notes/:id/members/:userId` | Remove access (owner or self-leave) |
+
+**Sharing & permissions:** owner can share with **reader** (view only) or **contributor** (edit). Each save records a revision (`note_revisions`) with `changed_fields`, editor, and version. Updates use optimistic concurrency via `version` (409 on conflict). Realtime: `note:updated` / `note:deleted` to all members (WebSocket + SSE).
+
 ### Attachments (object storage)
 
 | Method | Endpoint | Description |
@@ -305,6 +326,8 @@ Connect with `auth: { token: <accessToken> }`. Clients join `user:{userId}` and 
 | `call:signal` | Server → Client | Forwarded WebRTC SDP/ICE to peer |
 | `task:updated` | Server → Client | Task created/updated/assigned/accepted/rejected/completed (full `TaskItem` payload) |
 | `task:deleted` | Server → Client | Task removed (`{ taskId }`) |
+| `note:updated` | Server → Client | Note created/updated/shared/permission changed (full `NoteItem` payload) |
+| `note:deleted` | Server → Client | Note removed (`{ noteId }`) |
 
 ### SSE fallback (`/realtime/*`)
 
@@ -349,6 +372,7 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 - **File management**: per-chat shared files panel (📁 in header or conversation info); tabs for All, My uploads, Shared, Images, Videos, Documents, Audio, Voice; preview, download, jump to message
 - **Voice & video calls** (DMs only): 📞 / 📹 in DM header; WebRTC audio/video with Socket.IO signaling; phone-style controls (mute, speaker, camera); desktop video overlay with compact corner controls; **15s** ring timeout; call history tab (`CallsPanel`) with filters; unseen missed-call badge on Calls nav; requires WebSocket (not SSE fallback)
 - **Tasks**: nav tab with pending-invite badge; create manually or **Convert to Task** from message menu; assign with **acceptance required**; Pending tab (count + Accept/Reject); Open/Completed filters; due date, complete toggle, reassign (creator), delete (creator); live updates via `task:updated` / `task:deleted` (WebSocket + SSE)
+- **Notes**: nav tab (desktop rail; mobile **More** ⋮ menu with Tasks and Profile); personal notes and shared notes with **reader** / **contributor** roles; editor with save/delete; share panel (search people, role picker); **change history** with GitHub-style before/after diff; owner can **clear history**; live sync via `note:updated` / `note:deleted` (WebSocket + SSE)
 - **Devices** (Profile → Devices): Telegram-style session list, terminate device, terminate all others
 - **Offline cache** (Profile → Offline cache): IndexedDB blob cache for avatars/attachments; view size and clear cache
 - **Realtime fallback**: automatic SSE + REST when WebSocket cannot connect

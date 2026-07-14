@@ -431,6 +431,52 @@ CREATE TABLE task_user_reads (
 CREATE INDEX idx_task_user_reads_user
     ON task_user_reads (user_id, last_read_at DESC);
 
+CREATE TYPE note_member_role AS ENUM ('owner', 'contributor', 'reader');
+
+CREATE TABLE notes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title TEXT NOT NULL,
+    body TEXT,
+    created_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT notes_title_not_empty CHECK (length(trim(title)) > 0)
+);
+
+CREATE INDEX idx_notes_created_by
+    ON notes (created_by, updated_at DESC);
+
+CREATE TABLE note_members (
+    note_id UUID NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role note_member_role NOT NULL,
+    invited_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (note_id, user_id)
+);
+
+CREATE INDEX idx_note_members_user
+    ON note_members (user_id, joined_at DESC);
+
+CREATE TABLE note_revisions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    note_id UUID NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    edited_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT,
+    changed_fields TEXT[] NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT note_revisions_version_positive CHECK (version > 0)
+);
+
+CREATE INDEX idx_note_revisions_note
+    ON note_revisions (note_id, version DESC);
+
+CREATE INDEX idx_note_revisions_editor
+    ON note_revisions (edited_by, created_at DESC);
+
 -- Fresh databases from init.sql are marked up-to-date for incremental migrations.
 -- Checksums are verified in CI via: npm run check:schema-drift
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -468,7 +514,8 @@ INSERT INTO schema_migrations (version, checksum) VALUES
     ('027_message_thread_reads', '9a61e8893c2108fe7ce8f1c68eaaf64c5b0a8a97578c9065fd4100b25bb2ebba'),
     ('028_polls', 'd6f92cd7cfd8d6b3272865c1ceb8a1076180103e01d2323dbfbc1edf5287d544'),
     ('029_tasks', '3bd91f1bae7ec10b8985e4dfb887dbbf85294e8602ffc0e19a7a9568c87bc476'),
-    ('030_task_assignment_acceptance', 'af9f274b3e46f0e19df6a78f688f34144a80c32fc069071a058a7335615d4cc5')
+    ('030_task_assignment_acceptance', 'af9f274b3e46f0e19df6a78f688f34144a80c32fc069071a058a7335615d4cc5'),
+    ('031_notes', '2e6a86c5b974a07cc0dae19cb51eac0c0a5891f971f1736289c4c6f13d340bf3')
 ON CONFLICT (version) DO NOTHING;
 
 -- Grant app user access (required when schema is created by postgres superuser)

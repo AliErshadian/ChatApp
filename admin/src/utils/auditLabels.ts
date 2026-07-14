@@ -37,6 +37,13 @@ const ACTION_LABELS: Record<string, string> = {
   'task.accept': 'Accepted task',
   'task.reject': 'Rejected task',
   'task.cancel_assignment': 'Cancelled task assignment',
+  'note.create': 'Created note',
+  'note.update': 'Updated note',
+  'note.delete': 'Deleted note',
+  'note.share': 'Shared note',
+  'note.unshare': 'Removed note access',
+  'note.permission_change': 'Changed note permissions',
+  'note.clear_history': 'Cleared note history',
 };
 
 export const AUDIT_ACTIONS = Object.entries(ACTION_LABELS).map(([value, label]) => ({
@@ -72,6 +79,7 @@ export const AUDIT_CATEGORIES = [
   { value: 'conversation', label: 'Conversations' },
   { value: 'message', label: 'Messages' },
   { value: 'task', label: 'Tasks' },
+  { value: 'note', label: 'Notes' },
   { value: 'admin', label: 'Admin actions' },
 ];
 

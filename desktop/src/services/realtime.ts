@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { api } from './api';
 import { createClientMessageId } from '../utils/uuid';
-import type { Message, MessageReaction, MessageStatus, Conversation, ConversationUpdatedEvent, TaskItem } from './api';
+import type { Message, MessageReaction, MessageStatus, Conversation, ConversationUpdatedEvent, TaskItem, NoteItem } from './api';
 
 type MessageHandler = (message: Message) => void;
 type TypingHandler = (data: { conversationId: string; userId: string; isTyping: boolean }) => void;
@@ -81,6 +81,8 @@ type CallSignalHandler = (data: {
 
 type TaskUpdatedHandler = (task: TaskItem) => void;
 type TaskDeletedHandler = (data: { taskId: string }) => void;
+type NoteUpdatedHandler = (note: NoteItem) => void;
+type NoteDeletedHandler = (data: { noteId: string }) => void;
 
 interface PendingSend {
   resolve: (message: Message) => void;
@@ -108,6 +110,8 @@ const SSE_EVENTS = [
   'presence:sync',
   'task:updated',
   'task:deleted',
+  'note:updated',
+  'note:deleted',
 ] as const;
 
 const WS_CONNECT_TIMEOUT_MS = 8_000;
@@ -164,6 +168,8 @@ class RealtimeClient {
   private callSignalHandlers = new Set<CallSignalHandler>();
   private taskUpdatedHandlers = new Set<TaskUpdatedHandler>();
   private taskDeletedHandlers = new Set<TaskDeletedHandler>();
+  private noteUpdatedHandlers = new Set<NoteUpdatedHandler>();
+  private noteDeletedHandlers = new Set<NoteDeletedHandler>();
   private connectHandlers = new Set<ConnectHandler>();
   private presenceChangeHandlers = new Set<PresenceChangeHandler>();
   private pendingSends = new Map<string, PendingSend>();
@@ -383,6 +389,14 @@ class RealtimeClient {
       this.taskDeletedHandlers.forEach((handler) => handler(data));
     });
 
+    this.socket.on('note:updated', (note: NoteItem) => {
+      this.noteUpdatedHandlers.forEach((handler) => handler(note));
+    });
+
+    this.socket.on('note:deleted', (data: { noteId: string }) => {
+      this.noteDeletedHandlers.forEach((handler) => handler(data));
+    });
+
     this.socket.on('connect', () => {
       this.startHeartbeat();
       this.flushPendingPresenceQueries();
@@ -488,6 +502,14 @@ class RealtimeClient {
       case 'task:deleted':
         this.taskDeletedHandlers.forEach((handler) =>
           handler(data as { taskId: string }),
+        );
+        break;
+      case 'note:updated':
+        this.noteUpdatedHandlers.forEach((handler) => handler(data as NoteItem));
+        break;
+      case 'note:deleted':
+        this.noteDeletedHandlers.forEach((handler) =>
+          handler(data as { noteId: string }),
         );
         break;
       default:
@@ -1048,6 +1070,16 @@ class RealtimeClient {
   onTaskDeleted(handler: TaskDeletedHandler) {
     this.taskDeletedHandlers.add(handler);
     return () => this.taskDeletedHandlers.delete(handler);
+  }
+
+  onNoteUpdated(handler: NoteUpdatedHandler) {
+    this.noteUpdatedHandlers.add(handler);
+    return () => this.noteUpdatedHandlers.delete(handler);
+  }
+
+  onNoteDeleted(handler: NoteDeletedHandler) {
+    this.noteDeletedHandlers.add(handler);
+    return () => this.noteDeletedHandlers.delete(handler);
   }
 
   onMessage(handler: MessageHandler) {

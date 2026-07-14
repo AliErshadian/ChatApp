@@ -7,6 +7,7 @@ import { PresenceModule } from '../presence/presence.module';
 import { AuthModule } from '../auth/auth.module';
 import { CallsModule } from '../calls/calls.module';
 import { TasksModule } from '../tasks/tasks.module';
+import { NotesModule } from '../notes/notes.module';
 import { WsJwtGuard } from './guards/ws-jwt.guard';
 import { WsRateLimitGuard } from '../../observability/ws-rate-limit.guard';
 import { RealtimeEventBusService } from './realtime-event-bus.service';
@@ -22,6 +23,7 @@ import { RealtimeSseService } from './realtime-sse.service';
     PresenceModule,
     forwardRef(() => CallsModule),
     TasksModule,
+    NotesModule,
   ],
   controllers: [RealtimeController],
   providers: [

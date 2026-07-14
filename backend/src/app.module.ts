@@ -16,6 +16,7 @@ import { RedisModule } from './infrastructure/redis/redis.module';
 import { StorageModule } from './storage/storage.module';
 import { CallsModule } from './modules/calls/calls.module';
 import { TasksModule } from './modules/tasks/tasks.module';
+import { NotesModule } from './modules/notes/notes.module';
 import { HealthController } from './health.controller';
 import { validateEnv } from './config/env';
 import { MetricsController } from './observability/metrics.controller';
@@ -60,6 +61,7 @@ import { MetricsController } from './observability/metrics.controller';
     StorageModule,
     CallsModule,
     TasksModule,
+    NotesModule,
   ],
   controllers: [HealthController, MetricsController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

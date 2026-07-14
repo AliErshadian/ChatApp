@@ -27,6 +27,7 @@ import { ProfilePanel } from './ProfilePanel';
 import { ContactsPanel } from './ContactsPanel';
 import { CallsPanel } from './CallsPanel';
 import { TasksPanel } from './TasksPanel';
+import { NotesPanel } from './NotesPanel';
 import { ConversationInfoPanel } from './ConversationInfoPanel';
 import { FileManagementPanel } from './FileManagementPanel';
 import { ThreadPanel } from './ThreadPanel';
@@ -109,6 +110,7 @@ export function ChatPage() {
   const [showContacts, setShowContacts] = useState(false);
   const [showCalls, setShowCalls] = useState(false);
   const [showTasks, setShowTasks] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
   const [missedCallsBadge, setMissedCallsBadge] = useState(0);
   const [tasksUnreadBadge, setTasksUnreadBadge] = useState(0);
   const [showNewChatPicker, setShowNewChatPicker] = useState(false);
@@ -219,6 +221,7 @@ export function ChatPage() {
       showContacts ||
       showCalls ||
       showTasks ||
+      showNotes ||
       showNewChatPicker ||
       pendingChannelInvite);
 
@@ -1000,6 +1003,7 @@ export function ChatPage() {
     setShowContacts(false);
     setShowCalls(false);
     setShowTasks(false);
+    setShowNotes(false);
     setShowNewChatPicker(false);
     setShowConversationInfo(false);
     setShowFileManagement(false);
@@ -1037,6 +1041,7 @@ export function ChatPage() {
         setShowContacts(false);
         setShowCalls(false);
         setShowTasks(false);
+    setShowNotes(false);
         setShowNewChatPicker(false);
         setShowConversationInfo(false);
         setShowFileManagement(false);
@@ -1074,6 +1079,7 @@ export function ChatPage() {
         setShowContacts(false);
         setShowCalls(false);
         setShowTasks(false);
+    setShowNotes(false);
         setShowNewChatPicker(false);
         setShowConversationInfo(false);
         setShowFileManagement(false);
@@ -1156,6 +1162,7 @@ export function ChatPage() {
     setShowContacts(false);
     setShowCalls(false);
     setShowTasks(false);
+    setShowNotes(false);
     setShowNewChatPicker(false);
     setPendingChannelInvite(null);
     setIsPanelOpen(true);
@@ -1166,6 +1173,7 @@ export function ChatPage() {
     setShowProfile(false);
     setShowCalls(false);
     setShowTasks(false);
+    setShowNotes(false);
     setShowNewChatPicker(false);
     setPendingChannelInvite(null);
     setIsPanelOpen(true);
@@ -1176,6 +1184,7 @@ export function ChatPage() {
     setShowProfile(false);
     setShowContacts(false);
     setShowTasks(false);
+    setShowNotes(false);
     setShowNewChatPicker(false);
     setPendingChannelInvite(null);
     setIsPanelOpen(true);
@@ -1185,6 +1194,7 @@ export function ChatPage() {
 
   const openTasks = useCallback(() => {
     setShowTasks(true);
+    setShowNotes(false);
     setShowProfile(false);
     setShowContacts(false);
     setShowCalls(false);
@@ -1197,6 +1207,17 @@ export function ChatPage() {
 
   const showCallsRef = useRef(showCalls);
   showCallsRef.current = showCalls;
+
+  const openNotes = useCallback(() => {
+    setShowNotes(true);
+    setShowTasks(false);
+    setShowProfile(false);
+    setShowContacts(false);
+    setShowCalls(false);
+    setShowNewChatPicker(false);
+    setPendingChannelInvite(null);
+    setIsPanelOpen(true);
+  }, []);
 
   const showTasksRef = useRef(showTasks);
   showTasksRef.current = showTasks;
@@ -1276,6 +1297,7 @@ export function ChatPage() {
     setShowContacts(false);
     setShowCalls(false);
     setShowTasks(false);
+    setShowNotes(false);
     setShowNewChatPicker(true);
     setShowConversationInfo(false);
     setShowFileManagement(false);
@@ -1296,6 +1318,7 @@ export function ChatPage() {
       setShowContacts(false);
       setShowCalls(false);
       setShowTasks(false);
+    setShowNotes(false);
       setShowNewChatPicker(false);
       setShowConversationInfo(false);
       setShowFileManagement(false);
@@ -1341,6 +1364,7 @@ export function ChatPage() {
     setShowContacts(false);
     setShowCalls(false);
     setShowTasks(false);
+    setShowNotes(false);
     setShowNewChatPicker(false);
     setPendingChannelInvite(null);
     setShowConversationInfo(false);
@@ -2359,7 +2383,9 @@ export function ChatPage() {
         ? 'calls'
         : showTasks
           ? 'tasks'
-          : sidebarList === 'channels'
+          : showNotes
+            ? 'notes'
+            : sidebarList === 'channels'
             ? 'channels'
             : 'chats';
 
@@ -2533,6 +2559,7 @@ export function ChatPage() {
           onCalls={openCalls}
           onContacts={openContacts}
           onTasks={openTasks}
+          onNotes={openNotes}
           onProfile={openProfile}
           onLogout={logout}
         />
@@ -2709,6 +2736,8 @@ export function ChatPage() {
             isMobile={isMobile}
             onBadgeChange={refreshTasksBadge}
           />
+        ) : showNotes ? (
+          <NotesPanel onClose={closeChatPanel} isMobile={isMobile} />
         ) : showContacts ? (
           <ContactsPanel
             onClose={closeChatPanel}
@@ -3189,6 +3218,7 @@ export function ChatPage() {
           onCalls={openCalls}
           onContacts={openContacts}
           onTasks={openTasks}
+          onNotes={openNotes}
           onProfile={openProfile}
           onLogout={logout}
         />

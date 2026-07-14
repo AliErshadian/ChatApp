@@ -31,6 +31,7 @@ import { RealtimeBroadcastService } from './realtime-broadcast.service';
 import { RealtimeActionsService } from './realtime-actions.service';
 import { CallSignalingService } from '../calls/call-signaling.service';
 import { TaskRealtimePublisher } from '../tasks/task-realtime.publisher';
+import { NoteRealtimePublisher } from '../notes/note-realtime.publisher';
 
 interface AuthenticatedSocket extends Socket {
   data: { userId: string; email: string; sessionId: string };
@@ -62,6 +63,7 @@ export class RealtimeGateway
     private readonly actions: RealtimeActionsService,
     private readonly callSignaling: CallSignalingService,
     private readonly taskPublisher: TaskRealtimePublisher,
+    private readonly notePublisher: NoteRealtimePublisher,
   ) {}
 
   onModuleInit() {
@@ -87,6 +89,9 @@ export class RealtimeGateway
       this.broadcast.broadcastSessionCreated(userId, payload, exceptSessionId),
     );
     this.taskPublisher.setEmitter((event, userIds, data) =>
+      this.broadcast.emitToUsers(userIds, event, data),
+    );
+    this.notePublisher.setEmitter((event, userIds, data) =>
       this.broadcast.emitToUsers(userIds, event, data),
     );
   }

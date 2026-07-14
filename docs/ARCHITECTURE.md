@@ -117,6 +117,7 @@ The MVP ships as a **modular monolith** with clean boundaries:
 | `messages` | Persistence, ordering, sanitization, mentions, attachments, reactions, **Slack-style threads**, **group polls**, **content search** | Messaging Service |
 | `calls` | 1:1 DM voice/video signaling (in-memory registry), call history, unseen missed badge, ICE config | Calls / Signaling Service |
 | `tasks` | Task CRUD, assignment acceptance (`pending_assignee_id`), per-user read state, realtime fanout | Tasks Service |
+| `notes` | Personal/shared notes, member roles (`owner` / `contributor` / `reader`), revision history, optimistic concurrency, realtime fanout | Notes Service |
 | `storage` | S3-compatible object storage (upload, delete, stream content, presigned URLs, `attachments` metadata) | Storage Service |
 | `audit` | Append-only audit trail for user and admin actions | Audit Service |
 | `admin` | Admin-only stats, user management, storage metrics, audit log API | Admin API |
@@ -365,6 +366,33 @@ POST /api/v1/tasks/pending/seen
 - **Access**: creator, accepted assignee, or pending recipient
 - **Realtime**: `TaskRealtimePublisher` → `emitToUsers` on `task:updated` / `task:deleted` (WebSocket + SSE via Redis `rt:user:*`)
 
+### Notes (personal & shared)
+
+Personal and shared notes with member roles and revision history. Migration `031_notes`.
+
+| Column / table | Purpose |
+|----------------|---------|
+| `notes` | `title`, `body`, `created_by`, `version` (optimistic concurrency), timestamps |
+| `note_members` | `(note_id, user_id)` PK; `role` enum `owner` \| `contributor` \| `reader`; `invited_by` |
+| `note_revisions` | Snapshot per version: `title`, `body`, `changed_fields[]`, `edited_by`, `version` |
+
+```http
+GET    /api/v1/notes?scope=all|mine|shared
+POST   /api/v1/notes
+PATCH  /api/v1/notes/:id
+DELETE /api/v1/notes/:id
+GET    /api/v1/notes/:id/history
+DELETE /api/v1/notes/:id/history
+POST   /api/v1/notes/:id/members
+```
+
+- **Create**: owner member row + initial revision (v1)
+- **Edit**: owner or contributor; optional `version` in body → `409 Conflict` on stale write
+- **Share**: owner adds members as `reader` or `contributor`; owner can change roles or remove access
+- **History**: every save appends `note_revisions`; members can view; owner can clear all revisions
+- **Access**: must be in `note_members`; list scoped by `scope` (`mine` = created by user, `shared` = shared with user)
+- **Realtime**: `NoteRealtimePublisher` → `note:updated` / `note:deleted` to all member user ids (WebSocket + SSE)
+
 ### List Conversation Attachments (file management)
 
 ```http
@@ -493,6 +521,15 @@ Client clears local auth and returns to login.
 
 Recipients: creator, accepted assignee, pending assignee, and prior assignee when access is removed. Delivered to `user:{userId}` rooms and SSE `rt:user:{userId}` channels.
 
+### Note events (WebSocket + SSE)
+
+| Event | Direction | Payload |
+|-------|-----------|---------|
+| `note:updated` | Server → Client | Full `NoteItem` (create, edit, share, permission change, clear history) |
+| `note:deleted` | Server → Client | `{ noteId }` |
+
+Recipients: all `note_members` user ids. Delivered to `user:{userId}` rooms and SSE `rt:user:{userId}` channels.
+
 ## 11. Database Schema Summary
 
 ```
@@ -510,6 +547,8 @@ users ─────────────┬──── conversation_member
                    │
                    ├──── user_contacts
                    ├──── tasks ── task_user_reads (pending invite read state)
+                   ├──── notes ── note_members (owner / contributor / reader)
+                   │              └── note_revisions (per-version history)
                    ├──── refresh_tokens (session_family_id)
                    ├──── user_sessions
                    └──── call_records (1:1 DM call history; caller/callee, media_type, end_reason, callee_seen_at)
@@ -539,6 +578,9 @@ Key indexes:
 - `call_records` partial index on unseen missed (`answered_at IS NULL AND callee_seen_at IS NULL`)
 - `tasks(pending_assignee_id, assignment_offered_at DESC)` partial — pending offers
 - `task_user_reads(user_id, last_read_at DESC)` — unread pending count
+- `notes(created_by, updated_at DESC)` — note list for owner
+- `note_members(user_id, joined_at DESC)` — notes shared with user
+- `note_revisions(note_id, version DESC)` — revision history
 - `audit_logs(created_at DESC)`, `audit_logs(action)` — admin audit queries
 - `user_sessions(user_id)` partial where not revoked
 - `refresh_tokens(user_id, session_family_id)` — session token lookup
@@ -600,6 +642,7 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 │ CallsPanel      call history filters + callback                │
 │ TasksPanel      tasks (open/pending/completed, accept/reject)  │
 │ CreateTaskModal / AssigneePicker  task create + assign         │
+│ NotesPanel      notes (list, editor, share, history diff)      │
 │ VoiceCallModal  voice/video UI (mute, speaker, camera, end)    │
 │ ConversationInfoPanel  details + link to shared files           │
 │ SidebarSearchPanel / GlobalSearchModal                  │
@@ -663,6 +706,15 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 4. Nav badge = unread pending invites (`GET /tasks/pending/unseen-count`); opening Tasks clears via `POST /tasks/pending/seen`
 5. Realtime: `task:updated` / `task:deleted` merge into `TasksPanel` without refresh (SSE-compatible)
 
+**Notes flow:**
+
+1. Open **Notes** from nav (desktop rail; mobile **More** ⋮ menu groups Tasks, Notes, Profile)
+2. Filter list: All / Mine / Shared with me; create new note
+3. Editor: title + body; **Save** (optimistic `version`); owner **Delete**
+4. Owner opens **Share** side panel → pick reader or contributor role → search and add people; manage members list
+5. **History** side panel lists revisions; GitHub-style line diff (`noteDiff.ts`) shows before/after per changed field; owner can **Clear history**
+6. Realtime: `note:updated` / `note:deleted` merge into list and open editor without duplicates (`upsertNote` dedupe)
+
 **Dev HTTPS / LAN:**
 
 - Vite dev (`desktop/vite.config.ts`): `@vitejs/plugin-basic-ssl`, `host: true`, proxies `/api` and `/socket.io` to `http://127.0.0.1:3000`
@@ -706,7 +758,7 @@ Override with `VITE_API_URL` / `VITE_WS_URL` in `desktop/.env`.
             └───────────────┘           └───────────────┘           └───────────────┘
 ```
 
-**AuditModule** (global): `AuditService.record()` called from auth, messages, conversations, contacts, and admin actions. Writes to `audit_logs` with action, resource, metadata JSON, IP, and user agent.
+**AuditModule** (global): `AuditService.record()` called from auth, messages, conversations, contacts, notes, tasks, and admin actions. Writes to `audit_logs` with action, resource, metadata JSON, IP, and user agent.
 
 **Admin storage metrics** (`AdminStorageService`):
 
