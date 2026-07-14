@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { Conversation } from '../services/api';
 import { Avatar } from './Avatar';
@@ -12,6 +12,14 @@ import { ChannelLeaveModal } from './ChannelLeaveModal';
 import { formatRelativeTime } from '../utils/time';
 import { clearTextSelection, usePreventTouchSelection } from '../hooks/usePreventTouchSelection';
 import { useGhostClickGuard } from '../hooks/useGhostClickGuard';
+import {
+  chatDraftKey,
+  getConversationDraftPreview,
+  getDraft,
+  getDraftsVersion,
+  subscribeDrafts,
+} from '../utils/messageDrafts';
+import { truncateMessagePreview } from '../utils/messagePreview';
 import { faThumbtack } from '@fortawesome/free-solid-svg-icons';
 
 interface Props {
@@ -59,7 +67,15 @@ export function ConversationListItem({
   const isChannel = conversation.type === 'channel';
   const isGroup = conversation.type === 'group';
   const isMultiMember = isChannel || isGroup;
-  const preview = formatConversationPreview(conversation, currentUserId);
+  useSyncExternalStore(subscribeDrafts, getDraftsVersion, () => 0);
+  const draftText = getConversationDraftPreview(conversation.id);
+  const hasDraft =
+    draftText !== null || Boolean(getDraft(chatDraftKey(conversation.id))?.replyTo);
+  const preview = hasDraft
+    ? draftText
+      ? truncateMessagePreview(draftText, 72)
+      : 'Reply'
+    : formatConversationPreview(conversation, currentUserId);
   const time = conversation.lastMessage?.createdAt
     ? formatRelativeTime(conversation.lastMessage.createdAt)
     : null;
@@ -271,7 +287,16 @@ export function ConversationListItem({
             {time && <span className="conv-time">{time}</span>}
           </div>
           <div className="conv-bottom-row">
-            <span className="conv-preview">{preview}</span>
+            <span className={`conv-preview${hasDraft ? ' has-draft' : ''}`}>
+              {hasDraft ? (
+                <>
+                  <span className="conv-draft-label">Draft: </span>
+                  {preview}
+                </>
+              ) : (
+                preview
+              )}
+            </span>
             {showUnread && (
               <span className="unread-badge" aria-label={`${unreadCount} unread messages`}>
                 {unreadCount > 99 ? '99+' : unreadCount}

@@ -1345,6 +1345,15 @@ body::before {
   color: var(--text-secondary);
 }
 
+.conv-preview.has-draft {
+  color: var(--text-secondary);
+}
+
+.conv-draft-label {
+  color: var(--error);
+  font-weight: 600;
+}
+
 .conversation-item.has-unread .conv-name,
 .conversation-item.has-unread .conv-preview {
   color: var(--text-primary);

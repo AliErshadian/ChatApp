@@ -53,6 +53,13 @@ import { formatLastSeen } from '../utils/time';
 import { createClientMessageId } from '../utils/uuid';
 import { takePendingInviteToken } from '../utils/channelInvite';
 import { ATTACHMENT_ACCEPT, getMessagePreviewText } from '../utils/messageMedia';
+import {
+  chatDraftKey,
+  clearDraft,
+  getDraft,
+  messageFromDraftReply,
+  setDraft,
+} from '../utils/messageDrafts';
 import { remapVoiceMessageMeta, setVoiceMessageMeta, getVoiceMessageMeta } from '../utils/voiceMessageCache';
 import { normalizeVoiceMimeType } from '../utils/voiceMessage';
 import type { VoiceRecordingResult } from '../hooks/useVoiceRecorder';
@@ -468,16 +475,33 @@ export function ChatPage() {
     clearPendingBelow();
   }, [clearPendingBelow]);
 
+  const persistChatDraft = useCallback(
+    (conversationId: string | null, text: string, reply: Message | null, editingId: string | null) => {
+      if (!conversationId || editingId) return;
+      setDraft(chatDraftKey(conversationId), text, reply);
+    },
+    [],
+  );
+
   const cancelEditMessage = useCallback(() => {
     setEditingMessageId(null);
-    setInput('');
+    if (activeId) {
+      const draft = getDraft(chatDraftKey(activeId));
+      setInput(draft?.text ?? '');
+      setReplyingToMessage(draft?.replyTo ? messageFromDraftReply(draft.replyTo) : null);
+    } else {
+      setInput('');
+    }
     setSendError('');
-  }, []);
+  }, [activeId]);
 
   const cancelReplyMessage = useCallback(() => {
     setReplyingToMessage(null);
     setSendError('');
-  }, []);
+    if (activeId && !editingMessageId) {
+      setDraft(chatDraftKey(activeId), input, null);
+    }
+  }, [activeId, editingMessageId, input]);
 
   const applyThreadRootMeta = useCallback(
     (
@@ -1324,8 +1348,9 @@ export function ChatPage() {
     activeChatMessageIdsRef.current = new Set();
     clearPendingBelow();
     setEditingMessageId(null);
-    setReplyingToMessage(null);
-    setInput('');
+    const draft = getDraft(chatDraftKey(activeId));
+    setInput(draft?.text ?? '');
+    setReplyingToMessage(draft?.replyTo ? messageFromDraftReply(draft.replyTo) : null);
 
     api.getMessages(activeId).then(async (firstPage) => {
       const mentionTarget =
@@ -1745,6 +1770,7 @@ export function ChatPage() {
 
     setInput('');
     setReplyingToMessage(null);
+    clearDraft(chatDraftKey(activeId));
     setSendError('');
 
     const optimistic: Message = {
@@ -1789,6 +1815,7 @@ export function ChatPage() {
       });
       setInput(content);
       if (replyTarget) setReplyingToMessage(replyTarget);
+      persistChatDraft(activeId, content, replyTarget, null);
       setSendError(err instanceof Error ? err.message : 'Failed to send message');
     }
   };
@@ -1817,6 +1844,7 @@ export function ChatPage() {
 
     setInput('');
     setReplyingToMessage(null);
+    clearDraft(chatDraftKey(activeId));
     setSendError('');
     setAttachmentBusy(true);
 
@@ -1861,6 +1889,7 @@ export function ChatPage() {
       setMessages((prev) => prev.filter((m) => m.clientMessageId !== clientMessageId));
       setInput(caption ?? '');
       if (replyTarget) setReplyingToMessage(replyTarget);
+      persistChatDraft(activeId, caption ?? '', replyTarget, null);
       setSendError(err instanceof Error ? err.message : 'Failed to send attachment');
     } finally {
       URL.revokeObjectURL(previewUrl);
@@ -1880,6 +1909,7 @@ export function ChatPage() {
     const previewUrl = recording.previewUrl;
 
     setReplyingToMessage(null);
+    persistChatDraft(activeId, input, null, editingMessageId);
     setSendError('');
     setAttachmentBusy(true);
     setVoiceMessageMeta(clientMessageId, {
@@ -1943,6 +1973,7 @@ export function ChatPage() {
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.clientMessageId !== clientMessageId));
       if (replyTarget) setReplyingToMessage(replyTarget);
+      persistChatDraft(activeId, input, replyTarget, editingMessageId);
       setSendError(err instanceof Error ? err.message : 'Failed to send voice message');
     } finally {
       URL.revokeObjectURL(previewUrl);
@@ -1969,6 +2000,7 @@ export function ChatPage() {
       setMentionQuery(null);
     }
     if (sendError) setSendError('');
+    persistChatDraft(activeId, value, replyingToMessage, editingMessageId);
     if (editingMessageId || !activeId) return;
     realtime.setTyping(activeId, true);
     clearTimeout(typingTimeoutRef.current);
@@ -1988,6 +2020,7 @@ export function ChatPage() {
       setInput(value);
       setComposerCaret(caret);
       setMentionQuery(null);
+      persistChatDraft(activeId, value, replyingToMessage, editingMessageId);
       window.requestAnimationFrame(() => {
         const el = composerInputRef.current;
         if (!el) return;
@@ -1995,7 +2028,15 @@ export function ChatPage() {
         el.setSelectionRange(caret, caret);
       });
     },
-    [composerCaret, input, mentionQuery],
+    [
+      activeId,
+      composerCaret,
+      editingMessageId,
+      input,
+      mentionQuery,
+      persistChatDraft,
+      replyingToMessage,
+    ],
   );
 
   const handleGroupCreated = useCallback(

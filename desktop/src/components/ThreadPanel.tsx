@@ -23,6 +23,13 @@ import {
 import { mergeOutgoingServerMessage, mergeMessageStatus } from '../utils/messageStatus';
 import { isAttachmentMessage } from './MessageAttachmentContent';
 import { scrollContainerToMessage, scrollContainerToBottom } from '../utils/messageScroll';
+import {
+  clearDraft,
+  getDraft,
+  messageFromDraftReply,
+  setDraft,
+  threadDraftKey,
+} from '../utils/messageDrafts';
 
 type ThreadTab = 'replies' | 'search' | 'files';
 
@@ -97,6 +104,15 @@ export function ThreadPanel({
   conversationIdRef.current = conversationId;
   tabRef.current = tab;
 
+  const draftKey = threadDraftKey(conversationId, rootMessageId);
+
+  const persistThreadDraft = useCallback(
+    (text: string, reply: Message | null) => {
+      setDraft(draftKey, text, reply);
+    },
+    [draftKey],
+  );
+
   const syncRootMeta = useCallback(
     (meta: { replyCount: number; latestReplyAt?: string; unreadReplyCount?: number }) => {
       setRoot((prev) => (prev ? { ...prev, ...meta } : prev));
@@ -159,6 +175,13 @@ export function ThreadPanel({
 
   const upsertReplyRef = useRef(upsertReply);
   upsertReplyRef.current = upsertReply;
+
+  useEffect(() => {
+    const draft = getDraft(draftKey);
+    setInput(draft?.text ?? '');
+    setReplyingTo(draft?.replyTo ? messageFromDraftReply(draft.replyTo) : null);
+    setSendError('');
+  }, [draftKey]);
 
   useEffect(() => {
     const generation = ++loadGenerationRef.current;
@@ -389,6 +412,7 @@ export function ThreadPanel({
 
     setInput('');
     setReplyingTo(null);
+    clearDraft(draftKey);
     setSendError('');
     setReplies((prev) => mergeReplyList(prev, [optimistic]));
     window.requestAnimationFrame(() => {
@@ -408,6 +432,7 @@ export function ThreadPanel({
       setReplies((prev) => prev.filter((m) => m.clientMessageId !== clientMessageId));
       setInput(content);
       if (replyTarget) setReplyingTo(replyTarget);
+      persistThreadDraft(content, replyTarget);
       setSendError(err instanceof Error ? err.message : 'Failed to send reply');
     }
   };
@@ -424,6 +449,7 @@ export function ThreadPanel({
 
     setInput('');
     setReplyingTo(null);
+    clearDraft(draftKey);
     setSendError('');
     setAttachmentBusy(true);
 
@@ -469,6 +495,7 @@ export function ThreadPanel({
       setReplies((prev) => prev.filter((m) => m.clientMessageId !== clientMessageId));
       setInput(caption ?? '');
       if (replyTarget) setReplyingTo(replyTarget);
+      persistThreadDraft(caption ?? '', replyTarget);
       setSendError(err instanceof Error ? err.message : 'Failed to send file');
     } finally {
       URL.revokeObjectURL(previewUrl);
@@ -557,7 +584,10 @@ export function ThreadPanel({
                     }
                   : undefined
               }
-              onReply={(message) => setReplyingTo(message)}
+              onReply={(message) => {
+                setReplyingTo(message);
+                persistThreadDraft(input, message);
+              }}
               onForward={onForward}
               onScrollToMessage={scrollToThreadMessage}
               onDelete={onDelete}
@@ -576,7 +606,10 @@ export function ThreadPanel({
                 isFirstUnread={firstUnreadMessageId === m.id}
                 scrollRootRef={scrollRef}
                 canSendActions={canSend}
-                onReply={(message) => setReplyingTo(message)}
+                onReply={(message) => {
+                  setReplyingTo(message);
+                  persistThreadDraft(input, message);
+                }}
                 onForward={onForward}
                 onScrollToMessage={scrollToThreadMessage}
                 onDelete={onDelete}
@@ -609,7 +642,10 @@ export function ThreadPanel({
                   <button
                     type="button"
                     className="icon-btn"
-                    onClick={() => setReplyingTo(null)}
+                    onClick={() => {
+                      setReplyingTo(null);
+                      persistThreadDraft(input, null);
+                    }}
                     aria-label="Cancel reply"
                   >
                     <Icon icon={faXmark} />
@@ -643,7 +679,11 @@ export function ThreadPanel({
                 <input
                   className="composer-input"
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setInput(value);
+                    persistThreadDraft(value, replyingTo);
+                  }}
                   placeholder="Reply in thread…"
                   disabled={attachmentBusy}
                 />
