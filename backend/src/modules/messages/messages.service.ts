@@ -1216,6 +1216,49 @@ export class MessagesService {
     return null;
   }
 
+  async listUnreadThreads(conversationId: string, userId: string) {
+    await this.conversationsService.assertMember(conversationId, userId);
+
+    const rows = await this.messageRepo
+      .createQueryBuilder('message')
+      .select('message.thread_root_id', 'threadRootId')
+      .addSelect('COUNT(*)', 'unreadCount')
+      .addSelect('MAX(message.created_at)', 'latestReplyAt')
+      .leftJoin(
+        MessageThreadRead,
+        'tread',
+        'tread.thread_root_id = message.thread_root_id AND tread.user_id = :userId',
+        { userId },
+      )
+      .leftJoin(
+        MessageUserHidden,
+        'hidden',
+        'hidden.message_id = message.id AND hidden.user_id = :userId',
+        { userId },
+      )
+      .where('message.conversation_id = :conversationId', { conversationId })
+      .andWhere('message.thread_root_id IS NOT NULL')
+      .andWhere('message.deleted_at IS NULL')
+      .andWhere('message.sender_id != :userId', { userId })
+      .andWhere('hidden.id IS NULL')
+      .andWhere('(tread.last_read_at IS NULL OR message.created_at > tread.last_read_at)')
+      .groupBy('message.thread_root_id')
+      .orderBy('MAX(message.created_at)', 'DESC')
+      .getRawMany<{ threadRootId: string; unreadCount: string; latestReplyAt: Date | string }>();
+
+    return {
+      items: rows.map((row) => ({
+        threadRootId: row.threadRootId,
+        unreadCount: Number(row.unreadCount) || 0,
+        latestReplyAt:
+          row.latestReplyAt instanceof Date
+            ? row.latestReplyAt.toISOString()
+            : String(row.latestReplyAt),
+      })),
+      total: rows.length,
+    };
+  }
+
   private async computeUnreadReplyCounts(
     rootMessageIds: string[],
     userId: string,

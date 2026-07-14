@@ -925,6 +925,17 @@ class ApiClient {
     }>(`/conversations/${conversationId}/messages/${rootMessageId}/thread`);
   }
 
+  listUnreadThreads(conversationId: string) {
+    return this.request<{
+      items: Array<{
+        threadRootId: string;
+        unreadCount: number;
+        latestReplyAt: string;
+      }>;
+      total: number;
+    }>(`/conversations/${conversationId}/messages/unread-threads`);
+  }
+
   searchThread(conversationId: string, rootMessageId: string, q: string, limit = 40) {
     const params = new URLSearchParams({ q, limit: String(limit) });
     return this.request<{

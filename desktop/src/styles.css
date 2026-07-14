@@ -2465,6 +2465,44 @@ body::before {
   margin-right: 0;
 }
 
+.unread-threads-bar {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  padding: 0.4rem 0.85rem 0.45rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--glass-border) 55%, transparent);
+  background: color-mix(in srgb, var(--surface-panel) 88%, var(--accent) 6%);
+}
+
+.unread-threads-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--glass-border));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.unread-threads-bar-btn:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.unread-threads-bar-icon {
+  font-size: 0.9rem;
+}
+
+.unread-threads-bar-hint {
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.75;
+  margin-left: 0.15rem;
+}
+
 .new-messages-fab-wrap {
   display: flex;
   justify-content: center;

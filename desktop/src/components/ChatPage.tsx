@@ -79,6 +79,10 @@ export function ChatPage() {
   const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null);
   const [activeThreadRootId, setActiveThreadRootId] = useState<string | null>(null);
   const [activeThreadUnreadCount, setActiveThreadUnreadCount] = useState(0);
+  const [unreadThreads, setUnreadThreads] = useState<
+    Array<{ threadRootId: string; unreadCount: number; latestReplyAt: string }>
+  >([]);
+  const unreadThreadCycleRef = useRef(0);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [mentionQuery, setMentionQuery] = useState<{ start: number; query: string } | null>(null);
   const [mentionGlowIds, setMentionGlowIds] = useState<Set<string>>(new Set());
@@ -498,9 +502,37 @@ export function ChatPage() {
             : m,
         ),
       );
+
+      if (meta.unreadReplyCount !== undefined) {
+        setUnreadThreads((prev) => {
+          if (meta.unreadReplyCount! <= 0) {
+            return prev.filter((t) => t.threadRootId !== rootMessageId);
+          }
+          const existing = prev.find((t) => t.threadRootId === rootMessageId);
+          const nextItem = {
+            threadRootId: rootMessageId,
+            unreadCount: meta.unreadReplyCount!,
+            latestReplyAt: meta.latestReplyAt ?? existing?.latestReplyAt ?? new Date().toISOString(),
+          };
+          const without = prev.filter((t) => t.threadRootId !== rootMessageId);
+          return [nextItem, ...without].sort((a, b) =>
+            b.latestReplyAt.localeCompare(a.latestReplyAt),
+          );
+        });
+      }
     },
     [],
   );
+
+  const refreshUnreadThreads = useCallback(async (conversationId: string) => {
+    try {
+      const res = await api.listUnreadThreads(conversationId);
+      setUnreadThreads(res.items);
+      unreadThreadCycleRef.current = 0;
+    } catch {
+      // Keep local unread-thread state when refresh fails.
+    }
+  }, []);
 
   const openThread = useCallback(
     (message: Message) => {
@@ -520,6 +552,7 @@ export function ChatPage() {
           m.id === rootId ? { ...m, unreadReplyCount: 0 } : m,
         ),
       );
+      setUnreadThreads((prev) => prev.filter((t) => t.threadRootId !== rootId));
       setSendError('');
     },
     [cancelEditMessage, cancelReplyMessage],
@@ -557,6 +590,26 @@ export function ChatPage() {
     },
     [],
   );
+
+  const jumpToNextUnreadThread = useCallback(async () => {
+    if (!activeId || unreadThreads.length === 0) return;
+
+    const index = unreadThreadCycleRef.current % unreadThreads.length;
+    const target = unreadThreads[index];
+    unreadThreadCycleRef.current = (index + 1) % unreadThreads.length;
+
+    let loaded = messagesRef.current;
+    if (!loaded.some((m) => m.id === target.threadRootId)) {
+      loaded = await loadMessagesUntilTarget(activeId, target.threadRootId);
+      setMessages(loaded);
+      activeChatMessageIdsRef.current = new Set(loaded.map((m) => m.id));
+    }
+
+    scrollContainerToMessage(messagesScrollRef.current, target.threadRootId, {
+      behavior: 'smooth',
+      alignToUnreadDivider: false,
+    });
+  }, [activeId, unreadThreads, loadMessagesUntilTarget]);
 
   /** Keep loading older history until the true first unread is in the loaded window. */
   const loadMessagesThroughFirstUnread = useCallback(
@@ -1266,6 +1319,8 @@ export function ChatPage() {
     setMessages([]);
     setFirstUnreadMessageId(null);
     setActiveThreadRootId(null);
+    setUnreadThreads([]);
+    unreadThreadCycleRef.current = 0;
     activeChatMessageIdsRef.current = new Set();
     clearPendingBelow();
     setEditingMessageId(null);
@@ -1314,6 +1369,7 @@ export function ChatPage() {
       setFirstUnreadMessageId(firstUnreadId);
       setMessages(loadedMessages);
       activeChatMessageIdsRef.current = new Set(loadedMessages.map((message) => message.id));
+      void refreshUnreadThreads(activeId);
 
       requestAnimationFrame(() => {
         loadedMessages.forEach((msg) => {
@@ -1325,7 +1381,7 @@ export function ChatPage() {
       });
     });
     return () => realtime.leaveConversation(activeId);
-  }, [activeId, isPanelOpen, clearPendingBelow, loadMessagesUntilTarget, loadMessagesThroughFirstUnread]);
+  }, [activeId, isPanelOpen, clearPendingBelow, loadMessagesUntilTarget, loadMessagesThroughFirstUnread, refreshUnreadThreads]);
 
   useEffect(() => {
     const container = messagesScrollRef.current;
@@ -1374,6 +1430,22 @@ export function ChatPage() {
               };
             }),
           );
+          if (!alreadySeen && !viewingThread && !fromMe && msg.threadRootId) {
+            setUnreadThreads((prev) => {
+              const existing = prev.find((t) => t.threadRootId === msg.threadRootId);
+              const nextItem = {
+                threadRootId: msg.threadRootId!,
+                unreadCount: (existing?.unreadCount ?? 0) + 1,
+                latestReplyAt: msg.createdAt,
+              };
+              const without = prev.filter((t) => t.threadRootId !== msg.threadRootId);
+              return [nextItem, ...without];
+            });
+          } else if (viewingThread && msg.threadRootId) {
+            setUnreadThreads((prev) =>
+              prev.filter((t) => t.threadRootId !== msg.threadRootId),
+            );
+          }
         } else if (isActive && !alreadySeen) {
           const viewingThread = activeThreadRootIdRef.current === msg.threadRootId;
           const fromMe = msg.senderId === userIdRef.current;
@@ -1394,6 +1466,18 @@ export function ChatPage() {
               };
             }),
           );
+          if (!viewingThread && !fromMe && msg.threadRootId) {
+            setUnreadThreads((prev) => {
+              const existing = prev.find((t) => t.threadRootId === msg.threadRootId);
+              const nextItem = {
+                threadRootId: msg.threadRootId!,
+                unreadCount: (existing?.unreadCount ?? 0) + 1,
+                latestReplyAt: msg.createdAt,
+              };
+              const without = prev.filter((t) => t.threadRootId !== msg.threadRootId);
+              return [nextItem, ...without];
+            });
+          }
         }
 
         if (msg.senderId === userIdRef.current && msg.clientMessageId) {
@@ -2572,6 +2656,24 @@ export function ChatPage() {
             </header>
 
             <div className="chat-body">
+              {unreadThreads.length > 0 && !activeThreadRootId && (
+                <div className="unread-threads-bar">
+                  <button
+                    type="button"
+                    className="unread-threads-bar-btn"
+                    onClick={() => void jumpToNextUnreadThread()}
+                    aria-label={`${unreadThreads.length} unread threads`}
+                  >
+                    <Icon icon={faComments} className="unread-threads-bar-icon" />
+                    <span>
+                      {unreadThreads.length === 1
+                        ? '1 unread thread'
+                        : `${unreadThreads.length} unread threads`}
+                    </span>
+                    <span className="unread-threads-bar-hint">Click to jump</span>
+                  </button>
+                </div>
+              )}
               <div className="messages" ref={messagesScrollRef}>
               {messages.map((m) => (
                 <MessageBubble

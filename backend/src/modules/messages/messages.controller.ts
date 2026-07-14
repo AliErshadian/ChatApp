@@ -72,6 +72,14 @@ export class MessagesController {
     });
   }
 
+  @Get('unread-threads')
+  listUnreadThreads(
+    @Param('conversationId', ParseUUIDPipe) conversationId: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.messagesService.listUnreadThreads(conversationId, user.id);
+  }
+
   @Get(':messageId/thread')
   getThread(
     @Param('conversationId', ParseUUIDPipe) conversationId: string,
