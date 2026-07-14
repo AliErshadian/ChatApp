@@ -11,6 +11,7 @@ import {
   faPaperclip,
   faPhone,
   faPlus,
+  faSquarePollVertical,
   faUserGroup,
   faUserPlus,
   faVideo,
@@ -33,6 +34,7 @@ import { ChannelJoinBanner } from './ChannelJoinBanner';
 import { mergeMessageStatus, mergeOutgoingServerMessage } from '../utils/messageStatus';
 import { ConversationListItem } from './ConversationListItem';
 import { NewGroupModal } from './NewGroupModal';
+import { CreatePollModal } from './CreatePollModal';
 import { AppNav } from './AppNav';
 import { ForwardDestinationModal } from './ForwardDestinationModal';
 import { GlobalSearchModal } from './GlobalSearchModal';
@@ -107,6 +109,9 @@ export function ChatPage() {
   const [missedCallsBadge, setMissedCallsBadge] = useState(0);
   const [showNewChatPicker, setShowNewChatPicker] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
+  const [showCreatePoll, setShowCreatePoll] = useState(false);
+  const [pollBusy, setPollBusy] = useState(false);
+  const [pollError, setPollError] = useState('');
   const [showConversationInfo, setShowConversationInfo] = useState(false);
   const [showFileManagement, setShowFileManagement] = useState(false);
   const [callError, setCallError] = useState('');
@@ -2039,6 +2044,50 @@ export function ChatPage() {
     ],
   );
 
+  const handleCreatePoll = useCallback(
+    async (input: {
+      question: string;
+      options: string[];
+      anonymous: boolean;
+      allowsMultiple: boolean;
+    }) => {
+      if (!activeId || !canSendInActiveChat || !user) return;
+      if (activeConversation?.type !== 'group') return;
+      setPollBusy(true);
+      setPollError('');
+      const clientMessageId = createClientMessageId();
+      try {
+        const sent = await api.createPoll(activeId, {
+          ...input,
+          clientMessageId,
+        });
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === sent.id || m.clientMessageId === clientMessageId)) {
+            return prev.map((m) =>
+              m.id === sent.id || m.clientMessageId === clientMessageId
+                ? mergeOutgoingServerMessage(m, sent, 'sent')
+                : m,
+            );
+          }
+          return [...prev, { ...sent, status: 'sent' as MessageStatus }];
+        });
+        activeChatMessageIdsRef.current.add(sent.id);
+        shouldScrollToBottomRef.current = true;
+        setConversations((prev) =>
+          reorderConversations(
+            prev.map((c) => (c.id === activeId ? bumpConversationFromMessage(c, sent) : c)),
+          ),
+        );
+        setShowCreatePoll(false);
+      } catch (err) {
+        setPollError(err instanceof Error ? err.message : 'Failed to create poll');
+      } finally {
+        setPollBusy(false);
+      }
+    },
+    [activeConversation?.type, activeId, canSendInActiveChat, user],
+  );
+
   const handleGroupCreated = useCallback(
     (group: Conversation) => {
       selfInitiatedConversationIdsRef.current.add(group.id);
@@ -2735,6 +2784,7 @@ export function ChatPage() {
                   onScrollToMessage={scrollToMessage}
                   onDelete={handleDeleteMessage}
                   onReaction={handleReactionMessage}
+                  onPollUpdated={applyMessageUpdate}
                 />
               ))}
               {typingIndicatorText && (
@@ -2814,12 +2864,27 @@ export function ChatPage() {
                           type="button"
                           className="composer-attach-btn"
                           onClick={() => attachmentInputRef.current?.click()}
-                          disabled={attachmentBusy || editBusy || !!editingMessageId}
+                          disabled={attachmentBusy || editBusy || !!editingMessageId || pollBusy}
                           aria-label="Attach file"
                           title="Attach photo, video, audio, or document"
                         >
                           <Icon icon={faPaperclip} />
                         </button>
+                        {activeConversation?.type === 'group' && (
+                          <button
+                            type="button"
+                            className="composer-attach-btn"
+                            onClick={() => {
+                              setPollError('');
+                              setShowCreatePoll(true);
+                            }}
+                            disabled={attachmentBusy || editBusy || !!editingMessageId || pollBusy}
+                            aria-label="Create poll"
+                            title="Create poll"
+                          >
+                            <Icon icon={faSquarePollVertical} />
+                          </button>
+                        )}
                         <input
                           ref={attachmentInputRef}
                           type="file"
@@ -3012,6 +3077,19 @@ export function ChatPage() {
           onCreated={(group) => handleGroupCreated(group)}
         />
       )}
+
+      <CreatePollModal
+        open={showCreatePoll}
+        busy={pollBusy}
+        error={pollError}
+        onClose={() => {
+          if (!pollBusy) {
+            setShowCreatePoll(false);
+            setPollError('');
+          }
+        }}
+        onSubmit={handleCreatePoll}
+      />
 
       {showNewChannel && (
         <div className="modal-overlay" onClick={() => setShowNewChannel(false)}>

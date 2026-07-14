@@ -47,6 +47,7 @@ ChatApp/
   - **Slack-style threads** — `thread_root_id`, root `reply_count` / `latest_reply_at` (migration `026`); replies stay off the main feed
   - **Thread unread** — `message_thread_reads` per-user cursor (migration `027`); `unreadReplyCount` on roots; `GET …/unread-threads`
   - Thread APIs: `GET …/messages/:id/thread` (+ `firstUnreadMessageId`), `…/thread/search`, send with `threadRootId`
+  - **Group polls** — `polls` / `poll_options` / `poll_votes` (migration `028`); `content_type` poll JSON; create/vote/close APIs; tap-to-vote; **sender-only** close; anonymous aggregates
   - Attachments via **MinIO** (S3-compatible); metadata in `attachments` table (migration `021`)
   - Client downloads via **API proxy** (`GET /attachments/:id/content`); presigned URLs remain on `/download` for optional use
   - MIME/size validation; UUID object keys
@@ -96,7 +97,7 @@ ChatApp/
   - `GET /api/v1/health`
 - **DB**:
   - `infra/postgres/init.sql` for new databases (includes `schema_migrations` seed)
-  - Incremental SQL migrations in `infra/postgres/migrations/` (002–027)
+  - Incremental SQL migrations in `infra/postgres/migrations/` (002–028)
   - **Auto-applied** via `npm run migrate` / Compose `migrate` → `api`
   - **Drift check**: `npm run check:schema-drift` (CI) keeps `init.sql` aligned with migrations
 
@@ -121,6 +122,7 @@ ChatApp/
   - **Threads** (`ThreadPanel`): Reply in thread / reply-count chip; side panel with Replies, Search, Files; reactions; realtime reply updates; unread badge on roots
   - **Unread threads bar** under chat header — count of threads with unread replies; click cycles to each root in the timeline
   - **Scroll UX**: open chat/thread → first unread (paginate history if needed) or bottom if fully read (`messageScroll.ts`)
+  - **Group polls** (`CreatePollModal` / `MessagePoll`): composer entry in groups; Anonymous + Multiple choice; tap-to-vote; Close Poll for sender; list preview `Poll: …`
   - **File management** (per DM/group/channel): header 📁 button or conversation info → filter tabs (All, My uploads, Shared, Images, Videos, Documents, Audio, Voice); jump to message, preview, download
   - **Voice & video calls** (DMs only): 📞 / 📹 in DM header; `VoiceCallModal` (mute, speaker, camera; desktop video corner controls); WebRTC via `voiceCall.ts`; `CallsPanel` history + filters; missed-call badge on Calls nav; mic/camera permission handling (`mediaDevices.ts` with HTTPS/LAN guidance)
   - **Search**:
@@ -147,6 +149,7 @@ ChatApp/
 - **Search UX** — unified conversation + message content search with jump-to-message
 - **File management** — per-conversation shared files browser with media-type filters and jump-to-message
 - **Slack-style threads** — timeline roots + side-panel replies; per-thread search/files/reactions; unread thread bar and first-unread scroll
+- **Group polls** — create in groups; tap-to-vote; anonymous/multi; sender-only close; live tallies
 - **1:1 voice & video calls** — WebRTC + Socket.IO signaling for DMs; call history + missed badge; ICE endpoint; HTTPS dev for LAN media access
 - **Session management** — practical Telegram-style device list with push logout
 
@@ -171,6 +174,7 @@ ChatApp/
 - **1:1 video calls** — `mediaType` on invite/incoming; camera toggle; mirrored video preview; desktop overlay controls
 - **1:1 voice calls (DMs)** — `calls` module (signaling, ICE servers, in-memory registry); desktop `voiceCall.ts`, `VoiceCallModal`, WebSocket `call:*` events; WebRTC with STUN/TURN env config; **WebSocket required** (not SSE)
 - **Slack-style threads** — migrations `026`/`027`; thread APIs + realtime `threadRootId` / `thread` meta; `ThreadPanel`; unread-threads bar; first-unread scroll for chats and threads
+- **Group polls** — migration `028`; create/vote/close APIs; tap-to-vote; Anonymous / Multiple choice; sender-only close; `CreatePollModal` / `MessagePoll`; `message:updated` tallies
 - **HTTPS LAN dev for microphone/camera** — Vite `@vitejs/plugin-basic-ssl` + proxy `/api` and `/socket.io`; `mediaDevices.ts` friendly errors; `endpoints.ts` same-origin proxy on `https://<LAN-IP>:5173`, direct `:3000` on localhost/Electron
 - **Per-chat file management** — `GET /conversations/:id/attachments` with kind filters (`mine`, `shared`, `image`, `video`, etc.) and cursor pagination; `FileManagementPanel` in desktop client (header + conversation info entry points)
 - **API-proxied media downloads** — `GET /attachments/:id/content` streams from MinIO through the API; clients use JWT + same host as chat (works on LAN/mobile without MinIO port exposure)

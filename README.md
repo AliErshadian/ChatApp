@@ -130,7 +130,7 @@ ChatApp/
 │       │   ├── users/
 │       │   ├── contacts/
 │       │   ├── conversations/  # DMs, channels, groups, invites
-│       │   ├── messages/       # Text, attachments, mentions, reactions, threads, search
+│       │   ├── messages/       # Text, attachments, mentions, reactions, threads, polls, search
 │       │   ├── calls/          # 1:1 DM voice/video calls (WebRTC signaling, history, ICE)
 │       │   ├── admin/          # Admin-only REST (stats, users, storage)
 │       │   ├── presence/
@@ -150,6 +150,8 @@ ChatApp/
 │   └── src/
 │       ├── components/
 │       │   ├── ThreadPanel.tsx          # Slack-style thread (replies, search, files)
+│       │   ├── CreatePollModal.tsx      # Group poll create (Anonymous / Multiple choice)
+│       │   ├── MessagePoll.tsx          # In-chat poll card (tap-to-vote, close)
 │       │   ├── FileManagementPanel.tsx  # Per-chat shared files UI
 │       │   ├── CallsPanel.tsx           # Call history (filters, callback)
 │       │   └── VoiceCallModal.tsx       # Voice/video call overlay
@@ -165,7 +167,7 @@ ChatApp/
 │       └── components/
 ├── infra/postgres/
 │   ├── init.sql                # Full schema for new databases
-│   └── migrations/             # Incremental SQL migrations (002–027+)
+│   └── migrations/             # Incremental SQL migrations (002–028+)
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── PROJECT_REVIEW.md
@@ -223,6 +225,9 @@ Access tokens include a `sid` claim (session id). Refresh tokens are SHA-256 has
 | GET | `/conversations/:id/messages/:messageId/thread/search` | Full-text search within a thread (`q`, `limit`) |
 | GET | `/conversations/:id/attachments` | List shared files (`kind`, `cursor`, `limit`; filter: all/mine/shared/image/video/document/audio/voice) |
 | POST | `/conversations/:id/messages/attachment` | Upload file attachment (stored in MinIO; optional `threadRootId` / `replyToMessageId`) |
+| POST | `/conversations/:id/polls` | Create a **group** poll (`question`, `options` 2–10, `anonymous`, `allowsMultiple`) |
+| POST | `/conversations/:id/polls/:pollId/vote` | Tap-to-vote (`optionId`; single = switch, multi = toggle) |
+| POST | `/conversations/:id/polls/:pollId/close` | Close poll (**sender only**) |
 | PATCH/DELETE | `/conversations/:id/messages/:messageId` | Edit / delete message |
 | GET | `/messages/search` | Full-text search (`q`, `limit`; min 2 chars; Postgres FTS + GIN index) |
 | POST | `/conversations/:id/messages/:messageId/reactions` | Toggle reaction |
@@ -262,9 +267,9 @@ Connect with `auth: { token: <accessToken> }`. Clients join `user:{userId}` and 
 |-------|-----------|-------------|
 | `conversation:join` / `leave` | Client → Server | Room membership |
 | `message:send` | Client → Server | Send message (optional `clientMessageId`, `replyToMessageId`, **`threadRootId`**) |
-| `message:receive` / `message:ack` | Server ↔ Client | Delivery + optimistic UI ack (thread replies include `threadRootId` + `thread` meta) |
+| `message:receive` / `message:ack` | Server ↔ Client | Delivery + optimistic UI ack (thread replies include `threadRootId` + `thread` meta; polls include `poll` payload) |
+| `message:updated` / `message:hidden` | Server → Client | Edit/delete sync; **poll vote & close** tallies (viewer-specific `poll` on update) |
 | `message:status` | Server → Client | Delivered/read receipts |
-| `message:updated` / `message:hidden` | Server → Client | Edit/delete sync |
 | `message:reaction` | Server → Client | Reaction updates |
 | `conversation:created` / `updated` / `hidden` | Server → Client | Sidebar sync |
 | `user:typing` | Bidirectional | Typing indicators |
@@ -307,10 +312,11 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 ## Client Features (current)
 
 - DMs, channels, and groups with invites and member management
-- Message edit/delete, **Slack-style threads**, quote replies within a thread, forwards, reactions, attachments (images/video/audio/documents via MinIO)
+- Message edit/delete, **Slack-style threads**, **group polls**, quote replies within a thread, forwards, reactions, attachments (images/video/audio/documents via MinIO)
 - **Threads**: Reply opens a side panel (root + replies); thread replies stay out of the main feed; reply-count chip on roots; per-thread tabs for **Replies / Search / Files**; reactions work on thread messages
 - **Unread threads bar** (top of chat): shows how many threads have unread replies; click cycles to each unread thread root in the timeline
 - Open chat/thread: scroll to **first unread** (loads older history if needed); if nothing unread, scroll to **bottom**
+- **Polls** (groups only): composer poll button → create modal (Anonymous, Multiple choice); tap option to vote; results after vote/close; **Close Poll** for sender only; list preview `Poll: {question}`
 - `@mentions` with autocomplete and in-app mention toasts
 - In-app notifications: mentions, new DMs, added to group/channel, new device login
 - Read/delivered ticks, typing indicators, presence

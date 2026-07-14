@@ -88,7 +88,14 @@ export function isTextContentType(contentType: string): boolean {
   return contentType === 'text/plain' || contentType.startsWith('text/');
 }
 
-export function getMessageMediaKind(contentType: string): MessageMediaKind | 'text' {
+export const POLL_CONTENT_TYPE = 'application/vnd.chatapp.poll+json';
+
+export function isPollContentType(contentType: string): boolean {
+  return contentType === POLL_CONTENT_TYPE;
+}
+
+export function getMessageMediaKind(contentType: string): MessageMediaKind | 'text' | 'poll' {
+  if (isPollContentType(contentType)) return 'poll';
   if (isTextContentType(contentType)) return 'text';
   if (contentType.startsWith('image/')) return 'image';
   if (contentType.startsWith('video/')) return 'video';

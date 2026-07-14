@@ -3,6 +3,7 @@ import { Message } from '../services/api';
 import {
   formatFileSize,
   getMessageMediaKind,
+  isPollMessage,
   isTextMessage,
 } from '../utils/messageMedia';
 import { isVoiceMessage } from '../utils/voiceMessage';
@@ -133,5 +134,5 @@ export function MessageAttachmentContent({ message, isOwn = false }: Props) {
 }
 
 export function isAttachmentMessage(message: Message): boolean {
-  return !isTextMessage(message);
+  return !isTextMessage(message) && !isPollMessage(message);
 }

@@ -2,15 +2,22 @@ import { Message, MessageReplyPreview } from '../services/api';
 import { getAssetBase } from './avatar';
 import { isVoiceMessage, VOICE_MESSAGE_PREFIX } from './voiceMessage';
 
-export type MessageMediaKind = 'text' | 'image' | 'video' | 'audio' | 'document' | 'voice';
+export type MessageMediaKind = 'text' | 'image' | 'video' | 'audio' | 'document' | 'voice' | 'poll';
+
+export const POLL_CONTENT_TYPE = 'application/vnd.chatapp.poll+json';
 
 export function isTextMessage(message: Pick<Message, 'contentType'>): boolean {
   return message.contentType === 'text/plain' || message.contentType.startsWith('text/');
 }
 
+export function isPollMessage(message: Pick<Message, 'contentType'>): boolean {
+  return message.contentType === POLL_CONTENT_TYPE;
+}
+
 export function getMessageMediaKind(
   message: Pick<Message, 'contentType' | 'fileName'>,
 ): MessageMediaKind {
+  if (isPollMessage(message)) return 'poll';
   if (isTextMessage(message)) return 'text';
   if (isVoiceMessage(message)) return 'voice';
   const contentType = message.contentType || '';
@@ -52,7 +59,7 @@ export function getAttachmentMediaLabel(
 }
 
 export function getMessageMediaLabel(
-  message: Pick<Message, 'contentType' | 'fileName'>,
+  message: Pick<Message, 'contentType' | 'fileName'> & { content?: string },
 ): string {
   const kind = getMessageMediaKind(message);
   switch (kind) {
@@ -64,6 +71,8 @@ export function getMessageMediaLabel(
       return 'Voice message';
     case 'audio':
       return 'Audio';
+    case 'poll':
+      return message.content?.trim() ? `Poll: ${message.content.trim()}` : 'Poll';
     case 'document':
       return message.fileName ?? 'Document';
     default:
@@ -75,6 +84,10 @@ export function getMessagePreviewText(
   message: Pick<Message, 'content' | 'contentType' | 'fileName' | 'caption' | 'deletedForEveryone'>,
 ): string {
   if (message.deletedForEveryone) return 'Message deleted';
+  if (isPollMessage(message)) {
+    const q = message.content?.trim();
+    return q ? `Poll: ${q}` : 'Poll';
+  }
   if (!isTextMessage(message)) {
     const label = getMessageMediaLabel(message);
     return message.caption?.trim() ? `${label}: ${message.caption.trim()}` : label;

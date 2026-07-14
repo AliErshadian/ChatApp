@@ -192,6 +192,28 @@ export interface ConversationAttachmentListResponse {
   nextCursor: string | null;
 }
 
+export interface PollOption {
+  id: string;
+  text: string;
+  position: number;
+  voteCount: number;
+  votedByMe: boolean;
+}
+
+export interface MessagePoll {
+  id: string;
+  question: string;
+  anonymous: boolean;
+  allowsMultiple: boolean;
+  closed: boolean;
+  resultsVisible: boolean;
+  totalVoters: number;
+  totalVotes: number;
+  options: PollOption[];
+  myOptionIds: string[];
+  canClose: boolean;
+}
+
 export interface Message {
   id: string;
   conversationId: string;
@@ -219,6 +241,7 @@ export interface Message {
   thread?: { replyCount: number; latestReplyAt?: string };
   forwardedFrom?: MessageForwardedFrom;
   sender?: { id: string; displayName: string; username: string };
+  poll?: MessagePoll;
 }
 
 class ApiClient {
@@ -1038,6 +1061,35 @@ class ApiClient {
     }
 
     return res.json() as Promise<Message>;
+  }
+
+  createPoll(
+    conversationId: string,
+    input: {
+      question: string;
+      options: string[];
+      anonymous?: boolean;
+      allowsMultiple?: boolean;
+      clientMessageId?: string;
+    },
+  ) {
+    return this.request<Message>(`/conversations/${conversationId}/polls`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  votePoll(conversationId: string, pollId: string, optionId: string) {
+    return this.request<Message>(`/conversations/${conversationId}/polls/${pollId}/vote`, {
+      method: 'POST',
+      body: JSON.stringify({ optionId }),
+    });
+  }
+
+  closePoll(conversationId: string, pollId: string) {
+    return this.request<Message>(`/conversations/${conversationId}/polls/${pollId}/close`, {
+      method: 'POST',
+    });
   }
 
   editMessage(conversationId: string, messageId: string, content: string) {

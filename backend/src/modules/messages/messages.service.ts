@@ -14,12 +14,15 @@ import { MessageUserHidden } from './entities/message-user-hidden.entity';
 import { MessageReaction } from './entities/message-reaction.entity';
 import { MessageMention } from './entities/message-mention.entity';
 import { MessageThreadRead } from './entities/message-thread-read.entity';
+import { Poll } from './entities/poll.entity';
+import { PollOption } from './entities/poll-option.entity';
+import { PollVote } from './entities/poll-vote.entity';
 import { ConversationMember } from '../conversations/entities/conversation-member.entity';
 import { ConversationType } from '../conversations/entities/conversation.entity';
 import { ConversationsService } from '../conversations/conversations.service';
 import { SanitizationService } from '../../common/services/sanitization.service';
-import { SendMessageDto } from './dto/message.dto';
-import { isTextContentType } from './message-media.util';
+import { CreatePollDto, SendMessageDto } from './dto/message.dto';
+import { isPollContentType, isTextContentType, POLL_CONTENT_TYPE } from './message-media.util';
 import { buildMessageSearchTsQuery } from './message-search.util';
 import { resolveMentionUserIds } from './mention.util';
 import { MessageRealtimePublisher } from './message-realtime.publisher';
@@ -59,6 +62,28 @@ export interface MessageForwardedFrom {
   sender?: { id: string; displayName: string; username: string };
 }
 
+export interface PollOptionPayload {
+  id: string;
+  text: string;
+  position: number;
+  voteCount: number;
+  votedByMe: boolean;
+}
+
+export interface PollPayload {
+  id: string;
+  question: string;
+  anonymous: boolean;
+  allowsMultiple: boolean;
+  closed: boolean;
+  resultsVisible: boolean;
+  totalVoters: number;
+  totalVotes: number;
+  options: PollOptionPayload[];
+  myOptionIds: string[];
+  canClose: boolean;
+}
+
 export interface MessagePayload {
   id: string;
   conversationId: string;
@@ -86,6 +111,7 @@ export interface MessagePayload {
   thread?: { replyCount: number; latestReplyAt?: Date };
   forwardedFrom?: MessageForwardedFrom;
   sender?: { id: string; displayName: string; username: string };
+  poll?: PollPayload;
 }
 
 export interface ReactionUpdatePayload {
@@ -127,6 +153,12 @@ export class MessagesService {
     private readonly mentionRepo: Repository<MessageMention>,
     @InjectRepository(MessageThreadRead)
     private readonly threadReadRepo: Repository<MessageThreadRead>,
+    @InjectRepository(Poll)
+    private readonly pollRepo: Repository<Poll>,
+    @InjectRepository(PollOption)
+    private readonly pollOptionRepo: Repository<PollOption>,
+    @InjectRepository(PollVote)
+    private readonly pollVoteRepo: Repository<PollVote>,
     @InjectRepository(ConversationMember)
     private readonly memberRepo: Repository<ConversationMember>,
     private readonly conversationsService: ConversationsService,
@@ -321,6 +353,183 @@ export class MessagesService {
     return payload;
   }
 
+  async createPoll(
+    userId: string,
+    conversationId: string,
+    dto: CreatePollDto,
+  ): Promise<MessagePayload> {
+    await this.conversationsService.assertCanSendMessage(conversationId, userId);
+    const conversationType = await this.conversationsService.getConversationType(conversationId);
+    if (conversationType !== ConversationType.GROUP) {
+      throw new ForbiddenException('Polls are only available in groups');
+    }
+
+    const question = this.sanitization.sanitizeMessage(dto.question)?.trim();
+    if (!question) throw new BadRequestException('Question is required');
+
+    const optionTexts = dto.options
+      .map((option) => this.sanitization.sanitizeMessage(option)?.trim() ?? '')
+      .filter(Boolean);
+    if (optionTexts.length < 2) {
+      throw new BadRequestException('Polls need at least 2 options');
+    }
+    if (optionTexts.length > 10) {
+      throw new BadRequestException('Polls can have at most 10 options');
+    }
+
+    if (dto.clientMessageId) {
+      const existing = await this.messageRepo.findOne({
+        where: {
+          conversationId,
+          senderId: userId,
+          clientMessageId: dto.clientMessageId,
+        },
+        relations: [...this.messageRelations],
+      });
+      if (existing) {
+        return this.enrichPayloadWithPoll(
+          this.toPayload(existing, userId, 'sent'),
+          userId,
+        );
+      }
+    }
+
+    const message = this.messageRepo.create({
+      conversationId,
+      senderId: userId,
+      content: question,
+      contentType: POLL_CONTENT_TYPE,
+      clientMessageId: dto.clientMessageId,
+    });
+    const saved = await this.messageRepo.save(message);
+
+    const poll = await this.pollRepo.save(
+      this.pollRepo.create({
+        messageId: saved.id,
+        question,
+        anonymous: Boolean(dto.anonymous),
+        allowsMultiple: Boolean(dto.allowsMultiple),
+      }),
+    );
+
+    await this.pollOptionRepo.save(
+      optionTexts.map((text, position) =>
+        this.pollOptionRepo.create({
+          pollId: poll.id,
+          text,
+          position,
+        }),
+      ),
+    );
+
+    const withSender = await this.messageRepo.findOne({
+      where: { id: saved.id },
+      relations: [...this.messageRelations],
+    });
+    const payload = await this.enrichPayloadWithPoll(
+      this.toPayload(withSender!, userId, 'sent'),
+      userId,
+    );
+    await this.messagePublisher.publishNewMessage(payload, userId);
+
+    this.audit.record({
+      action: AuditAction.MESSAGE_SEND,
+      userId,
+      resourceType: 'message',
+      resourceId: saved.id,
+      metadata: {
+        conversationId,
+        contentType: POLL_CONTENT_TYPE,
+        preview: this.auditPreview(question),
+        pollId: poll.id,
+      },
+    });
+
+    return payload;
+  }
+
+  async votePoll(
+    userId: string,
+    conversationId: string,
+    pollId: string,
+    optionId: string,
+  ): Promise<MessagePayload> {
+    await this.conversationsService.assertMember(conversationId, userId);
+
+    const poll = await this.pollRepo.findOne({
+      where: { id: pollId },
+      relations: ['message', 'options'],
+    });
+    if (!poll || poll.message.conversationId !== conversationId) {
+      throw new NotFoundException('Poll not found');
+    }
+    if (poll.message.deletedAt) {
+      throw new ConflictException('Cannot vote on a deleted poll');
+    }
+    if (poll.closedAt) {
+      throw new ConflictException('This poll is closed');
+    }
+
+    const option = poll.options?.find((o) => o.id === optionId);
+    if (!option) {
+      throw new BadRequestException('Invalid poll option');
+    }
+
+    const existingOnOption = await this.pollVoteRepo.findOne({
+      where: { pollId, userId, optionId },
+    });
+
+    if (poll.allowsMultiple) {
+      if (existingOnOption) {
+        await this.pollVoteRepo.remove(existingOnOption);
+      } else {
+        await this.pollVoteRepo.save(
+          this.pollVoteRepo.create({ pollId, optionId, userId }),
+        );
+      }
+    } else if (existingOnOption) {
+      await this.pollVoteRepo.remove(existingOnOption);
+    } else {
+      await this.pollVoteRepo.delete({ pollId, userId });
+      await this.pollVoteRepo.save(
+        this.pollVoteRepo.create({ pollId, optionId, userId }),
+      );
+    }
+
+    await this.broadcastPollMessageUpdate(conversationId, poll.messageId);
+    return this.getEnrichedMessagePayload(poll.messageId, userId);
+  }
+
+  async closePoll(
+    userId: string,
+    conversationId: string,
+    pollId: string,
+  ): Promise<MessagePayload> {
+    await this.conversationsService.assertMember(conversationId, userId);
+
+    const poll = await this.pollRepo.findOne({
+      where: { id: pollId },
+      relations: ['message'],
+    });
+    if (!poll || poll.message.conversationId !== conversationId) {
+      throw new NotFoundException('Poll not found');
+    }
+
+    if (poll.message.senderId !== userId) {
+      throw new ForbiddenException('Only the poll sender can close this poll');
+    }
+    if (poll.closedAt) {
+      return this.getEnrichedMessagePayload(poll.messageId, userId);
+    }
+
+    poll.closedAt = new Date();
+    poll.closedBy = userId;
+    await this.pollRepo.save(poll);
+
+    await this.broadcastPollMessageUpdate(conversationId, poll.messageId);
+    return this.getEnrichedMessagePayload(poll.messageId, userId);
+  }
+
   async forward(
     userId: string,
     sourceConversationId: string,
@@ -465,15 +674,20 @@ export class MessagesService {
     );
 
     return {
-      messages: reversed.map((m) =>
-        this.toPayload(
-          m,
-          userId,
-          m.senderId === userId ? statuses.get(m.id) : undefined,
-          reactions.get(m.id) ?? [],
-          mentions.get(m.id) ?? [],
-          undefined,
-          unreadByRoot.get(m.id) ?? 0,
+      messages: await Promise.all(
+        reversed.map(async (m) =>
+          this.enrichPayloadWithPoll(
+            this.toPayload(
+              m,
+              userId,
+              m.senderId === userId ? statuses.get(m.id) : undefined,
+              reactions.get(m.id) ?? [],
+              mentions.get(m.id) ?? [],
+              undefined,
+              unreadByRoot.get(m.id) ?? 0,
+            ),
+            userId,
+          ),
         ),
       ),
       nextCursor: messages.length === limit ? messages[0]?.sequence : null,
@@ -537,20 +751,23 @@ export class MessagesService {
     );
     const mentionMap = await this.computeMentionsForMessages(all.map((m) => m.id));
 
-    const toThreadPayload = (m: Message) =>
-      this.toPayload(
-        m,
+    const toThreadPayload = async (m: Message) =>
+      this.enrichPayloadWithPoll(
+        this.toPayload(
+          m,
+          userId,
+          m.senderId === userId ? statuses.get(m.id) : undefined,
+          reactionMap.get(m.id) ?? [],
+          mentionMap.get(m.id) ?? [],
+          undefined,
+          m.id === rootMessageId ? 0 : undefined,
+        ),
         userId,
-        m.senderId === userId ? statuses.get(m.id) : undefined,
-        reactionMap.get(m.id) ?? [],
-        mentionMap.get(m.id) ?? [],
-        undefined,
-        m.id === rootMessageId ? 0 : undefined,
       );
 
     return {
-      root: toThreadPayload(root),
-      replies: replies.map(toThreadPayload),
+      root: await toThreadPayload(root),
+      replies: await Promise.all(replies.map(toThreadPayload)),
       firstUnreadMessageId,
     };
   }
@@ -1416,8 +1633,9 @@ export class MessagesService {
     const deletedForEveryone = !!message.deletedAt;
     const resolvedMentions =
       mentions.length > 0 ? mentions : this.toMentionSummaries(message);
-    const resolvedAttachmentId =
-      attachmentId ?? this.storageService.findAttachmentByMessageContent(message.content);
+    const resolvedAttachmentId = isPollContentType(message.contentType)
+      ? undefined
+      : attachmentId ?? this.storageService.findAttachmentByMessageContent(message.content);
 
     return {
       id: message.id,
@@ -1454,6 +1672,93 @@ export class MessagesService {
             username: message.sender.username,
           }
         : undefined,
+    };
+  }
+
+  private async getEnrichedMessagePayload(
+    messageId: string,
+    viewerId: string,
+  ): Promise<MessagePayload> {
+    const message = await this.messageRepo.findOne({
+      where: { id: messageId },
+      relations: [...this.messageRelations],
+    });
+    if (!message) throw new NotFoundException('Message not found');
+    const status =
+      message.senderId === viewerId
+        ? await this.computeStatus(message.id, message.senderId, message.conversationId)
+        : undefined;
+    const reactions = await this.getReactionsForMessage(message.id, viewerId);
+    return this.enrichPayloadWithPoll(
+      this.toPayload(message, viewerId, status, reactions),
+      viewerId,
+    );
+  }
+
+  private async broadcastPollMessageUpdate(conversationId: string, messageId: string) {
+    const memberIds = await this.conversationsService.getMemberUserIds(conversationId);
+    await Promise.all(
+      memberIds.map(async (memberId) => {
+        const payload = await this.getEnrichedMessagePayload(messageId, memberId);
+        await this.messagePublisher.publishMessageUpdateToUser(memberId, payload);
+      }),
+    );
+  }
+
+  private async enrichPayloadWithPoll(
+    payload: MessagePayload,
+    viewerId: string,
+  ): Promise<MessagePayload> {
+    if (payload.deletedForEveryone || !isPollContentType(payload.contentType)) {
+      return payload;
+    }
+
+    const poll = await this.buildPollPayload(payload.id, payload.senderId, viewerId);
+    if (!poll) return payload;
+    return { ...payload, poll };
+  }
+
+  private async buildPollPayload(
+    messageId: string,
+    messageSenderId: string,
+    viewerId: string,
+  ): Promise<PollPayload | null> {
+    const poll = await this.pollRepo.findOne({
+      where: { messageId },
+      relations: ['options', 'message'],
+    });
+    if (!poll) return null;
+
+    const options = [...(poll.options ?? [])].sort((a, b) => a.position - b.position);
+    const votes = await this.pollVoteRepo.find({ where: { pollId: poll.id } });
+    const myOptionIds = votes.filter((v) => v.userId === viewerId).map((v) => v.optionId);
+    const closed = Boolean(poll.closedAt);
+    const resultsVisible = closed || myOptionIds.length > 0;
+    const totalVoters = new Set(votes.map((v) => v.userId)).size;
+
+    const canClose = !closed && messageSenderId === viewerId;
+
+    return {
+      id: poll.id,
+      question: poll.question,
+      anonymous: poll.anonymous,
+      allowsMultiple: poll.allowsMultiple,
+      closed,
+      resultsVisible,
+      totalVoters,
+      totalVotes: votes.length,
+      myOptionIds,
+      canClose,
+      options: options.map((option) => {
+        const voteCount = votes.filter((v) => v.optionId === option.id).length;
+        return {
+          id: option.id,
+          text: option.text,
+          position: option.position,
+          voteCount: resultsVisible ? voteCount : 0,
+          votedByMe: myOptionIds.includes(option.id),
+        };
+      }),
     };
   }
 

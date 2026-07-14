@@ -125,6 +125,44 @@ CREATE TABLE message_thread_reads (
 CREATE INDEX idx_message_thread_reads_user
     ON message_thread_reads (user_id, last_read_at DESC);
 
+CREATE TABLE polls (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    message_id UUID NOT NULL UNIQUE REFERENCES messages(id) ON DELETE CASCADE,
+    question TEXT NOT NULL,
+    anonymous BOOLEAN NOT NULL DEFAULT FALSE,
+    allows_multiple BOOLEAN NOT NULL DEFAULT FALSE,
+    closed_at TIMESTAMPTZ,
+    closed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT polls_question_not_empty CHECK (length(trim(question)) > 0)
+);
+
+CREATE TABLE poll_options (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    poll_id UUID NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT poll_options_text_not_empty CHECK (length(trim(text)) > 0)
+);
+
+CREATE INDEX idx_poll_options_poll
+    ON poll_options (poll_id, position ASC);
+
+CREATE TABLE poll_votes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    poll_id UUID NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+    option_id UUID NOT NULL REFERENCES poll_options(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (poll_id, user_id, option_id)
+);
+
+CREATE INDEX idx_poll_votes_poll
+    ON poll_votes (poll_id);
+
+CREATE INDEX idx_poll_votes_option
+    ON poll_votes (option_id);
+
 CREATE TABLE message_deliveries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -369,7 +407,8 @@ INSERT INTO schema_migrations (version, checksum) VALUES
     ('024_call_records_callee_seen', '2c3ab63eceb1c61352fcedbc81fc1ebd6955a34013a4a53344cd7d4e3714e33d'),
     ('025_call_records_mark_existing_seen', '1a0e623a6e422b121404db109d9476c48d9bdf19e0b45ddf747190de9f848fec'),
     ('026_message_threads', '72bedc2f95598e29ec36262cf075da171e9267c101407144ed2cf20cbfb0f669'),
-    ('027_message_thread_reads', '9a61e8893c2108fe7ce8f1c68eaaf64c5b0a8a97578c9065fd4100b25bb2ebba')
+    ('027_message_thread_reads', '9a61e8893c2108fe7ce8f1c68eaaf64c5b0a8a97578c9065fd4100b25bb2ebba'),
+    ('028_polls', 'd6f92cd7cfd8d6b3272865c1ceb8a1076180103e01d2323dbfbc1edf5287d544')
 ON CONFLICT (version) DO NOTHING;
 
 -- Grant app user access (required when schema is created by postgres superuser)

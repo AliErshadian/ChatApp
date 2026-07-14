@@ -1,4 +1,15 @@
-import { IsString, IsUUID, IsOptional, MaxLength, MinLength, IsIn, IsArray, ArrayMinSize } from 'class-validator';
+import {
+  IsString,
+  IsUUID,
+  IsOptional,
+  MaxLength,
+  MinLength,
+  IsIn,
+  IsArray,
+  ArrayMinSize,
+  ArrayMaxSize,
+  IsBoolean,
+} from 'class-validator';
 
 export class SendMessageDto {
   @IsUUID()
@@ -53,4 +64,37 @@ export class ForwardMessageDto {
   @ArrayMinSize(1)
   @IsUUID('4', { each: true })
   targetConversationIds!: string[];
+}
+
+export class CreatePollDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(500)
+  question!: string;
+
+  @IsArray()
+  @ArrayMinSize(2)
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  @MinLength(1, { each: true })
+  @MaxLength(200, { each: true })
+  options!: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  anonymous?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowsMultiple?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  clientMessageId?: string;
+}
+
+export class VotePollDto {
+  @IsUUID()
+  optionId!: string;
 }

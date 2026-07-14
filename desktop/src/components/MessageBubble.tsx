@@ -10,7 +10,8 @@ import { LinkifiedMessageText } from './LinkifiedMessageText';
 import { MessageReplyQuote } from './MessageReplyQuote';
 import { MessageForwardedHeader } from './MessageForwardedHeader';
 import { MessageAttachmentContent, isAttachmentMessage } from './MessageAttachmentContent';
-import { isTextMessage } from '../utils/messageMedia';
+import { MessagePoll } from './MessagePoll';
+import { isPollMessage, isTextMessage } from '../utils/messageMedia';
 import { copyTextToClipboard } from '../utils/clipboard';
 
 interface Props {
@@ -30,6 +31,7 @@ interface Props {
   onScrollToMessage?: (messageId: string) => void;
   onDelete: (messageId: string, scope: 'me' | 'everyone') => Promise<void>;
   onReaction: (messageId: string, emoji: string) => Promise<void>;
+  onPollUpdated?: (message: Message) => void;
 }
 
 export function MessageBubble({
@@ -49,6 +51,7 @@ export function MessageBubble({
   onScrollToMessage,
   onDelete,
   onReaction,
+  onPollUpdated,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -320,7 +323,14 @@ export function MessageBubble({
               onScrollToMessage={onScrollToMessage}
             />
           )}
-          {isAttachmentMessage(message) ? (
+          {isPollMessage(message) ? (
+            <MessagePoll
+              message={message}
+              isOwn={isOwn}
+              canInteract={canSendActions}
+              onUpdated={(updated) => onPollUpdated?.(updated)}
+            />
+          ) : isAttachmentMessage(message) ? (
             <MessageAttachmentContent message={message} isOwn={isOwn} />
           ) : (
             <div className="message-content">

@@ -75,6 +75,9 @@ export class RealtimeGateway
     this.messagePublisher.setNewMessageEmitter((message, senderId) =>
       this.broadcast.broadcastNewMessage(message, senderId),
     );
+    this.messagePublisher.setMessageUpdateToUserEmitter((userId, message) =>
+      this.broadcast.emitToUser(userId, 'message:updated', message),
+    );
     this.sessionPublisher.setTerminatedEmitter((sessionId) =>
       this.broadcast.broadcastSessionTerminated(sessionId),
     );

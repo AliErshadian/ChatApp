@@ -114,7 +114,7 @@ The MVP ships as a **modular monolith** with clean boundaries:
 | `users` | Profiles, search, avatars | User Service |
 | `contacts` | Contact list | Contacts Service |
 | `conversations` | DMs, channels, groups, invites, membership ACL | Conversation Service |
-| `messages` | Persistence, ordering, sanitization, mentions, attachments, reactions, **Slack-style threads**, **content search** | Messaging Service |
+| `messages` | Persistence, ordering, sanitization, mentions, attachments, reactions, **Slack-style threads**, **group polls**, **content search** | Messaging Service |
 | `calls` | 1:1 DM voice/video signaling (in-memory registry), call history, unseen missed badge, ICE config | Calls / Signaling Service |
 | `storage` | S3-compatible object storage (upload, delete, stream content, presigned URLs, `attachments` metadata) | Storage Service |
 | `audit` | Append-only audit trail for user and admin actions | Audit Service |
@@ -307,6 +307,30 @@ GET /api/v1/conversations/{id}/messages/unread-threads
 - **Realtime**: thread replies broadcast as `message:receive` with `threadRootId` + `thread: { replyCount, latestReplyAt }`; clients update the root chip and keep replies out of the main list
 - **Unread threads bar**: `unread-threads` lists threads with ≥1 unread reply (count = number of threads, not reply volume)
 
+### Group Polls
+
+Telegram-style polls in **group** conversations only (not DMs/channels). Migration `028_polls`.
+
+| Table | Purpose |
+|-------|---------|
+| `polls` | One poll per message (`question`, `anonymous`, `allows_multiple`, `closed_at` / `closed_by`) |
+| `poll_options` | Option text + position (2–10) |
+| `poll_votes` | Unique `(poll_id, user_id, option_id)` |
+
+Message `content_type` = `application/vnd.chatapp.poll+json`; `content` = question (list preview / search).
+
+```http
+POST /api/v1/conversations/{id}/polls
+POST /api/v1/conversations/{id}/polls/{pollId}/vote
+POST /api/v1/conversations/{id}/polls/{pollId}/close
+```
+
+- **Create**: any group member who can send; body `{ question, options, anonymous?, allowsMultiple?, clientMessageId? }` → `message:receive` with `poll` payload
+- **Vote**: tap-to-vote (`optionId`); single choice switches vote; multiple choice toggles; results visible after the viewer has voted or the poll is closed
+- **Close**: **message sender only**; further votes rejected
+- **Realtime**: vote/close broadcast viewer-specific `message:updated` (correct `votedByMe` / `canClose` per member)
+- Anonymous polls never expose voter identities to clients (aggregates only)
+
 ### List Conversation Attachments (file management)
 
 ```http
@@ -368,7 +392,7 @@ Authorization: Bearer eyJhbG...
 
 ### `message:receive` (Server → Client)
 
-Includes `mentions`, `reactions`, `replyTo`, attachment fields when applicable. Thread replies also include `threadRootId` and `thread: { replyCount, latestReplyAt }` so clients can sync the root reply chip without putting the reply in the main feed.
+Includes `mentions`, `reactions`, `replyTo`, attachment fields when applicable. Thread replies also include `threadRootId` and `thread: { replyCount, latestReplyAt }` so clients can sync the root reply chip without putting the reply in the main feed. Poll messages include `poll: { id, question, anonymous, allowsMultiple, closed, resultsVisible, options[{ id, text, voteCount, votedByMe }], totalVoters, myOptionIds, canClose }`.
 
 ### `session:created` (Server → Client)
 
@@ -433,6 +457,7 @@ users ─────────────┬──── conversation_member
                    │                                    │
                    ├──── messages ──────────────────────┘
                    │    ├── thread_root_id → messages (Slack threads)
+                   │    ├── polls → poll_options → poll_votes (group polls)
                    │    ├── attachments (metadata → MinIO blobs)
                    │    ├── message_mentions
                    │    ├── message_reactions
@@ -514,7 +539,7 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 ┌─────────────────────────────────────────────────────────┐
 │ AuthProvider → restore session (refresh if needed)      │
 │ PresenceProvider → realtime.connect(), session events   │
-│ ChatPage → conversations, messages, threads, in-app toasts │
+│ ChatPage → conversations, messages, threads, polls, in-app toasts │
 ├─────────────────────────────────────────────────────────┤
 │ api.ts          REST client, token refresh, sessions    │
 │ storageUrl.ts   API content proxy fetch + blob URL resolution │
@@ -524,6 +549,7 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 │ mediaDevices.ts Mic/camera access; HTTPS/LAN error messages       │
 │ messageScroll.ts First-unread / bottom scroll in chat panes       │
 │ ThreadPanel     Slack thread (replies, in-thread search/files)    │
+│ CreatePollModal / MessagePoll  group polls (tap-to-vote, close) │
 │ FileManagementPanel  per-chat files (filter tabs, preview)    │
 │ CallsPanel      call history filters + callback                │
 │ VoiceCallModal  voice/video UI (mute, speaker, camera, end)    │
@@ -544,6 +570,13 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 3. Panel tabs: Replies (with reactions), Search (`…/thread/search`), Files (attachments in the thread)
 4. Opening a thread marks it read (`message_thread_reads`); `firstUnreadMessageId` scrolls to the first unread reply (else bottom)
 5. Chat header bar lists **N unread threads**; click cycles to each unread root in the timeline
+
+**Poll flow (groups only):**
+
+1. Composer poll button opens `CreatePollModal` (question, 2–10 options, Anonymous, Multiple choice)
+2. Server inserts message + poll tables; clients render `MessagePoll` in the bubble
+3. Tap an option to vote immediately; tallies arrive via `message:updated`
+4. Sender sees **Close Poll**; after close (or after the viewer has voted), percentages show
 
 **Open-chat scroll:**
 
