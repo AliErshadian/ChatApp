@@ -3072,6 +3072,10 @@ body::before {
   cursor: default;
 }
 
+.message.own .message-mention {
+  color: #000;
+}
+
 .composer-input-wrap {
   position: relative;
   flex: 1;
