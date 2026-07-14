@@ -114,7 +114,7 @@ The MVP ships as a **modular monolith** with clean boundaries:
 | `users` | Profiles, search, avatars | User Service |
 | `contacts` | Contact list | Contacts Service |
 | `conversations` | DMs, channels, groups, invites, membership ACL | Conversation Service |
-| `messages` | Persistence, ordering, sanitization, mentions, attachments, reactions, **content search** | Messaging Service |
+| `messages` | Persistence, ordering, sanitization, mentions, attachments, reactions, **Slack-style threads**, **content search** | Messaging Service |
 | `calls` | 1:1 DM voice/video signaling (in-memory registry), call history, unseen missed badge, ICE config | Calls / Signaling Service |
 | `storage` | S3-compatible object storage (upload, delete, stream content, presigned URLs, `attachments` metadata) | Storage Service |
 | `audit` | Append-only audit trail for user and admin actions | Audit Service |
@@ -283,6 +283,30 @@ GET /api/v1/conversations/{id}/messages?cursor=1042
 Authorization: Bearer eyJhbG...
 ```
 
+- Returns **channel/timeline roots only** (`thread_root_id IS NULL`); thread replies are loaded via the thread endpoints
+- Root payloads include `replyCount`, `latestReplyAt`, and `unreadReplyCount` (per-user)
+
+### Slack-style Threads
+
+Thread replies hang under a root message and stay out of the main feed.
+
+| Column / table | Purpose |
+|----------------|---------|
+| `messages.thread_root_id` | Reply → absolute thread root (`NULL` for timeline messages) |
+| `messages.reply_count` / `latest_reply_at` | Denormalized meta on the root |
+| `message_thread_reads` | Per-user last-read cursor for a thread (migration `027`) |
+
+```http
+GET /api/v1/conversations/{id}/messages/{rootId}/thread
+GET /api/v1/conversations/{id}/messages/{rootId}/thread/search?q=hello
+GET /api/v1/conversations/{id}/messages/unread-threads
+```
+
+- **Open thread**: returns `{ root, replies, firstUnreadMessageId }`, then marks the thread read for the viewer
+- **Send**: `message:send` / attachment upload may include `threadRootId` (and optional `replyToMessageId` for quote-in-thread)
+- **Realtime**: thread replies broadcast as `message:receive` with `threadRootId` + `thread: { replyCount, latestReplyAt }`; clients update the root chip and keep replies out of the main list
+- **Unread threads bar**: `unread-threads` lists threads with ≥1 unread reply (count = number of threads, not reply volume)
+
 ### List Conversation Attachments (file management)
 
 ```http
@@ -337,13 +361,14 @@ Authorization: Bearer eyJhbG...
   "conversationId": "550e8400-e29b-41d4-a716-446655440010",
   "content": "Hey @bob, can you review this?",
   "clientMessageId": "client-uuid",
-  "replyToMessageId": "optional-msg-uuid"
+  "replyToMessageId": "optional-msg-uuid",
+  "threadRootId": "optional-root-uuid"
 }
 ```
 
 ### `message:receive` (Server → Client)
 
-Includes `mentions`, `reactions`, `replyTo`, attachment fields when applicable.
+Includes `mentions`, `reactions`, `replyTo`, attachment fields when applicable. Thread replies also include `threadRootId` and `thread: { replyCount, latestReplyAt }` so clients can sync the root reply chip without putting the reply in the main feed.
 
 ### `session:created` (Server → Client)
 
@@ -407,11 +432,13 @@ Client clears local auth and returns to login.
 users ─────────────┬──── conversation_members ──── conversations
                    │                                    │
                    ├──── messages ──────────────────────┘
+                   │    ├── thread_root_id → messages (Slack threads)
                    │    ├── attachments (metadata → MinIO blobs)
                    │    ├── message_mentions
                    │    ├── message_reactions
                    │    ├── message_deliveries
-                   │    └── message_read_receipts
+                   │    ├── message_read_receipts
+                   │    └── message_thread_reads (per-user thread cursor)
                    │
                    ├──── user_contacts
                    ├──── refresh_tokens (session_family_id)
@@ -433,8 +460,11 @@ audit_logs ── users (user_id, actor_user_id)
 Key indexes:
 
 - `messages(conversation_id, sequence DESC)` — feed pagination
+- `messages(conversation_id, sequence DESC) WHERE thread_root_id IS NULL` — main timeline (channel roots)
+- `messages(thread_root_id, sequence ASC) WHERE thread_root_id IS NOT NULL` — thread reply order
 - `messages(search_vector)` GIN — full-text message search
 - `messages(conversation_id, sender_id, client_message_id)` — idempotent sends
+- `message_thread_reads(user_id, last_read_at DESC)` — unread thread queries
 - `attachments(conversation_id, created_at DESC)` — per-chat file listing
 - `call_records(caller_id, ended_at DESC)`, `call_records(callee_id, ended_at DESC)` — call history
 - `call_records` partial index on unseen missed (`answered_at IS NULL AND callee_seen_at IS NULL`)
@@ -484,7 +514,7 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 ┌─────────────────────────────────────────────────────────┐
 │ AuthProvider → restore session (refresh if needed)      │
 │ PresenceProvider → realtime.connect(), session events   │
-│ ChatPage → conversations, messages, in-app toasts     │
+│ ChatPage → conversations, messages, threads, in-app toasts │
 ├─────────────────────────────────────────────────────────┤
 │ api.ts          REST client, token refresh, sessions    │
 │ storageUrl.ts   API content proxy fetch + blob URL resolution │
@@ -492,6 +522,8 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 │ realtime.ts     Socket.IO event handlers (+ call signaling)     │
 │ voiceCall.ts    WebRTC RTCPeerConnection, audio/video tracks, ICE │
 │ mediaDevices.ts Mic/camera access; HTTPS/LAN error messages       │
+│ messageScroll.ts First-unread / bottom scroll in chat panes       │
+│ ThreadPanel     Slack thread (replies, in-thread search/files)    │
 │ FileManagementPanel  per-chat files (filter tabs, preview)    │
 │ CallsPanel      call history filters + callback                │
 │ VoiceCallModal  voice/video UI (mute, speaker, camera, end)    │
@@ -504,6 +536,19 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 │ CacheManagementPanel  offline cache stats + clear       │
 └─────────────────────────────────────────────────────────┘
 ```
+
+**Thread flow:**
+
+1. Menu **Reply in thread** (or reply-count chip) opens `ThreadPanel` for the root message
+2. Thread replies send with `threadRootId`; main timeline stays roots-only and updates `replyCount` / unread badge from realtime `thread` meta
+3. Panel tabs: Replies (with reactions), Search (`…/thread/search`), Files (attachments in the thread)
+4. Opening a thread marks it read (`message_thread_reads`); `firstUnreadMessageId` scrolls to the first unread reply (else bottom)
+5. Chat header bar lists **N unread threads**; click cycles to each unread root in the timeline
+
+**Open-chat scroll:**
+
+1. On open, if the conversation has unread messages, load older pages until the true first unread is included (`messageScroll.ts`)
+2. Scroll the messages pane so the unread divider sits at the top; if nothing is unread, pin to the bottom
 
 **Search flow:**
 
