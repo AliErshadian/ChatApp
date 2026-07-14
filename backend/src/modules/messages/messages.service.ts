@@ -13,6 +13,7 @@ import { MessageDelivery } from './entities/message-delivery.entity';
 import { MessageUserHidden } from './entities/message-user-hidden.entity';
 import { MessageReaction } from './entities/message-reaction.entity';
 import { MessageMention } from './entities/message-mention.entity';
+import { MessageThreadRead } from './entities/message-thread-read.entity';
 import { ConversationMember } from '../conversations/entities/conversation-member.entity';
 import { ConversationType } from '../conversations/entities/conversation.entity';
 import { ConversationsService } from '../conversations/conversations.service';
@@ -77,6 +78,12 @@ export interface MessagePayload {
   reactions?: ReactionSummary[];
   mentions?: MentionSummary[];
   replyTo?: MessageReplyPreview;
+  threadRootId?: string;
+  replyCount?: number;
+  latestReplyAt?: Date;
+  unreadReplyCount?: number;
+  /** Present on thread replies so clients can sync the root reply chip. */
+  thread?: { replyCount: number; latestReplyAt?: Date };
   forwardedFrom?: MessageForwardedFrom;
   sender?: { id: string; displayName: string; username: string };
 }
@@ -118,6 +125,8 @@ export class MessagesService {
     private readonly reactionRepo: Repository<MessageReaction>,
     @InjectRepository(MessageMention)
     private readonly mentionRepo: Repository<MessageMention>,
+    @InjectRepository(MessageThreadRead)
+    private readonly threadReadRepo: Repository<MessageThreadRead>,
     @InjectRepository(ConversationMember)
     private readonly memberRepo: Repository<ConversationMember>,
     private readonly conversationsService: ConversationsService,
@@ -156,15 +165,32 @@ export class MessagesService {
       );
     }
 
+    let threadRootId: string | undefined;
+    if (dto.threadRootId) {
+      threadRootId = await this.resolveThreadRoot(
+        dto.conversationId,
+        userId,
+        dto.threadRootId,
+      );
+      if (!replyToMessageId) {
+        replyToMessageId = threadRootId;
+      }
+    }
+
     const message = this.messageRepo.create({
       conversationId: dto.conversationId,
       senderId: userId,
       content,
       clientMessageId: dto.clientMessageId,
       replyToMessageId,
+      threadRootId,
     });
 
     const saved = await this.messageRepo.save(message);
+    if (threadRootId) {
+      await this.bumpThreadMeta(threadRootId);
+      await this.markThreadRead(threadRootId, userId);
+    }
     await this.resolveAndSaveMentions(saved.id, dto.conversationId, content);
     const withSender = await this.messageRepo.findOne({
       where: { id: saved.id },
@@ -180,10 +206,11 @@ export class MessagesService {
         conversationId: dto.conversationId,
         preview: this.auditPreview(content),
         contentType: 'text',
+        threadRootId,
       },
     });
 
-    return this.toPayload(withSender!, userId, 'sent');
+    return this.toPayloadWithThreadMeta(withSender!, userId, 'sent');
   }
 
   async sendAttachment(
@@ -193,6 +220,7 @@ export class MessagesService {
     options: {
       clientMessageId?: string;
       replyToMessageId?: string;
+      threadRootId?: string;
       caption?: string;
     } = {},
   ): Promise<MessagePayload> {
@@ -222,6 +250,14 @@ export class MessagesService {
       );
     }
 
+    let threadRootId: string | undefined;
+    if (options.threadRootId) {
+      threadRootId = await this.resolveThreadRoot(conversationId, userId, options.threadRootId);
+      if (!replyToMessageId) {
+        replyToMessageId = threadRootId;
+      }
+    }
+
     const caption = options.caption
       ? this.sanitization.sanitizeMessage(options.caption)
       : undefined;
@@ -241,9 +277,14 @@ export class MessagesService {
       caption: caption || undefined,
       clientMessageId: options.clientMessageId,
       replyToMessageId,
+      threadRootId,
     });
 
     const saved = await this.messageRepo.save(message);
+    if (threadRootId) {
+      await this.bumpThreadMeta(threadRootId);
+      await this.markThreadRead(threadRootId, userId);
+    }
     await this.storageService.linkToMessage(attachment.id, saved.id, conversationId);
     const mentionSource = [caption].filter(Boolean).join(' ');
     if (mentionSource) {
@@ -254,7 +295,14 @@ export class MessagesService {
       relations: [...this.messageRelations],
     });
 
-    const payload = this.toPayload(withSender!, userId, 'sent', [], [], attachment.id);
+    const payload = await this.toPayloadWithThreadMeta(
+      withSender!,
+      userId,
+      'sent',
+      [],
+      [],
+      attachment.id,
+    );
     await this.messagePublisher.publishNewMessage(payload, userId);
 
     this.audit.record({
@@ -394,6 +442,7 @@ export class MessagesService {
         { userId },
       )
       .where('message.conversation_id = :conversationId', { conversationId })
+      .andWhere('message.thread_root_id IS NULL')
       .andWhere('hidden.id IS NULL')
       .orderBy('message.sequence', 'DESC')
       .take(limit);
@@ -410,6 +459,10 @@ export class MessagesService {
       userId,
     );
     const mentions = await this.computeMentionsForMessages(reversed.map((m) => m.id));
+    const unreadByRoot = await this.computeUnreadReplyCounts(
+      reversed.map((m) => m.id),
+      userId,
+    );
 
     return {
       messages: reversed.map((m) =>
@@ -419,9 +472,169 @@ export class MessagesService {
           m.senderId === userId ? statuses.get(m.id) : undefined,
           reactions.get(m.id) ?? [],
           mentions.get(m.id) ?? [],
+          undefined,
+          unreadByRoot.get(m.id) ?? 0,
         ),
       ),
       nextCursor: messages.length === limit ? messages[0]?.sequence : null,
+    };
+  }
+
+  async getThread(conversationId: string, rootMessageId: string, userId: string) {
+    await this.conversationsService.assertMember(conversationId, userId);
+
+    const root = await this.messageRepo
+      .createQueryBuilder('message')
+      .leftJoinAndSelect('message.sender', 'sender')
+      .leftJoinAndSelect('message.replyTo', 'replyTo')
+      .leftJoinAndSelect('replyTo.sender', 'replyToSender')
+      .leftJoinAndSelect('message.originalSender', 'originalSender')
+      .leftJoin(
+        MessageUserHidden,
+        'hidden',
+        'hidden.message_id = message.id AND hidden.user_id = :userId',
+        { userId },
+      )
+      .where('message.id = :rootMessageId', { rootMessageId })
+      .andWhere('message.conversation_id = :conversationId', { conversationId })
+      .andWhere('message.thread_root_id IS NULL')
+      .andWhere('hidden.id IS NULL')
+      .getOne();
+
+    if (!root) throw new NotFoundException('Thread not found');
+
+    const replies = await this.messageRepo
+      .createQueryBuilder('message')
+      .leftJoinAndSelect('message.sender', 'sender')
+      .leftJoinAndSelect('message.replyTo', 'replyTo')
+      .leftJoinAndSelect('replyTo.sender', 'replyToSender')
+      .leftJoinAndSelect('message.originalSender', 'originalSender')
+      .leftJoin(
+        MessageUserHidden,
+        'hidden',
+        'hidden.message_id = message.id AND hidden.user_id = :userId',
+        { userId },
+      )
+      .where('message.thread_root_id = :rootMessageId', { rootMessageId })
+      .andWhere('message.conversation_id = :conversationId', { conversationId })
+      .andWhere('hidden.id IS NULL')
+      .orderBy('message.sequence', 'ASC')
+      .getMany();
+
+    const firstUnreadMessageId = await this.findFirstUnreadThreadReplyId(
+      rootMessageId,
+      userId,
+      replies,
+    );
+
+    await this.markThreadRead(rootMessageId, userId);
+
+    const all = [root, ...replies];
+    const statuses = await this.computeStatusesForMessages(all, userId);
+    const reactionMap = await this.computeReactionsForMessages(
+      all.map((m) => m.id),
+      userId,
+    );
+    const mentionMap = await this.computeMentionsForMessages(all.map((m) => m.id));
+
+    const toThreadPayload = (m: Message) =>
+      this.toPayload(
+        m,
+        userId,
+        m.senderId === userId ? statuses.get(m.id) : undefined,
+        reactionMap.get(m.id) ?? [],
+        mentionMap.get(m.id) ?? [],
+        undefined,
+        m.id === rootMessageId ? 0 : undefined,
+      );
+
+    return {
+      root: toThreadPayload(root),
+      replies: replies.map(toThreadPayload),
+      firstUnreadMessageId,
+    };
+  }
+
+  async searchThread(
+    conversationId: string,
+    rootMessageId: string,
+    userId: string,
+    query: string,
+    limit = 40,
+  ) {
+    await this.conversationsService.assertMember(conversationId, userId);
+
+    const root = await this.messageRepo.findOne({
+      where: { id: rootMessageId, conversationId },
+    });
+    if (!root || root.threadRootId) {
+      throw new NotFoundException('Thread not found');
+    }
+
+    const q = query.trim();
+    if (q.length < 2) {
+      return { items: [], total: 0 };
+    }
+
+    const tsQuery = buildMessageSearchTsQuery(q);
+    if (!tsQuery) {
+      return { items: [], total: 0 };
+    }
+
+    const capped = Math.min(Math.max(limit, 1), 100);
+
+    const qb = this.messageRepo
+      .createQueryBuilder('message')
+      .leftJoinAndSelect('message.sender', 'sender')
+      .leftJoin(
+        MessageUserHidden,
+        'hidden',
+        'hidden.message_id = message.id AND hidden.user_id = :userId',
+        { userId },
+      )
+      .where('message.conversation_id = :conversationId', { conversationId })
+      .andWhere(
+        '(message.id = :rootMessageId OR message.thread_root_id = :rootMessageId)',
+        { rootMessageId },
+      )
+      .andWhere('message.deleted_at IS NULL')
+      .andWhere('hidden.id IS NULL')
+      .andWhere(`message.search_vector @@ to_tsquery('simple', :tsQuery)`, { tsQuery })
+      .orderBy(
+        `ts_rank(message.search_vector, to_tsquery('simple', :tsQuery))`,
+        'DESC',
+      )
+      .addOrderBy('message.created_at', 'DESC')
+      .take(capped)
+      .setParameter('tsQuery', tsQuery);
+
+    const messages = await qb.getMany();
+
+    return {
+      items: messages.map((m) => ({
+        id: m.id,
+        conversationId: m.conversationId,
+        senderId: m.senderId,
+        content: m.content,
+        contentType: m.contentType,
+        fileName: m.fileName,
+        caption: m.caption,
+        createdAt: m.createdAt,
+        threadRootId: m.threadRootId ?? undefined,
+        isRoot: m.id === rootMessageId,
+        sender: m.sender
+          ? {
+              id: m.sender.id,
+              displayName: m.sender.displayName,
+              username: m.sender.username,
+            }
+          : undefined,
+        snippet: this.auditPreview(
+          isTextContentType(m.contentType) ? m.content : m.fileName || m.caption || 'File',
+          160,
+        ),
+      })),
+      total: messages.length,
     };
   }
 
@@ -685,6 +898,11 @@ export class MessagesService {
 
     message.deletedAt = new Date();
     const saved = await this.messageRepo.save(message);
+
+    if (saved.threadRootId) {
+      await this.refreshThreadMeta(saved.threadRootId);
+    }
+
     const status = await this.computeStatus(saved.id, saved.senderId, saved.conversationId);
     const reactions = await this.getReactionsForMessage(saved.id, userId);
 
@@ -696,10 +914,32 @@ export class MessagesService {
       metadata: { conversationId: message.conversationId, scope: 'everyone' },
     });
 
+    const withRelations = await this.messageRepo.findOne({
+      where: { id: saved.id },
+      relations: [...this.messageRelations],
+    });
+
+    let payload = this.toPayload(withRelations ?? saved, userId, status, reactions);
+    if (saved.threadRootId) {
+      const root = await this.messageRepo.findOne({
+        where: { id: saved.threadRootId },
+        select: ['id', 'replyCount', 'latestReplyAt'],
+      });
+      if (root) {
+        payload = {
+          ...payload,
+          thread: {
+            replyCount: root.replyCount ?? 0,
+            latestReplyAt: root.latestReplyAt ?? undefined,
+          },
+        };
+      }
+    }
+
     return {
       messageId,
       scope: 'everyone',
-      message: this.toPayload(saved, userId, status, reactions),
+      message: payload,
     };
   }
 
@@ -880,6 +1120,140 @@ export class MessagesService {
     return replyToMessageId;
   }
 
+  /** Resolve Slack thread root; nested replies always hang under the absolute root. */
+  private async resolveThreadRoot(
+    conversationId: string,
+    userId: string,
+    threadRootId: string,
+  ): Promise<string> {
+    const target = await this.messageRepo.findOne({ where: { id: threadRootId } });
+    if (!target || target.conversationId !== conversationId) {
+      throw new BadRequestException('Thread root not found in this conversation');
+    }
+
+    await this.conversationsService.assertMember(conversationId, userId);
+
+    const hidden = await this.hiddenRepo.findOne({
+      where: { messageId: threadRootId, userId },
+    });
+    if (hidden) {
+      throw new BadRequestException('Cannot reply in a hidden thread');
+    }
+
+    return target.threadRootId ?? target.id;
+  }
+
+  private async bumpThreadMeta(threadRootId: string): Promise<void> {
+    await this.messageRepo
+      .createQueryBuilder()
+      .update(Message)
+      .set({
+        replyCount: () => 'reply_count + 1',
+        latestReplyAt: () => 'NOW()',
+      })
+      .where('id = :threadRootId', { threadRootId })
+      .execute();
+  }
+
+  private async refreshThreadMeta(threadRootId: string): Promise<void> {
+    const row = await this.messageRepo
+      .createQueryBuilder('message')
+      .select('COUNT(*)', 'count')
+      .addSelect('MAX(message.created_at)', 'latest')
+      .where('message.thread_root_id = :threadRootId', { threadRootId })
+      .andWhere('message.deleted_at IS NULL')
+      .getRawOne<{ count: string; latest: Date | string | null }>();
+
+    const count = Number(row?.count ?? 0);
+    await this.messageRepo
+      .createQueryBuilder()
+      .update(Message)
+      .set({
+        replyCount: count,
+        latestReplyAt: count > 0 && row?.latest ? new Date(row.latest) : () => 'NULL',
+      })
+      .where('id = :threadRootId', { threadRootId })
+      .execute();
+  }
+
+  async markThreadRead(threadRootId: string, userId: string): Promise<void> {
+    await this.threadReadRepo.upsert(
+      {
+        threadRootId,
+        userId,
+        lastReadAt: new Date(),
+      },
+      ['threadRootId', 'userId'],
+    );
+  }
+
+  private async findFirstUnreadThreadReplyId(
+    threadRootId: string,
+    userId: string,
+    replies: Message[],
+  ): Promise<string | null> {
+    if (replies.length === 0) return null;
+
+    const tread = await this.threadReadRepo.findOne({
+      where: { threadRootId, userId },
+    });
+    const lastReadAt = tread?.lastReadAt ? new Date(tread.lastReadAt).getTime() : null;
+
+    const sorted = [...replies].sort((a, b) => {
+      const seq = Number(a.sequence) - Number(b.sequence);
+      if (seq !== 0) return seq;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+
+    for (const reply of sorted) {
+      if (reply.senderId === userId) continue;
+      if (reply.deletedAt) continue;
+      if (lastReadAt === null || new Date(reply.createdAt).getTime() > lastReadAt) {
+        return reply.id;
+      }
+    }
+
+    return null;
+  }
+
+  private async computeUnreadReplyCounts(
+    rootMessageIds: string[],
+    userId: string,
+  ): Promise<Map<string, number>> {
+    const map = new Map<string, number>();
+    if (rootMessageIds.length === 0) return map;
+
+    const rows = await this.messageRepo
+      .createQueryBuilder('message')
+      .select('message.thread_root_id', 'threadRootId')
+      .addSelect('COUNT(*)', 'count')
+      .leftJoin(
+        MessageThreadRead,
+        'tread',
+        'tread.thread_root_id = message.thread_root_id AND tread.user_id = :userId',
+        { userId },
+      )
+      .leftJoin(
+        MessageUserHidden,
+        'hidden',
+        'hidden.message_id = message.id AND hidden.user_id = :userId',
+        { userId },
+      )
+      .where('message.thread_root_id IN (:...rootMessageIds)', { rootMessageIds })
+      .andWhere('message.deleted_at IS NULL')
+      .andWhere('message.sender_id != :userId', { userId })
+      .andWhere('hidden.id IS NULL')
+      .andWhere('(tread.last_read_at IS NULL OR message.created_at > tread.last_read_at)')
+      .groupBy('message.thread_root_id')
+      .getRawMany<{ threadRootId: string; count: string }>();
+
+    for (const row of rows) {
+      map.set(row.threadRootId, Number(row.count) || 0);
+    }
+
+    return map;
+  }
+
   private async copyMessageContentForForward(
     source: Message,
     userId: string,
@@ -994,6 +1368,7 @@ export class MessagesService {
     reactions: ReactionSummary[] = [],
     mentions: MentionSummary[] = [],
     attachmentId?: string,
+    unreadReplyCount?: number,
   ): MessagePayload {
     const deletedForEveryone = !!message.deletedAt;
     const resolvedMentions =
@@ -1020,6 +1395,14 @@ export class MessagesService {
       reactions,
       mentions: resolvedMentions.length > 0 ? resolvedMentions : undefined,
       replyTo: message.replyTo ? this.toReplyPreview(message.replyTo) : undefined,
+      threadRootId: message.threadRootId ?? undefined,
+      replyCount: message.threadRootId ? undefined : message.replyCount ?? 0,
+      latestReplyAt: message.threadRootId ? undefined : message.latestReplyAt ?? undefined,
+      unreadReplyCount: message.threadRootId
+        ? undefined
+        : unreadReplyCount !== undefined
+          ? unreadReplyCount
+          : undefined,
       forwardedFrom: this.toForwardedFrom(message),
       sender: message.sender
         ? {
@@ -1028,6 +1411,39 @@ export class MessagesService {
             username: message.sender.username,
           }
         : undefined,
+    };
+  }
+
+  private async toPayloadWithThreadMeta(
+    message: Message,
+    viewerId?: string,
+    status?: MessageStatus,
+    reactions: ReactionSummary[] = [],
+    mentions: MentionSummary[] = [],
+    attachmentId?: string,
+  ): Promise<MessagePayload> {
+    const payload = this.toPayload(
+      message,
+      viewerId,
+      status,
+      reactions,
+      mentions,
+      attachmentId,
+    );
+    if (!message.threadRootId) return payload;
+
+    const root = await this.messageRepo.findOne({
+      where: { id: message.threadRootId },
+      select: ['id', 'replyCount', 'latestReplyAt'],
+    });
+    if (!root) return payload;
+
+    return {
+      ...payload,
+      thread: {
+        replyCount: root.replyCount ?? 0,
+        latestReplyAt: root.latestReplyAt ?? undefined,
+      },
     };
   }
 

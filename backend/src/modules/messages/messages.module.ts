@@ -6,6 +6,7 @@ import { MessageDelivery } from './entities/message-delivery.entity';
 import { MessageUserHidden } from './entities/message-user-hidden.entity';
 import { MessageReaction } from './entities/message-reaction.entity';
 import { MessageMention } from './entities/message-mention.entity';
+import { MessageThreadRead } from './entities/message-thread-read.entity';
 import { ConversationMember } from '../conversations/entities/conversation-member.entity';
 import { MessagesService } from './messages.service';
 import { MessagesController } from './messages.controller';
@@ -24,6 +25,7 @@ import { StorageModule } from '../../storage/storage.module';
       MessageUserHidden,
       MessageReaction,
       MessageMention,
+      MessageThreadRead,
       ConversationMember,
     ]),
     ConversationsModule,

@@ -57,6 +57,7 @@ export class MessagesController {
       caption?: string;
       clientMessageId?: string;
       replyToMessageId?: string;
+      threadRootId?: string;
     },
   ) {
     if (!file) {
@@ -67,7 +68,34 @@ export class MessagesController {
       caption: body.caption,
       clientMessageId: body.clientMessageId,
       replyToMessageId: body.replyToMessageId,
+      threadRootId: body.threadRootId,
     });
+  }
+
+  @Get(':messageId/thread')
+  getThread(
+    @Param('conversationId', ParseUUIDPipe) conversationId: string,
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.messagesService.getThread(conversationId, messageId, user.id);
+  }
+
+  @Get(':messageId/thread/search')
+  searchThread(
+    @Param('conversationId', ParseUUIDPipe) conversationId: string,
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @CurrentUser() user: User,
+    @Query('q') q?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.messagesService.searchThread(
+      conversationId,
+      messageId,
+      user.id,
+      q ?? '',
+      limit ? parseInt(limit, 10) : 40,
+    );
   }
 
   @Post('read')

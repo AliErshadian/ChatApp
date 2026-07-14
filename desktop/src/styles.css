@@ -2758,6 +2758,220 @@ body::before {
   opacity: 0.9;
 }
 
+.message-thread-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border: none;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.message.own .message-thread-chip {
+  background: color-mix(in srgb, #fff 18%, transparent);
+  color: inherit;
+}
+
+.message-thread-chip:hover {
+  filter: brightness(1.08);
+}
+
+.message-thread-chip.has-unread {
+  font-weight: 700;
+}
+
+.message-thread-unread {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.message.own .message-thread-unread {
+  background: color-mix(in srgb, #fff 92%, transparent);
+  color: var(--accent, #1a73e8);
+}
+
+.thread-panel {
+  z-index: 12;
+  background: var(--surface-panel);
+}
+
+.thread-panel-header {
+  gap: 0.75rem;
+}
+
+.thread-panel-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.thread-panel-title h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.thread-panel-subtitle {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.thread-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--glass-border);
+  background: var(--surface-panel);
+}
+
+.thread-tabs button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.thread-tabs button.active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.thread-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.75rem 0.85rem 1rem;
+}
+
+.thread-root-label,
+.thread-replies-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.35rem 0 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.thread-replies-divider::before,
+.thread-replies-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--glass-border);
+}
+
+.thread-composer {
+  border-top: 1px solid var(--glass-border);
+  background: var(--surface-panel);
+}
+
+.thread-panel-empty,
+.thread-panel-hint {
+  padding: 1.5rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.thread-search-field {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--glass-2) 70%, transparent);
+  margin-bottom: 1rem;
+}
+
+.thread-search-field input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  outline: none;
+  font-size: 0.95rem;
+}
+
+.thread-search-results,
+.thread-file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.thread-search-results button,
+.thread-file-list button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--glass-2) 55%, transparent);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.thread-hit-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.thread-hit-snippet,
+.thread-file-meta {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.thread-file-name {
+  font-weight: 600;
+}
+
+.thread-search-results time {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
 .message-placeholder {
   flex-shrink: 0;
   visibility: hidden;

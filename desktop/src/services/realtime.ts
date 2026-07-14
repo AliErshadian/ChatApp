@@ -675,12 +675,13 @@ class RealtimeClient {
     content: string,
     clientMessageId?: string,
     replyToMessageId?: string,
+    threadRootId?: string,
   ) {
     const msgId = clientMessageId ?? createClientMessageId();
 
     if (this.transport === 'sse') {
       return api
-        .sendRealtimeMessage(conversationId, content, msgId, replyToMessageId)
+        .sendRealtimeMessage(conversationId, content, msgId, replyToMessageId, threadRootId)
         .then((result) => result.message);
     }
 
@@ -699,7 +700,13 @@ class RealtimeClient {
 
       this.socket!.emit(
         'message:send',
-        { conversationId, content, clientMessageId: msgId, replyToMessageId },
+        {
+          conversationId,
+          content,
+          clientMessageId: msgId,
+          replyToMessageId,
+          threadRootId,
+        },
         (ack: unknown) => {
           const message = parseSendAck(ack);
           if (message) {

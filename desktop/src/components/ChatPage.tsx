@@ -27,6 +27,7 @@ import { ContactsPanel } from './ContactsPanel';
 import { CallsPanel } from './CallsPanel';
 import { ConversationInfoPanel } from './ConversationInfoPanel';
 import { FileManagementPanel } from './FileManagementPanel';
+import { ThreadPanel } from './ThreadPanel';
 import { VoiceCallModal } from './VoiceCallModal';
 import { ChannelJoinBanner } from './ChannelJoinBanner';
 import { mergeMessageStatus, mergeOutgoingServerMessage } from '../utils/messageStatus';
@@ -56,7 +57,7 @@ import { remapVoiceMessageMeta, setVoiceMessageMeta, getVoiceMessageMeta } from 
 import { normalizeVoiceMimeType } from '../utils/voiceMessage';
 import type { VoiceRecordingResult } from '../hooks/useVoiceRecorder';
 import { VoiceRecorderControl } from './VoiceRecorderControl';
-import { isMessagesNearBottom, scrollToMessageById } from '../utils/messageScroll';
+import { isMessagesNearBottom, scrollToMessageById, scrollContainerToMessage, scrollContainerToBottom, findFirstUnreadMessageId, oldestLoadedIsUnread } from '../utils/messageScroll';
 import { getConversationMentionLabel, buildMentionNotificationText, buildNewChatNotificationText, buildAddedToConversationText } from '../utils/conversationLabel';
 import { isMessageInView } from '../utils/isMessageInView';
 import type { InAppNotification } from '../utils/inAppNotification';
@@ -76,6 +77,8 @@ export function ChatPage() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editBusy, setEditBusy] = useState(false);
   const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null);
+  const [activeThreadRootId, setActiveThreadRootId] = useState<string | null>(null);
+  const [activeThreadUnreadCount, setActiveThreadUnreadCount] = useState(0);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [mentionQuery, setMentionQuery] = useState<{ start: number; query: string } | null>(null);
   const [mentionGlowIds, setMentionGlowIds] = useState<Set<string>>(new Set());
@@ -131,6 +134,7 @@ export function ChatPage() {
   const scrollIntentRef = useRef<{ kind: 'unread' | 'bottom' | 'mention'; messageId?: string } | null>(null);
   const shouldScrollToBottomRef = useRef(false);
   const lastReadAtOnOpenRef = useRef<string | undefined>();
+  const unreadCountOnOpenRef = useRef(0);
   const activeIdRef = useRef<string | null>(null);
   const userIdRef = useRef<string | undefined>(undefined);
   const pendingStatusRef = useRef<Map<string, MessageStatus>>(new Map());
@@ -142,9 +146,11 @@ export function ChatPage() {
   messagesRef.current = messages;
 
   const isPanelOpenRef = useRef(false);
+  const activeThreadRootIdRef = useRef<string | null>(null);
   activeIdRef.current = activeId;
   userIdRef.current = user?.id;
   isPanelOpenRef.current = isPanelOpen;
+  activeThreadRootIdRef.current = activeThreadRootId;
 
   const activeConversation = conversations.find((c) => c.id === activeId);
   const activePeer =
@@ -239,6 +245,17 @@ export function ChatPage() {
       prev.map((m) => {
         if (m.id === updated.id) {
           return { ...m, ...updated, status: m.status ?? updated.status };
+        }
+        if (
+          updated.threadRootId &&
+          updated.thread &&
+          m.id === updated.threadRootId
+        ) {
+          return {
+            ...m,
+            replyCount: updated.thread.replyCount,
+            latestReplyAt: updated.thread.latestReplyAt,
+          };
         }
         if (updated.deletedForEveryone && m.replyTo?.id === updated.id) {
           return {
@@ -437,11 +454,12 @@ export function ChatPage() {
   const scrollToPendingBelow = useCallback(() => {
     const messageId = pendingFirstMessageIdRef.current;
     if (messageId) {
-      document
-        .getElementById(`msg-${messageId}`)
-        ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      scrollContainerToMessage(messagesScrollRef.current, messageId, {
+        behavior: 'smooth',
+        alignToUnreadDivider: false,
+      });
     } else {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      scrollContainerToBottom(messagesScrollRef.current, { behavior: 'smooth' });
     }
     clearPendingBelow();
   }, [clearPendingBelow]);
@@ -455,6 +473,61 @@ export function ChatPage() {
   const cancelReplyMessage = useCallback(() => {
     setReplyingToMessage(null);
     setSendError('');
+  }, []);
+
+  const applyThreadRootMeta = useCallback(
+    (
+      rootMessageId: string,
+      meta: {
+        replyCount: number;
+        latestReplyAt?: string;
+        unreadReplyCount?: number;
+      },
+    ) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === rootMessageId
+            ? {
+                ...m,
+                replyCount: meta.replyCount,
+                latestReplyAt: meta.latestReplyAt,
+                ...(meta.unreadReplyCount !== undefined
+                  ? { unreadReplyCount: meta.unreadReplyCount }
+                  : {}),
+              }
+            : m,
+        ),
+      );
+    },
+    [],
+  );
+
+  const openThread = useCallback(
+    (message: Message) => {
+      cancelEditMessage();
+      cancelReplyMessage();
+      setShowConversationInfo(false);
+      setShowFileManagement(false);
+      const rootId = message.threadRootId ?? message.id;
+      const unread =
+        message.id === rootId
+          ? message.unreadReplyCount ?? 0
+          : messagesRef.current.find((m) => m.id === rootId)?.unreadReplyCount ?? 0;
+      setActiveThreadUnreadCount(unread);
+      setActiveThreadRootId(rootId);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === rootId ? { ...m, unreadReplyCount: 0 } : m,
+        ),
+      );
+      setSendError('');
+    },
+    [cancelEditMessage, cancelReplyMessage],
+  );
+
+  const closeThread = useCallback(() => {
+    setActiveThreadRootId(null);
+    setActiveThreadUnreadCount(0);
   }, []);
 
   const scrollToMessage = useCallback((messageId: string) => {
@@ -485,6 +558,32 @@ export function ChatPage() {
     [],
   );
 
+  /** Keep loading older history until the true first unread is in the loaded window. */
+  const loadMessagesThroughFirstUnread = useCallback(
+    async (
+      conversationId: string,
+      lastReadAt: string | undefined,
+      initialPage?: Awaited<ReturnType<typeof api.getMessages>>,
+    ) => {
+      const firstPage = initialPage ?? (await api.getMessages(conversationId));
+      let loadedMessages = firstPage.messages;
+      let cursor = firstPage.nextCursor ?? undefined;
+      const viewerId = userIdRef.current;
+
+      for (let page = 0; page < 30 && cursor; page += 1) {
+        if (!oldestLoadedIsUnread(loadedMessages, viewerId, lastReadAt)) {
+          break;
+        }
+        const res = await api.getMessages(conversationId, cursor);
+        loadedMessages = [...res.messages, ...loadedMessages];
+        cursor = res.nextCursor ?? undefined;
+      }
+
+      return loadedMessages;
+    },
+    [],
+  );
+
   const startEditMessage = useCallback((messageId: string, content: string) => {
     cancelReplyMessage();
     setEditingMessageId(messageId);
@@ -496,15 +595,12 @@ export function ChatPage() {
     });
   }, [cancelReplyMessage, scrollToMessage]);
 
-  const startReplyMessage = useCallback((message: Message) => {
-    cancelEditMessage();
-    setReplyingToMessage(message);
-    setSendError('');
-    window.requestAnimationFrame(() => {
-      composerInputRef.current?.focus();
-      scrollToMessage(message.id);
-    });
-  }, [cancelEditMessage, scrollToMessage]);
+  const startReplyMessage = useCallback(
+    (message: Message) => {
+      openThread(message);
+    },
+    [openThread],
+  );
 
   const startForwardMessage = useCallback((message: Message) => {
     setForwardingMessage(message);
@@ -727,6 +823,16 @@ export function ChatPage() {
     if (pending) pendingStatusRef.current.delete(serverMsg.id);
     activeChatMessageIdsRef.current.add(serverMsg.id);
 
+    if (serverMsg.threadRootId) {
+      if (serverMsg.thread) {
+        applyThreadRootMeta(serverMsg.threadRootId, {
+          replyCount: serverMsg.thread.replyCount,
+          latestReplyAt: serverMsg.thread.latestReplyAt,
+        });
+      }
+      return;
+    }
+
     setMessages((prev) => {
       const idx = prev.findIndex(
         (m) =>
@@ -744,7 +850,7 @@ export function ChatPage() {
       next[idx] = mergeOutgoingServerMessage(next[idx], serverMsg, pending);
       return next;
     });
-  }, []);
+  }, [applyThreadRootMeta]);
 
   const loadConversations = useCallback(async () => {
     const list = await api.listConversations();
@@ -776,6 +882,7 @@ export function ChatPage() {
       const current = prev.find((c) => c.id === id);
       const membership = current?.members.find((m) => m.userId === userIdRef.current);
       lastReadAtOnOpenRef.current = membership?.lastReadAt;
+      unreadCountOnOpenRef.current = current?.unreadCount ?? 0;
       return prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c));
     });
     setActiveId(id);
@@ -1046,10 +1153,15 @@ export function ChatPage() {
     setPendingChannelInvite(null);
     setShowConversationInfo(false);
     setShowFileManagement(false);
+    setActiveThreadRootId(null);
     setTypingUsers(new Set());
   }, []);
 
   const handleSwipeBack = useCallback(() => {
+    if (activeThreadRootId) {
+      setActiveThreadRootId(null);
+      return;
+    }
     if (showFileManagement) {
       setShowFileManagement(false);
       return;
@@ -1063,7 +1175,14 @@ export function ChatPage() {
       return;
     }
     closeChatPanel();
-  }, [showFileManagement, showConversationInfo, pendingChannelInvite, dismissChannelInvite, closeChatPanel]);
+  }, [
+    activeThreadRootId,
+    showFileManagement,
+    showConversationInfo,
+    pendingChannelInvite,
+    dismissChannelInvite,
+    closeChatPanel,
+  ]);
 
   const handleSwipeRelease = useCallback(
     (offset: number, width: number) => {
@@ -1086,7 +1205,13 @@ export function ChatPage() {
   );
 
   useSwipeBack(chatMainRef, {
-    enabled: isMobile && isPanelOpen && !showConversationInfo && !showFileManagement && !pendingChannelInvite,
+    enabled:
+      isMobile &&
+      isPanelOpen &&
+      !showConversationInfo &&
+      !showFileManagement &&
+      !activeThreadRootId &&
+      !pendingChannelInvite,
     onOffset: setSwipeOffset,
     onRelease: handleSwipeRelease,
   });
@@ -1140,6 +1265,7 @@ export function ChatPage() {
     const lastReadAt = lastReadAtOnOpenRef.current;
     setMessages([]);
     setFirstUnreadMessageId(null);
+    setActiveThreadRootId(null);
     activeChatMessageIdsRef.current = new Set();
     clearPendingBelow();
     setEditingMessageId(null);
@@ -1159,27 +1285,33 @@ export function ChatPage() {
         firstPage.nextCursor
       ) {
         loadedMessages = await loadMessagesUntilTarget(activeId, mentionTarget, firstPage);
+      } else if (!mentionTarget) {
+        const needsUnreadHistory =
+          Boolean(lastReadAt) || unreadCountOnOpenRef.current > 0;
+        if (needsUnreadHistory && firstPage.nextCursor) {
+          loadedMessages = await loadMessagesThroughFirstUnread(
+            activeId,
+            lastReadAt,
+            firstPage,
+          );
+        }
       }
 
-      const firstUnread = mentionTarget
-        ? undefined
-        : loadedMessages.find(
-            (m) =>
-              m.senderId !== userIdRef.current &&
-              (!lastReadAt || new Date(m.createdAt) > new Date(lastReadAt)),
-          );
+      const firstUnreadId = mentionTarget
+        ? null
+        : findFirstUnreadMessageId(loadedMessages, userIdRef.current, lastReadAt);
 
       if (mentionTarget) {
         scrollIntentRef.current = loadedMessages.some((m) => m.id === mentionTarget)
           ? { kind: 'mention', messageId: mentionTarget }
           : { kind: 'bottom' };
       } else {
-        scrollIntentRef.current = firstUnread
-          ? { kind: 'unread', messageId: firstUnread.id }
+        scrollIntentRef.current = firstUnreadId
+          ? { kind: 'unread', messageId: firstUnreadId }
           : { kind: 'bottom' };
       }
 
-      setFirstUnreadMessageId(firstUnread?.id ?? null);
+      setFirstUnreadMessageId(firstUnreadId);
       setMessages(loadedMessages);
       activeChatMessageIdsRef.current = new Set(loadedMessages.map((message) => message.id));
 
@@ -1193,7 +1325,7 @@ export function ChatPage() {
       });
     });
     return () => realtime.leaveConversation(activeId);
-  }, [activeId, isPanelOpen, clearPendingBelow, loadMessagesUntilTarget]);
+  }, [activeId, isPanelOpen, clearPendingBelow, loadMessagesUntilTarget, loadMessagesThroughFirstUnread]);
 
   useEffect(() => {
     const container = messagesScrollRef.current;
@@ -1215,6 +1347,89 @@ export function ChatPage() {
       const isActive =
         msg.conversationId === activeIdRef.current && isPanelOpenRef.current;
       let nearBottom = isMessagesNearBottom(messagesScrollRef.current);
+
+      if (msg.threadRootId) {
+        const alreadySeen = activeChatMessageIdsRef.current.has(msg.id);
+        if (!alreadySeen) {
+          activeChatMessageIdsRef.current.add(msg.id);
+        }
+
+        if (msg.thread) {
+          const viewingThread = activeThreadRootIdRef.current === msg.threadRootId;
+          const fromMe = msg.senderId === userIdRef.current;
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== msg.threadRootId) return m;
+              let unreadReplyCount = m.unreadReplyCount ?? 0;
+              if (viewingThread) {
+                unreadReplyCount = 0;
+              } else if (!alreadySeen && !fromMe) {
+                unreadReplyCount += 1;
+              }
+              return {
+                ...m,
+                replyCount: msg.thread!.replyCount,
+                latestReplyAt: msg.thread!.latestReplyAt,
+                unreadReplyCount,
+              };
+            }),
+          );
+        } else if (isActive && !alreadySeen) {
+          const viewingThread = activeThreadRootIdRef.current === msg.threadRootId;
+          const fromMe = msg.senderId === userIdRef.current;
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== msg.threadRootId) return m;
+              let unreadReplyCount = m.unreadReplyCount ?? 0;
+              if (viewingThread) {
+                unreadReplyCount = 0;
+              } else if (!fromMe) {
+                unreadReplyCount += 1;
+              }
+              return {
+                ...m,
+                replyCount: (m.replyCount ?? 0) + 1,
+                latestReplyAt: msg.createdAt,
+                unreadReplyCount,
+              };
+            }),
+          );
+        }
+
+        if (msg.senderId === userIdRef.current && msg.clientMessageId) {
+          confirmOutgoing(msg, msg.clientMessageId);
+        }
+
+        if (alreadySeen) {
+          return;
+        }
+
+        acknowledgeIncoming(msg, isActive);
+        setConversations((prev) => {
+          if (!prev.some((c) => c.id === msg.conversationId)) {
+            void loadConversationsRef.current();
+            return prev;
+          }
+
+          const isActiveConv =
+            msg.conversationId === activeIdRef.current && isPanelOpenRef.current;
+          const isIncoming = msg.senderId !== userIdRef.current;
+
+          return reorderConversations(
+            prev.map((c) => {
+              if (c.id !== msg.conversationId) return c;
+              const bumped = bumpConversationFromMessage(c, msg);
+              if (isIncoming && !isActiveConv) {
+                return { ...bumped, unreadCount: (c.unreadCount ?? 0) + 1 };
+              }
+              return bumped;
+            }),
+          );
+        });
+        maybeShowMentionInAppNotification(msg, isActive, nearBottom);
+        maybeShowNewChatInAppNotification(msg, isActive);
+        return;
+      }
 
       if (msg.senderId === userIdRef.current && msg.clientMessageId) {
         confirmOutgoing(msg, msg.clientMessageId);
@@ -1267,10 +1482,10 @@ export function ChatPage() {
       maybeShowNewChatInAppNotification(msg, isActive);
       if (msg.senderId !== userIdRef.current && document.hidden) {
         const mentionedMe = msg.mentions?.some((mention) => mention.userId === userIdRef.current);
-        const isActive =
+        const isActiveNotify =
           msg.conversationId === activeIdRef.current && isPanelOpenRef.current;
 
-        if (mentionedMe && !isActive) {
+        if (mentionedMe && !isActiveNotify) {
           window.electronAPI?.notify(
             `${msg.sender?.displayName ?? 'Someone'} mentioned you`,
             getMessagePreviewText(msg).slice(0, 100),
@@ -1369,6 +1584,7 @@ export function ChatPage() {
     confirmOutgoing,
     clearPendingBelow,
     trackPendingBelow,
+    applyThreadRootMeta,
     maybeShowMentionInAppNotification,
     maybeShowNewChatInAppNotification,
     maybeShowConversationInAppNotification,
@@ -1392,26 +1608,26 @@ export function ChatPage() {
     if (intent) {
       if (intent.kind === 'unread' && intent.messageId) {
         const messageId = intent.messageId;
-        scrollToMessageById(messageId, {
-          block: 'start',
+        scrollContainerToMessage(messagesScrollRef.current, messageId, {
           behavior: 'auto',
+          alignToUnreadDivider: true,
           onComplete: (scrolled) => {
             if (scrolled) scrollIntentRef.current = null;
           },
         });
       } else if (intent.kind === 'mention' && intent.messageId) {
         const messageId = intent.messageId;
-        scrollToMessageById(messageId, {
-          block: 'center',
+        scrollContainerToMessage(messagesScrollRef.current, messageId, {
           behavior: 'smooth',
+          alignToUnreadDivider: false,
           onComplete: (scrolled) => {
             if (scrolled) scrollIntentRef.current = null;
           },
         });
       } else if (intent.kind === 'bottom') {
         scrollIntentRef.current = null;
-        requestAnimationFrame(() => {
-          messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+        scrollContainerToBottom(messagesScrollRef.current, {
+          behavior: 'auto',
         });
       }
       return;
@@ -1419,7 +1635,9 @@ export function ChatPage() {
 
     if (shouldScrollToBottomRef.current) {
       shouldScrollToBottomRef.current = false;
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      scrollContainerToBottom(messagesScrollRef.current, {
+        behavior: 'smooth',
+      });
     }
   }, [messages]);
 
@@ -2291,7 +2509,10 @@ export function ChatPage() {
                 <button
                   type="button"
                   className="chat-header-info chat-header-btn"
-                  onClick={() => setShowConversationInfo(true)}
+                  onClick={() => {
+                    setActiveThreadRootId(null);
+                    setShowConversationInfo(true);
+                  }}
                   title="View details"
                 >
                   <h3>
@@ -2338,7 +2559,10 @@ export function ChatPage() {
                 <button
                   type="button"
                   className="icon-btn chat-header-files-btn"
-                  onClick={() => setShowFileManagement(true)}
+                  onClick={() => {
+                    setActiveThreadRootId(null);
+                    setShowFileManagement(true);
+                  }}
                   title="Shared files"
                   aria-label="Shared files"
                 >
@@ -2363,6 +2587,7 @@ export function ChatPage() {
                   canSendActions={canSendInActiveChat}
                   onStartEdit={startEditMessage}
                   onReply={startReplyMessage}
+                  onOpenThread={openThread}
                   onForward={startForwardMessage}
                   onScrollToMessage={scrollToMessage}
                   onDelete={handleDeleteMessage}
@@ -2533,6 +2758,22 @@ export function ChatPage() {
                 />
               )}
 
+              {activeThreadRootId && (
+                <ThreadPanel
+                  conversationId={activeConversation.id}
+                  rootMessageId={activeThreadRootId}
+                  currentUserId={user!.id}
+                  canSend={canSendInActiveChat}
+                  initialUnreadCount={activeThreadUnreadCount}
+                  onClose={closeThread}
+                  onRootMetaChange={applyThreadRootMeta}
+                  onDelete={handleDeleteMessage}
+                  onReaction={handleReactionMessage}
+                  onForward={startForwardMessage}
+                  onStartEdit={startEditMessage}
+                />
+              )}
+
               {showConversationInfo && (
                 <ConversationInfoPanel
                   conversation={activeConversation}
@@ -2540,6 +2781,7 @@ export function ChatPage() {
                   onClose={() => setShowConversationInfo(false)}
                   onOpenFiles={() => {
                     setShowConversationInfo(false);
+                    setActiveThreadRootId(null);
                     setShowFileManagement(true);
                   }}
                   isContact={!activePeer || contactIds.has(activePeer.userId)}
@@ -2584,6 +2826,7 @@ export function ChatPage() {
                     const conv = conversations.find((c) => c.id === activeId);
                     const membership = conv?.members.find((m) => m.userId === user?.id);
                     lastReadAtOnOpenRef.current = membership?.lastReadAt;
+                    unreadCountOnOpenRef.current = conv?.unreadCount ?? 0;
                   }
                   setIsPanelOpen(true);
                   setConversations((prev) =>

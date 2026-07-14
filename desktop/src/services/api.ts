@@ -211,6 +211,12 @@ export interface Message {
   reactions?: MessageReaction[];
   mentions?: MessageMention[];
   replyTo?: MessageReplyPreview;
+  threadRootId?: string;
+  replyCount?: number;
+  latestReplyAt?: string;
+  unreadReplyCount?: number;
+  /** Present on thread replies so clients can sync the root reply chip. */
+  thread?: { replyCount: number; latestReplyAt?: string };
   forwardedFrom?: MessageForwardedFrom;
   sender?: { id: string; displayName: string; username: string };
 }
@@ -498,6 +504,7 @@ class ApiClient {
     content: string,
     clientMessageId?: string,
     replyToMessageId?: string,
+    threadRootId?: string,
   ) {
     return this.request<{ message: Message; clientMessageId?: string }>('/realtime/messages/send', {
       method: 'POST',
@@ -506,6 +513,7 @@ class ApiClient {
         content,
         clientMessageId,
         replyToMessageId,
+        threadRootId,
       }),
     });
   }
@@ -909,6 +917,35 @@ class ApiClient {
     );
   }
 
+  getThread(conversationId: string, rootMessageId: string) {
+    return this.request<{
+      root: Message;
+      replies: Message[];
+      firstUnreadMessageId: string | null;
+    }>(`/conversations/${conversationId}/messages/${rootMessageId}/thread`);
+  }
+
+  searchThread(conversationId: string, rootMessageId: string, q: string, limit = 40) {
+    const params = new URLSearchParams({ q, limit: String(limit) });
+    return this.request<{
+      items: Array<{
+        id: string;
+        conversationId: string;
+        senderId: string;
+        content: string;
+        contentType: string;
+        fileName?: string;
+        caption?: string;
+        createdAt: string;
+        threadRootId?: string;
+        isRoot: boolean;
+        sender?: { id: string; displayName: string; username: string };
+        snippet: string;
+      }>;
+      total: number;
+    }>(`/conversations/${conversationId}/messages/${rootMessageId}/thread/search?${params}`);
+  }
+
   listConversationAttachments(
     conversationId: string,
     options?: { cursor?: string; kind?: ConversationAttachmentKind; limit?: number },
@@ -953,6 +990,7 @@ class ApiClient {
       caption?: string;
       clientMessageId?: string;
       replyToMessageId?: string;
+      threadRootId?: string;
     },
   ) {
     const formData = new FormData();
@@ -960,6 +998,7 @@ class ApiClient {
     if (options?.caption) formData.append('caption', options.caption);
     if (options?.clientMessageId) formData.append('clientMessageId', options.clientMessageId);
     if (options?.replyToMessageId) formData.append('replyToMessageId', options.replyToMessageId);
+    if (options?.threadRootId) formData.append('threadRootId', options.threadRootId);
 
     const headers: Record<string, string> = {};
     if (this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`;

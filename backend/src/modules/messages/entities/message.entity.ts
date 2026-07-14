@@ -73,6 +73,19 @@ export class Message {
   @JoinColumn({ name: 'reply_to_message_id' })
   replyTo?: Message;
 
+  @Column({ name: 'thread_root_id', type: 'uuid', nullable: true })
+  threadRootId?: string;
+
+  @ManyToOne(() => Message, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'thread_root_id' })
+  threadRoot?: Message;
+
+  @Column({ name: 'reply_count', type: 'int', default: 0 })
+  replyCount!: number;
+
+  @Column({ name: 'latest_reply_at', type: 'timestamptz', nullable: true })
+  latestReplyAt?: Date;
+
   @Column({ name: 'forwarded_from_message_id', type: 'uuid', nullable: true })
   forwardedFromMessageId?: string;
 

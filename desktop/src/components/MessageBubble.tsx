@@ -24,6 +24,7 @@ interface Props {
   canSendActions?: boolean;
   onStartEdit?: (messageId: string, content: string) => void;
   onReply?: (message: Message) => void;
+  onOpenThread?: (message: Message) => void;
   onForward?: (message: Message) => void;
   onScrollToMessage?: (messageId: string) => void;
   onDelete: (messageId: string, scope: 'me' | 'everyone') => Promise<void>;
@@ -42,6 +43,7 @@ export function MessageBubble({
   canSendActions = true,
   onStartEdit,
   onReply,
+  onOpenThread,
   onForward,
   onScrollToMessage,
   onDelete,
@@ -69,8 +71,13 @@ export function MessageBubble({
     isTextMessage(message) &&
     !message.deletedForEveryone &&
     Boolean(onStartEdit);
-  const canReply = canSendActions && !message.deletedForEveryone && Boolean(onReply);
+  const canReply =
+    canSendActions &&
+    !message.deletedForEveryone &&
+    Boolean(onReply || onOpenThread);
   const canForward = !message.deletedForEveryone && Boolean(onForward);
+  const replyCount = message.replyCount ?? 0;
+  const showThreadChip = !message.threadRootId && (replyCount > 0 || Boolean(onOpenThread));
   const showMenu = allowMessageMenu;
   const isFocused = menuOpen && layout !== null;
   const mentionGlowActive = useMentionGlowInView(
@@ -308,6 +315,29 @@ export function MessageBubble({
 
       {reactionsBar}
 
+      {showThreadChip && !message.deletedForEveryone && replyCount > 0 && (
+        <button
+          type="button"
+          className={`message-thread-chip${(message.unreadReplyCount ?? 0) > 0 ? ' has-unread' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenThread?.(message);
+          }}
+        >
+          <span>
+            {replyCount === 1 ? '1 reply' : `${replyCount} replies`}
+          </span>
+          {(message.unreadReplyCount ?? 0) > 0 && (
+            <span
+              className="message-thread-unread"
+              aria-label={`${message.unreadReplyCount} unread`}
+            >
+              {(message.unreadReplyCount ?? 0) > 99 ? '99+' : message.unreadReplyCount}
+            </span>
+          )}
+        </button>
+      )}
+
       <div className="message-footer">
         <div className="message-footer-left">
           <time>{new Date(message.createdAt).toLocaleTimeString()}</time>
@@ -371,11 +401,15 @@ export function MessageBubble({
           <button
             type="button"
             onClick={() => {
-              onReply?.(message);
+              if (onOpenThread) {
+                onOpenThread(message);
+              } else {
+                onReply?.(message);
+              }
               setMenuOpen(false);
             }}
           >
-            Reply
+            {onOpenThread ? 'Reply in thread' : 'Reply'}
           </button>
         )}
         {canForward && (

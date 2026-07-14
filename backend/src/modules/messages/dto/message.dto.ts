@@ -17,6 +17,11 @@ export class SendMessageDto {
   @IsOptional()
   @IsUUID()
   replyToMessageId?: string;
+
+  /** Slack-style thread: replies attach under this root and stay out of the main feed. */
+  @IsOptional()
+  @IsUUID()
+  threadRootId?: string;
 }
 
 export class MarkReadDto {

@@ -66,6 +66,9 @@ CREATE TABLE messages (
     edited_at TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ,
     reply_to_message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
+    thread_root_id UUID REFERENCES messages(id) ON DELETE CASCADE,
+    reply_count INTEGER NOT NULL DEFAULT 0,
+    latest_reply_at TIMESTAMPTZ,
     forwarded_from_message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
     original_sender_id UUID REFERENCES users(id) ON DELETE SET NULL,
     search_vector tsvector,
@@ -89,6 +92,14 @@ CREATE INDEX idx_messages_reply_to
     ON messages (reply_to_message_id)
     WHERE reply_to_message_id IS NOT NULL;
 
+CREATE INDEX idx_messages_thread_root
+    ON messages (thread_root_id, sequence ASC)
+    WHERE thread_root_id IS NOT NULL;
+
+CREATE INDEX idx_messages_conversation_main
+    ON messages (conversation_id, sequence DESC)
+    WHERE thread_root_id IS NULL;
+
 CREATE INDEX idx_messages_forwarded_from
     ON messages (forwarded_from_message_id)
     WHERE forwarded_from_message_id IS NOT NULL;
@@ -103,6 +114,16 @@ CREATE TABLE message_read_receipts (
 
 CREATE INDEX idx_read_receipts_message ON message_read_receipts (message_id);
 CREATE INDEX idx_read_receipts_user ON message_read_receipts (user_id);
+
+CREATE TABLE message_thread_reads (
+    thread_root_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    last_read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (thread_root_id, user_id)
+);
+
+CREATE INDEX idx_message_thread_reads_user
+    ON message_thread_reads (user_id, last_read_at DESC);
 
 CREATE TABLE message_deliveries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -346,7 +367,9 @@ INSERT INTO schema_migrations (version, checksum) VALUES
     ('022_call_records', 'bf34a1adce6c90fa6873b276b503cee224b600f6021ae8c4d9c8a0de07c69c34'),
     ('023_call_media_type', '169bafa200b47d92cb5011b182b8f5ebce3f4ac61e005d53eae29b78ee0218a7'),
     ('024_call_records_callee_seen', '2c3ab63eceb1c61352fcedbc81fc1ebd6955a34013a4a53344cd7d4e3714e33d'),
-    ('025_call_records_mark_existing_seen', '1a0e623a6e422b121404db109d9476c48d9bdf19e0b45ddf747190de9f848fec')
+    ('025_call_records_mark_existing_seen', '1a0e623a6e422b121404db109d9476c48d9bdf19e0b45ddf747190de9f848fec'),
+    ('026_message_threads', '72bedc2f95598e29ec36262cf075da171e9267c101407144ed2cf20cbfb0f669'),
+    ('027_message_thread_reads', '9a61e8893c2108fe7ce8f1c68eaaf64c5b0a8a97578c9065fd4100b25bb2ebba')
 ON CONFLICT (version) DO NOTHING;
 
 -- Grant app user access (required when schema is created by postgres superuser)

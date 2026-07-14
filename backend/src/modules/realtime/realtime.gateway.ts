@@ -187,6 +187,7 @@ export class RealtimeGateway
       content: string;
       clientMessageId?: string;
       replyToMessageId?: string;
+      threadRootId?: string;
     },
   ) {
     wsMessageSendCounter.inc(1);
