@@ -1,4 +1,4 @@
-# ChatApp — Project Review (2026-07-15)
+# ChatApp — Project Review (2026-07-18)
 
 This document summarizes the current codebase, highlights strengths and weaknesses, and proposes a prioritized improvement roadmap.
 
@@ -33,7 +33,7 @@ ChatApp/
 
 ### Backend (NestJS)
 
-- **Modules**: `auth`, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`, `audit`, `admin`, **`storage`**, **`calls`**, **`tasks`**, **`notes`**
+- **Modules**: `auth`, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`, `audit`, `admin`, **`storage`**, **`calls`**, **`tasks`**, **`notes`**, **`stories`**
 - **Auth & sessions**:
   - JWT access tokens (15m) with required `sid` claim; validated against `user_sessions` on every REST and WebSocket request
   - Rotating refresh tokens (SHA-256 hashed, grouped by `session_family_id`)
@@ -91,9 +91,16 @@ ChatApp/
   - APIs: CRUD, list (`scope`: all/mine/shared), members (add/update/remove), history list/clear
   - **Realtime** — `note:updated` / `note:deleted` via `NoteRealtimePublisher` → `emitToUsers` (WebSocket + SSE)
   - Audit actions: `note.create`, `note.update`, `note.delete`, `note.share`, `note.unshare`, `note.permission_change`, `note.clear_history`
+- **Stories** (`stories` module):
+  - Ephemeral photo/video stories (24h) visible to the author’s **contacts** (+ self) — migrations `032`–`033`
+  - Tables: `stories`, `story_views`, `story_likes`; `messages.story_id` for DM replies that quote a story
+  - APIs: feed rings, list by user, create (multipart), mark viewed, viewers (owner), like/unlike, reply → DM, delete
+  - Storage ACL allows story audience to stream story attachments via the API content proxy
+  - **Realtime** — `story:created` / `story:deleted` via `StoryRealtimePublisher` → author + contacts (WebSocket + SSE)
+  - Audit actions: `story.create`, `story.delete`, `story.reply`, `story.like`, `story.unlike`
 - **Audit** (`audit` module, global):
   - Append-only `audit_logs` table (migration `019`)
-  - Records auth, messages, conversations, contacts, profile, tasks, notes, and admin actions
+  - Records auth, messages, conversations, contacts, profile, tasks, notes, stories, and admin actions
   - `GET /admin/audit-logs` with filters (user, action, category, date range, text)
 - **Admin** (`admin` module):
   - `AdminGuard` — requires `users.is_admin` (migration `018`)
@@ -114,7 +121,7 @@ ChatApp/
   - `GET /api/v1/health`
 - **DB**:
   - `infra/postgres/init.sql` for new databases (includes `schema_migrations` seed)
-  - Incremental SQL migrations in `infra/postgres/migrations/` (002–031)
+  - Incremental SQL migrations in `infra/postgres/migrations/` (002–033)
   - **Auto-applied** via `npm run migrate` / Compose `migrate` → `api`
   - **Drift check**: `npm run check:schema-drift` (CI) keeps `init.sql` aligned with migrations
 
@@ -144,6 +151,7 @@ ChatApp/
   - **Voice & video calls** (DMs only): 📞 / 📹 in DM header; `VoiceCallModal` (mute, speaker, camera; desktop video corner controls); WebRTC via `voiceCall.ts`; `CallsPanel` history + filters; missed-call badge on Calls nav; mic/camera permission handling (`mediaDevices.ts` with HTTPS/LAN guidance)
   - **Tasks** (`TasksPanel` / `CreateTaskModal` / `AssigneePicker`): nav tab with pending-invite badge; create manually or **Convert to Task** from message menu; Open / Pending (count + Accept/Reject) / Completed / All; assign with acceptance required; due date, complete toggle, reassign (creator), delete (creator); live merge via `task:updated` / `task:deleted` (WebSocket + SSE)
   - **Notes** (`NotesPanel`): nav tab (desktop rail; mobile **More** ⋮ menu with Tasks and Profile); personal + shared notes; filters All/Mine/Shared; editor with save/delete; share panel (reader/contributor roles, people search); change history with GitHub-style line diff; owner clear history; live merge via `note:updated` / `note:deleted` (WebSocket + SSE)
+  - **Stories** (`StoriesTray` / `StoryComposerModal` / `StoryViewerModal` / `MessageStoryQuote`): rings above chat list; compose photo/video + caption; viewer with progress, like, reply (pause while typing), owner viewers sheet (who viewed/liked); replies open DM with story quote; unseen ring clears after all stories viewed; feed via `story:created` / `story:deleted`
   - **Search**:
     - Sidebar: split panel (conversations on top, message content hits below)
     - Global: `Ctrl+K` / `Cmd+K` modal (chats, channels, people, messages)
@@ -172,6 +180,7 @@ ChatApp/
 - **1:1 voice & video calls** — WebRTC + Socket.IO signaling for DMs; call history + missed badge; ICE endpoint; HTTPS dev for LAN media access
 - **Tasks with assignment acceptance** — pending invites, accept/reject flow, unread nav badge, realtime sync (SSE-compatible)
 - **Notes** — personal/shared notes with reader/contributor roles, revision history with diff UI, share panel, realtime sync (SSE-compatible); mobile nav groups Tasks/Notes/Profile under **More**
+- **Stories** — contact-audience ephemeral media (24h), likes, viewers list, reply→DM with quote, tray + viewer UX, realtime feed sync
 - **Session management** — practical Telegram-style device list with push logout
 
 ## Cons / risks (what can bite you in production)
@@ -190,6 +199,7 @@ ChatApp/
 
 ## Recently addressed (2026-07)
 
+- **Stories** — migrations `032`/`033`; `stories` module (feed, create, view, like, viewers, reply→DM, delete); contact audience + 24h expiry; `StoriesTray` / composer / viewer (progress, like, reply pause, viewers sheet); `MessageStoryQuote` in DM bubbles; `story:created` / `story:deleted` realtime (WebSocket + SSE)
 - **Notes** — migration `031`; `notes` module (CRUD, share with reader/contributor roles, revision history, clear history, optimistic `version`); `NotesPanel` with share side panel, GitHub-style history diff, mobile **More** nav (Tasks + Notes + Profile); `note:updated` / `note:deleted` realtime (WebSocket + SSE)
 - **Tasks + assignment acceptance** — migrations `029`/`030`; `tasks` module (CRUD, assign/accept/reject/cancel, pending unseen badge); `TasksPanel` with Open/Pending/Completed; **Convert to Task** from messages; `task:updated` / `task:deleted` realtime (WebSocket + SSE)
 - **Call history + missed badge** — `call_records` (migrations `022`–`025`); history filters; unseen missed count on Calls nav; open Calls marks seen

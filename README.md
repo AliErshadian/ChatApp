@@ -32,7 +32,7 @@ curl http://localhost/api/v1/health
 
 - **Database schema**: initialized from `infra/postgres/init.sql` when the `postgres` container is first created.
 - **Incremental migrations**: SQL files in `infra/postgres/migrations/` are applied automatically by `npm run migrate` (or the Compose `migrate` service before `api`). Fresh Compose databases also seed `schema_migrations` from `init.sql`; run `npm run check:schema-drift` after editing either file. If you see a checksum mismatch after a line-ending normalization update, run `node backend/scripts/repair-migration-checksums.mjs` (dev only, when migration SQL on disk matches what was applied).
-- **Object storage**: uploads (avatars, message attachments) go to **MinIO** (S3-compatible). PostgreSQL stores metadata only in the `attachments` table. Clients download via **`GET /attachments/:id/content`** (API streams from MinIO with JWT) — works on LAN/mobile without exposing MinIO. `GET /attachments/:id/download` still returns presigned URLs for external integrations.
+- **Object storage**: uploads (avatars, message attachments, **story media**) go to **MinIO** (S3-compatible). PostgreSQL stores metadata only in the `attachments` table. Clients download via **`GET /attachments/:id/content`** (API streams from MinIO with JWT) — works on LAN/mobile without exposing MinIO. `GET /attachments/:id/download` still returns presigned URLs for external integrations.
 - **MinIO console** (local): http://127.0.0.1:9001 — login `minioadmin` / `minioadmin` (default). Objects live under buckets like `attachments/chat/2026/07/12/{uuid}.png`.
 - **Legacy `uploads/`**: older local-disk files may still exist under `backend/uploads/`; new uploads use MinIO. The API still serves `/uploads/*` for backward compatibility.
 
@@ -134,6 +134,7 @@ ChatApp/
 │       │   ├── calls/          # 1:1 DM voice/video calls (WebRTC signaling, history, ICE)
 │       │   ├── tasks/          # Tasks with assignment acceptance, unread invites, realtime
 │       │   ├── notes/          # Personal/shared notes, roles, revision history, realtime
+│       │   ├── stories/        # Ephemeral stories (24h), views, likes, replies → DM
 │       │   ├── admin/          # Admin-only REST (stats, users, storage)
 │       │   ├── presence/
 │       │   └── realtime/       # WebSocket gateway, SSE stream, event bus, REST fallback
@@ -151,6 +152,10 @@ ChatApp/
 │   ├── electron/               # Main process, tray, secure auth store
 │   └── src/
 │       ├── components/
+│       │   ├── StoriesTray.tsx          # Story rings above chat list
+│       │   ├── StoryComposerModal.tsx   # Create photo/video story
+│       │   ├── StoryViewerModal.tsx     # Progress, like, reply, viewers sheet
+│       │   ├── MessageStoryQuote.tsx    # Story quote in DM reply bubbles
 │       │   ├── ThreadPanel.tsx          # Slack-style thread (replies, search, files)
 │       │   ├── CreatePollModal.tsx      # Group poll create (Anonymous / Multiple choice)
 │       │   ├── MessagePoll.tsx          # In-chat poll card (tap-to-vote, close)
@@ -174,7 +179,7 @@ ChatApp/
 │       └── components/
 ├── infra/postgres/
 │   ├── init.sql                # Full schema for new databases
-│   └── migrations/             # Incremental SQL migrations (002–031+)
+│   └── migrations/             # Incremental SQL migrations (002–033+)
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── PROJECT_REVIEW.md
@@ -214,7 +219,7 @@ Base URL: `http://localhost:3000/api/v1`
 
 The **admin dashboard** (`admin/`, port 5174) includes Dashboard (stats + collapsible storage panel with MinIO bucket usage), Users (filters, avatars, detail, sessions), and Audit log (expandable rows, date/action filters).
 
-The **audit trail** records sign-in/out, messages, conversations, contacts, tasks, notes, profile changes, and admin actions. Apply migration `019_audit_logs.sql` on existing databases.
+The **audit trail** records sign-in/out, messages, conversations, contacts, tasks, notes, stories, profile changes, and admin actions. Apply migration `019_audit_logs.sql` on existing databases.
 
 Access tokens include a `sid` claim (session id). Refresh tokens are SHA-256 hashed at rest and grouped by `session_family_id` / `user_sessions.id`.
 
@@ -288,6 +293,24 @@ Signaling is over WebSocket only (not SSE). DM membership is enforced server-sid
 
 **Sharing & permissions:** owner can share with **reader** (view only) or **contributor** (edit). Each save records a revision (`note_revisions`) with `changed_fields`, editor, and version. Updates use optimistic concurrency via `version` (409 on conflict). Realtime: `note:updated` / `note:deleted` to all members (WebSocket + SSE).
 
+### Stories
+
+Ephemeral photo/video stories (24h), visible to the author’s **contacts** (and self). Migrations `032_stories`, `033_story_likes`.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/stories/feed` | Story rings for self + contacts (`hasUnseen`, `storyCount`, latest) |
+| GET | `/stories/user/:userId` | Active stories for a user (oldest first; `viewedByMe`, `likedByMe`; owner also gets `viewCount` / `likeCount`) |
+| POST | `/stories` | Create story (multipart `media` + optional `caption`; image/video) |
+| POST | `/stories/:id/view` | Mark viewed (idempotent; higher throttle for browsing) |
+| GET | `/stories/:id/viewers` | List viewers (**owner only**); includes `liked` / `likedAt` |
+| POST | `/stories/:id/like` | Like story (non-owner; also ensures a view row) |
+| DELETE | `/stories/:id/like` | Unlike story |
+| POST | `/stories/:id/reply` | Reply → opens/creates DM with story-quoted message (`messages.story_id`) |
+| DELETE | `/stories/:id` | Delete story (**owner only**) |
+
+**Product rules:** audience = author’s contacts (+ self); media expires after 24h; replies become DM messages with a story quote. Realtime: `story:created` / `story:deleted` to author + contacts (WebSocket + SSE).
+
 ### Attachments (object storage)
 
 | Method | Endpoint | Description |
@@ -328,6 +351,8 @@ Connect with `auth: { token: <accessToken> }`. Clients join `user:{userId}` and 
 | `task:deleted` | Server → Client | Task removed (`{ taskId }`) |
 | `note:updated` | Server → Client | Note created/updated/shared/permission changed (full `NoteItem` payload) |
 | `note:deleted` | Server → Client | Note removed (`{ noteId }`) |
+| `story:created` | Server → Client | New story for a contact/self (`story` + `author`) |
+| `story:deleted` | Server → Client | Story removed (`{ storyId, authorId }`) |
 
 ### SSE fallback (`/realtime/*`)
 
@@ -373,6 +398,7 @@ See [docs/PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md) for strengths, risks, and r
 - **Voice & video calls** (DMs only): 📞 / 📹 in DM header; WebRTC audio/video with Socket.IO signaling; phone-style controls (mute, speaker, camera); desktop video overlay with compact corner controls; **15s** ring timeout; call history tab (`CallsPanel`) with filters; unseen missed-call badge on Calls nav; requires WebSocket (not SSE fallback)
 - **Tasks**: nav tab with pending-invite badge; create manually or **Convert to Task** from message menu; assign with **acceptance required**; Pending tab (count + Accept/Reject); Open/Completed filters; due date, complete toggle, reassign (creator), delete (creator); live updates via `task:updated` / `task:deleted` (WebSocket + SSE)
 - **Notes**: nav tab (desktop rail; mobile **More** ⋮ menu with Tasks and Profile); personal notes and shared notes with **reader** / **contributor** roles; editor with save/delete; share panel (search people, role picker); **change history** with GitHub-style before/after diff; owner can **clear history**; live sync via `note:updated` / `note:deleted` (WebSocket + SSE)
+- **Stories**: tray above the chat list (`StoriesTray`); compose photo/video + caption; viewer with progress bars, like, reply (pauses while typing), owner viewers sheet (who viewed / liked); replies open the DM with a story quote; ring turns gray after all stories seen; live feed via `story:created` / `story:deleted`
 - **Devices** (Profile → Devices): Telegram-style session list, terminate device, terminate all others
 - **Offline cache** (Profile → Offline cache): IndexedDB blob cache for avatars/attachments; view size and clear cache
 - **Realtime fallback**: automatic SSE + REST when WebSocket cannot connect

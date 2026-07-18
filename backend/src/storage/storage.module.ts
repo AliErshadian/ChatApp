@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Message } from '../modules/messages/entities/message.entity';
 import { MessageUserHidden } from '../modules/messages/entities/message-user-hidden.entity';
 import { User } from '../modules/users/entities/user.entity';
+import { Story } from '../modules/stories/entities/story.entity';
+import { UserContact } from '../modules/contacts/entities/user-contact.entity';
 import { ConversationsModule } from '../modules/conversations/conversations.module';
 import { Attachment } from './entities/attachment.entity';
 import { S3StorageProvider } from './providers/s3-storage.provider';
@@ -13,7 +15,14 @@ import { StorageService } from './storage.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Attachment, Message, MessageUserHidden, User]),
+    TypeOrmModule.forFeature([
+      Attachment,
+      Message,
+      MessageUserHidden,
+      User,
+      Story,
+      UserContact,
+    ]),
     forwardRef(() => ConversationsModule),
   ],
   controllers: [StorageController],

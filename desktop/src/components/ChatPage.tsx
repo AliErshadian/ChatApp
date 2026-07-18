@@ -80,6 +80,10 @@ import { useVoiceCall } from '../hooks/useVoiceCall';
 import { voiceCallManager } from '../services/voiceCall';
 import { EmptyState } from './ui/EmptyState';
 import { Button } from './ui/Button';
+import { StoriesTray } from './StoriesTray';
+import { StoryComposerModal } from './StoryComposerModal';
+import { StoryViewerModal } from './StoryViewerModal';
+import type { StoryFeedRing } from '../services/api';
 
 export function ChatPage() {
   const { user, logout } = useAuth();
@@ -114,6 +118,9 @@ export function ChatPage() {
   const [showCalls, setShowCalls] = useState(false);
   const [showTasks, setShowTasks] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
+  const [storyFeed, setStoryFeed] = useState<StoryFeedRing[]>([]);
+  const [showStoryComposer, setShowStoryComposer] = useState(false);
+  const [storyViewerAuthorId, setStoryViewerAuthorId] = useState<string | null>(null);
   const [missedCallsBadge, setMissedCallsBadge] = useState(0);
   const [tasksUnreadBadge, setTasksUnreadBadge] = useState(0);
   const [showNewChatPicker, setShowNewChatPicker] = useState(false);
@@ -272,6 +279,15 @@ export function ChatPage() {
       setContactIds(new Set(contacts.map((c) => c.id)));
     } catch {
       // Keep existing contact list on failure.
+    }
+  }, []);
+
+  const loadStoryFeed = useCallback(async () => {
+    try {
+      const feed = await api.listStoryFeed();
+      setStoryFeed(feed);
+    } catch {
+      // Keep existing story tray on failure.
     }
   }, []);
 
@@ -1447,7 +1463,21 @@ export function ChatPage() {
   useEffect(() => {
     loadConversations();
     refreshContacts();
-  }, [loadConversations, refreshContacts]);
+    void loadStoryFeed();
+  }, [loadConversations, refreshContacts, loadStoryFeed]);
+
+  useEffect(() => {
+    const unsubCreated = realtime.onStoryCreated(() => {
+      void loadStoryFeed();
+    });
+    const unsubDeleted = realtime.onStoryDeleted(() => {
+      void loadStoryFeed();
+    });
+    return () => {
+      unsubCreated();
+      unsubDeleted();
+    };
+  }, [loadStoryFeed]);
 
   useEffect(() => {
     if (!user) return;
@@ -2641,6 +2671,15 @@ export function ChatPage() {
           )}
         </div>
 
+        {!sidebarSearchActive && sidebarList === 'chats' && (
+          <StoriesTray
+            rings={storyFeed}
+            currentUserId={user?.id}
+            onAddStory={() => setShowStoryComposer(true)}
+            onOpenUser={(userId) => setStoryViewerAuthorId(userId)}
+          />
+        )}
+
         <div className={`conversation-list${sidebarSearchActive ? ' conversation-list-search-mode' : ''}`}>
           {sidebarSearchActive ? (
             <SidebarSearchPanel
@@ -3239,6 +3278,65 @@ export function ChatPage() {
           onCreated={(group) => handleGroupCreated(group)}
         />
       )}
+
+      <StoryComposerModal
+        open={showStoryComposer}
+        onClose={() => setShowStoryComposer(false)}
+        onCreated={() => {
+          void loadStoryFeed();
+        }}
+      />
+
+      <StoryViewerModal
+        open={Boolean(storyViewerAuthorId)}
+        author={
+          storyViewerAuthorId
+            ? (() => {
+                const ring = storyFeed.find((r) => r.userId === storyViewerAuthorId);
+                if (ring) {
+                  return {
+                    userId: ring.userId,
+                    displayName: ring.displayName,
+                    username: ring.username,
+                    avatarUrl: ring.avatarUrl,
+                  };
+                }
+                if (user?.id === storyViewerAuthorId) {
+                  return {
+                    userId: user.id,
+                    displayName: user.displayName,
+                    username: user.username,
+                    avatarUrl: user.avatarUrl,
+                  };
+                }
+                return null;
+              })()
+            : null
+        }
+        currentUserId={user?.id}
+        onClose={() => {
+          setStoryViewerAuthorId(null);
+          void loadStoryFeed();
+        }}
+        onDeleted={() => {
+          void loadStoryFeed();
+        }}
+        onViewed={(authorId) => {
+          setStoryFeed((prev) =>
+            prev.map((ring) =>
+              ring.userId === authorId ? { ...ring, hasUnseen: false } : ring,
+            ),
+          );
+          void loadStoryFeed();
+        }}
+        onAddStory={() => setShowStoryComposer(true)}
+        onReplySent={(conversationId) => {
+          void (async () => {
+            await loadConversations();
+            openConversation(conversationId, 'chats');
+          })();
+        }}
+      />
 
       <CreatePollModal
         open={showCreatePoll}

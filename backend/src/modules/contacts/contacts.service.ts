@@ -68,6 +68,22 @@ export class ContactsService {
     };
   }
 
+  async listContactUserIds(userId: string): Promise<string[]> {
+    const rows = await this.contactRepo.find({
+      where: { userId },
+      select: ['contactUserId'],
+    });
+    return rows.map((row) => row.contactUserId);
+  }
+
+  async isContact(userId: string, contactUserId: string): Promise<boolean> {
+    const existing = await this.contactRepo.findOne({
+      where: { userId, contactUserId },
+      select: ['userId'],
+    });
+    return !!existing;
+  }
+
   async remove(userId: string, contactUserId: string) {
     const result = await this.contactRepo.delete({ userId, contactUserId });
     if (!result.affected) {

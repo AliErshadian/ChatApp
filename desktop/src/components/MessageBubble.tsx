@@ -9,6 +9,7 @@ import { MessageStatusTicks } from './MessageStatusTicks';
 import { LinkifiedMessageText } from './LinkifiedMessageText';
 import { MessageReplyQuote } from './MessageReplyQuote';
 import { MessageForwardedHeader } from './MessageForwardedHeader';
+import { MessageStoryQuote } from './MessageStoryQuote';
 import { MessageAttachmentContent, isAttachmentMessage } from './MessageAttachmentContent';
 import { MessagePoll } from './MessagePoll';
 import { isPollMessage, isTextMessage } from '../utils/messageMedia';
@@ -322,6 +323,7 @@ export function MessageBubble({
           {message.forwardedFrom && (
             <MessageForwardedHeader forwardedFrom={message.forwardedFrom} isOwn={isOwn} />
           )}
+          {message.story && <MessageStoryQuote story={message.story} isOwn={isOwn} />}
           {message.replyTo && (
             <MessageReplyQuote
               replyTo={message.replyTo}

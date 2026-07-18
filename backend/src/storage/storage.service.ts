@@ -9,10 +9,14 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
 import type { Response } from 'express';
+import { Repository } from 'typeorm';
 import { ConversationsService } from '../modules/conversations/conversations.service';
 import { MemberRole } from '../modules/conversations/entities/conversation-member.entity';
+import { Story } from '../modules/stories/entities/story.entity';
+import { UserContact } from '../modules/contacts/entities/user-contact.entity';
 import { AuditService } from '../modules/audit/audit.service';
 import { AuditAction } from '../modules/audit/audit-action';
 import { buildStorageConfig } from './config/storage.config';
@@ -92,6 +96,10 @@ export class StorageService {
     @Inject(forwardRef(() => ConversationsService))
     private readonly conversationsService: ConversationsService,
     private readonly audit: AuditService,
+    @InjectRepository(Story)
+    private readonly storyRepo: Repository<Story>,
+    @InjectRepository(UserContact)
+    private readonly contactRepo: Repository<UserContact>,
     @Optional()
     @Inject(STORAGE_HOOKS)
     private readonly hooks: StorageHook[] = [],
@@ -408,6 +416,21 @@ export class StorageService {
 
     if (attachment.bucket === this.storageConfig.buckets.avatar) {
       return;
+    }
+
+    const story = await this.storyRepo.findOne({
+      where: { attachmentId: attachment.id },
+      select: ['id', 'authorId', 'expiresAt'],
+    });
+    if (story) {
+      if (story.authorId === userId) return;
+      if (story.expiresAt.getTime() > Date.now()) {
+        const contact = await this.contactRepo.findOne({
+          where: { userId: story.authorId, contactUserId: userId },
+          select: ['userId'],
+        });
+        if (contact) return;
+      }
     }
 
     throw new ForbiddenException('You do not have access to this attachment');

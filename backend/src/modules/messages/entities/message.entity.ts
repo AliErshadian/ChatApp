@@ -100,6 +100,9 @@ export class Message {
   @JoinColumn({ name: 'original_sender_id' })
   originalSender?: User;
 
+  @Column({ name: 'story_id', type: 'uuid', nullable: true })
+  storyId?: string;
+
   @OneToMany(() => MessageReadReceipt, (r) => r.message)
   readReceipts!: MessageReadReceipt[];
 

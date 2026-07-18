@@ -17,6 +17,7 @@ import { StorageModule } from './storage/storage.module';
 import { CallsModule } from './modules/calls/calls.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { NotesModule } from './modules/notes/notes.module';
+import { StoriesModule } from './modules/stories/stories.module';
 import { HealthController } from './health.controller';
 import { validateEnv } from './config/env';
 import { MetricsController } from './observability/metrics.controller';
@@ -62,6 +63,7 @@ import { MetricsController } from './observability/metrics.controller';
     CallsModule,
     TasksModule,
     NotesModule,
+    StoriesModule,
   ],
   controllers: [HealthController, MetricsController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

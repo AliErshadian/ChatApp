@@ -10,6 +10,7 @@ import { MessageThreadRead } from './entities/message-thread-read.entity';
 import { Poll } from './entities/poll.entity';
 import { PollOption } from './entities/poll-option.entity';
 import { PollVote } from './entities/poll-vote.entity';
+import { Story } from '../stories/entities/story.entity';
 import { ConversationMember } from '../conversations/entities/conversation-member.entity';
 import { MessagesService } from './messages.service';
 import { MessagesController } from './messages.controller';
@@ -33,6 +34,7 @@ import { StorageModule } from '../../storage/storage.module';
       Poll,
       PollOption,
       PollVote,
+      Story,
       ConversationMember,
     ]),
     ConversationsModule,

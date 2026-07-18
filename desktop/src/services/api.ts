@@ -322,6 +322,44 @@ export interface Message {
   forwardedFrom?: MessageForwardedFrom;
   sender?: { id: string; displayName: string; username: string };
   poll?: MessagePoll;
+  storyId?: string;
+  story?: {
+    id: string;
+    caption?: string;
+    mediaUrl: string;
+    mimeType: string;
+    authorId: string;
+  };
+}
+
+export interface StoryItem {
+  id: string;
+  authorId: string;
+  caption?: string;
+  mediaUrl: string;
+  mimeType: string;
+  createdAt: string;
+  expiresAt: string;
+  viewedByMe: boolean;
+  likedByMe: boolean;
+  viewCount?: number;
+  likeCount?: number;
+}
+
+export interface StoryFeedRing {
+  userId: string;
+  displayName: string;
+  username: string;
+  avatarUrl?: string;
+  hasUnseen: boolean;
+  storyCount: number;
+  latestCreatedAt: string;
+}
+
+export interface StoryViewerUser extends User {
+  viewedAt: string;
+  liked: boolean;
+  likedAt?: string;
 }
 
 class ApiClient {
@@ -911,6 +949,81 @@ class ApiClient {
     return this.request<User>('/users/me', {
       method: 'PATCH',
       body: JSON.stringify(input),
+    });
+  }
+
+  listStoryFeed() {
+    return this.request<StoryFeedRing[]>('/stories/feed');
+  }
+
+  listUserStories(userId: string) {
+    return this.request<StoryItem[]>(`/stories/user/${userId}`);
+  }
+
+  async createStory(file: File, caption?: string) {
+    const formData = new FormData();
+    formData.append('media', file);
+    if (caption?.trim()) formData.append('caption', caption.trim());
+
+    const headers: Record<string, string> = {};
+    if (this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`;
+
+    let res = await fetch(`${this.apiBase()}/stories`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (res.status === 401) {
+      const refreshed = await this.refresh();
+      if (refreshed) {
+        headers.Authorization = `Bearer ${this.accessToken}`;
+        res = await fetch(`${this.apiBase()}/stories`, {
+          method: 'POST',
+          headers,
+          body: formData,
+        });
+      }
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message ?? `HTTP ${res.status}`);
+    }
+    return res.json() as Promise<StoryItem>;
+  }
+
+  markStoryViewed(storyId: string) {
+    return this.request<{ success: boolean; viewedAt: string }>(`/stories/${storyId}/view`, {
+      method: 'POST',
+    });
+  }
+
+  listStoryViewers(storyId: string) {
+    return this.request<StoryViewerUser[]>(`/stories/${storyId}/viewers`);
+  }
+
+  likeStory(storyId: string) {
+    return this.request<{ success: boolean; liked: boolean; likedAt: string }>(
+      `/stories/${storyId}/like`,
+      { method: 'POST' },
+    );
+  }
+
+  unlikeStory(storyId: string) {
+    return this.request<{ success: boolean; liked: boolean }>(`/stories/${storyId}/like`, {
+      method: 'DELETE',
+    });
+  }
+
+  deleteStory(storyId: string) {
+    return this.request<{ success: boolean }>(`/stories/${storyId}`, { method: 'DELETE' });
+  }
+
+  replyToStory(storyId: string, content: string) {
+    return this.request<{ conversationId: string; message: Message }>(`/stories/${storyId}/reply`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
     });
   }
 

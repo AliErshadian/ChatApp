@@ -118,6 +118,7 @@ The MVP ships as a **modular monolith** with clean boundaries:
 | `calls` | 1:1 DM voice/video signaling (in-memory registry), call history, unseen missed badge, ICE config | Calls / Signaling Service |
 | `tasks` | Task CRUD, assignment acceptance (`pending_assignee_id`), per-user read state, realtime fanout | Tasks Service |
 | `notes` | Personal/shared notes, member roles (`owner` / `contributor` / `reader`), revision history, optimistic concurrency, realtime fanout | Notes Service |
+| `stories` | Ephemeral stories (24h), contact audience, views, likes, reply→DM, realtime fanout | Stories Service |
 | `storage` | S3-compatible object storage (upload, delete, stream content, presigned URLs, `attachments` metadata) | Storage Service |
 | `audit` | Append-only audit trail for user and admin actions | Audit Service |
 | `admin` | Admin-only stats, user management, storage metrics, audit log API | Admin API |
@@ -393,6 +394,38 @@ POST   /api/v1/notes/:id/members
 - **Access**: must be in `note_members`; list scoped by `scope` (`mine` = created by user, `shared` = shared with user)
 - **Realtime**: `NoteRealtimePublisher` → `note:updated` / `note:deleted` to all member user ids (WebSocket + SSE)
 
+### Stories (ephemeral, contact audience)
+
+Instagram/Telegram-style photo/video stories with 24h expiry. Visible to the author’s **contacts** (+ self). Migrations `032_stories`, `033_story_likes`.
+
+| Column / table | Purpose |
+|----------------|---------|
+| `stories` | `author_id`, `attachment_id`, optional `caption`, `created_at`, `expires_at` |
+| `story_views` | `(story_id, viewer_id)` PK; `viewed_at` |
+| `story_likes` | `(story_id, user_id)` PK; `liked_at` |
+| `messages.story_id` | Optional FK for DM replies that quote a story |
+
+```http
+GET    /api/v1/stories/feed
+GET    /api/v1/stories/user/:userId
+POST   /api/v1/stories                    # multipart media + caption
+POST   /api/v1/stories/:id/view
+GET    /api/v1/stories/:id/viewers        # owner only
+POST   /api/v1/stories/:id/like
+DELETE /api/v1/stories/:id/like
+POST   /api/v1/stories/:id/reply          # → DM + story-quoted message
+DELETE /api/v1/stories/:id
+```
+
+- **Audience**: author’s contacts (via `user_contacts`) and the author; expired stories are hidden from viewers
+- **Create**: image/video upload through `StorageService`; attachment ACL allows story audience to stream content
+- **View**: idempotent upsert; owner does not create a view row for self
+- **Like**: non-owner only; liking also ensures a view row so likers appear in the viewers list
+- **Viewers** (owner): list of viewers with `liked` / `likedAt` (likers sorted first); includes `viewCount` / `likeCount` on owner’s story payloads
+- **Reply**: creates/opens a DM with the author and sends a message with `story_id` (quoted story card in the bubble)
+- **Realtime**: `StoryRealtimePublisher` → `story:created` / `story:deleted` to author + contact user ids (WebSocket + SSE)
+- **Throttle**: `POST /stories/:id/view` allows a higher per-route limit (idempotent browsing)
+
 ### List Conversation Attachments (file management)
 
 ```http
@@ -530,6 +563,15 @@ Recipients: creator, accepted assignee, pending assignee, and prior assignee whe
 
 Recipients: all `note_members` user ids. Delivered to `user:{userId}` rooms and SSE `rt:user:{userId}` channels.
 
+### Story events (WebSocket + SSE)
+
+| Event | Direction | Payload |
+|-------|-----------|---------|
+| `story:created` | Server → Client | `{ story: StoryItem, author: PublicUser }` |
+| `story:deleted` | Server → Client | `{ storyId, authorId }` |
+
+Recipients: story author + that author’s contact user ids. Delivered to `user:{userId}` rooms and SSE `rt:user:{userId}` channels.
+
 ## 11. Database Schema Summary
 
 ```
@@ -537,6 +579,7 @@ users ─────────────┬──── conversation_member
                    │                                    │
                    ├──── messages ──────────────────────┘
                    │    ├── thread_root_id → messages (Slack threads)
+                   │    ├── story_id → stories (DM story replies)
                    │    ├── polls → poll_options → poll_votes (group polls)
                    │    ├── attachments (metadata → MinIO blobs)
                    │    ├── message_mentions
@@ -546,6 +589,8 @@ users ─────────────┬──── conversation_member
                    │    └── message_thread_reads (per-user thread cursor)
                    │
                    ├──── user_contacts
+                   ├──── stories ── story_views / story_likes (24h ephemeral)
+                   │              └── attachment_id → attachments
                    ├──── tasks ── task_user_reads (pending invite read state)
                    ├──── notes ── note_members (owner / contributor / reader)
                    │              └── note_revisions (per-version history)
@@ -581,6 +626,9 @@ Key indexes:
 - `notes(created_by, updated_at DESC)` — note list for owner
 - `note_members(user_id, joined_at DESC)` — notes shared with user
 - `note_revisions(note_id, version DESC)` — revision history
+- `stories(author_id, expires_at DESC)`, `stories(expires_at)` — feed / expiry
+- `story_views(viewer_id, viewed_at DESC)` — viewer history
+- `story_likes(user_id, liked_at DESC)` — like history
 - `audit_logs(created_at DESC)`, `audit_logs(action)` — admin audit queries
 - `user_sessions(user_id)` partial where not revoked
 - `refresh_tokens(user_id, session_family_id)` — session token lookup
@@ -611,6 +659,7 @@ Key indexes:
 | Global | 100 req/min per IP |
 | `/auth/register` | 5 req/min |
 | `/auth/login` | 10 req/min |
+| `POST /stories/:id/view` | 120 req/min (idempotent browsing) |
 | WS events | Per-user rate limit guard (partial) |
 
 ### Message Sanitization
@@ -627,7 +676,7 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 ┌─────────────────────────────────────────────────────────┐
 │ AuthProvider → restore session (refresh if needed)      │
 │ PresenceProvider → realtime.connect(), session events   │
-│ ChatPage → conversations, messages, threads, polls, in-app toasts │
+│ ChatPage → conversations, messages, threads, polls, stories tray, in-app toasts │
 ├─────────────────────────────────────────────────────────┤
 │ api.ts          REST client, token refresh, sessions    │
 │ storageUrl.ts   API content proxy fetch + blob URL resolution │
@@ -636,6 +685,8 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 │ voiceCall.ts    WebRTC RTCPeerConnection, audio/video tracks, ICE │
 │ mediaDevices.ts Mic/camera access; HTTPS/LAN error messages       │
 │ messageScroll.ts First-unread / bottom scroll in chat panes       │
+│ StoriesTray / StoryComposerModal / StoryViewerModal  ephemeral stories │
+│ MessageStoryQuote  story quote card in DM reply bubbles           │
 │ ThreadPanel     Slack thread (replies, in-thread search/files)    │
 │ CreatePollModal / MessagePoll  group polls (tap-to-vote, close) │
 │ FileManagementPanel  per-chat files (filter tabs, preview)    │
@@ -715,6 +766,15 @@ Workspaces: `chatapp-desktop` (chat UI + Electron) and `chatapp-admin` (dashboar
 5. **History** side panel lists revisions; GitHub-style line diff (`noteDiff.ts`) shows before/after per changed field; owner can **Clear history**
 6. Realtime: `note:updated` / `note:deleted` merge into list and open editor without duplicates (`upsertNote` dedupe)
 
+**Stories flow:**
+
+1. `StoriesTray` above the chat list loads `GET /stories/feed` (self ring + contact rings; blue ring = unseen)
+2. Compose (`StoryComposerModal`): pick image/video, optional caption → `POST /stories`
+3. Open a ring → `StoryViewerModal` loads `GET /stories/user/:id`; auto-advances with progress bars; tap next/prev; pause while reply input focused
+4. Non-owner: like toggle + reply form; reply creates DM with story quote and jumps to that conversation
+5. Owner: Views button → bottom sheet of viewers with heart for likers; can add another story or delete
+6. Marking views updates the ring (`hasUnseen`); feed refreshes on `story:created` / `story:deleted`
+
 **Dev HTTPS / LAN:**
 
 - Vite dev (`desktop/vite.config.ts`): `@vitejs/plugin-basic-ssl`, `host: true`, proxies `/api` and `/socket.io` to `http://127.0.0.1:3000`
@@ -758,7 +818,7 @@ Override with `VITE_API_URL` / `VITE_WS_URL` in `desktop/.env`.
             └───────────────┘           └───────────────┘           └───────────────┘
 ```
 
-**AuditModule** (global): `AuditService.record()` called from auth, messages, conversations, contacts, notes, tasks, and admin actions. Writes to `audit_logs` with action, resource, metadata JSON, IP, and user agent.
+**AuditModule** (global): `AuditService.record()` called from auth, messages, conversations, contacts, notes, tasks, stories, and admin actions. Writes to `audit_logs` with action, resource, metadata JSON, IP, and user agent.
 
 **Admin storage metrics** (`AdminStorageService`):
 
@@ -818,6 +878,7 @@ Buckets are auto-created by `S3StorageProvider` on startup (with retries in deve
 | `GET /conversations/:id/attachments` | Per-chat file browser (filter + pagination) |
 | `POST /attachments/upload` | Direct upload API |
 | `POST /conversations/:id/messages/attachment` | Chat message attachments |
+| `POST /stories` | Story media (image/video) |
 | `POST /users/me/avatar` | Profile avatar |
 | `POST /conversations/:id/avatar` | Channel/group avatar |
 

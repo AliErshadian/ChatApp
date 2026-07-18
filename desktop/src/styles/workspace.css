@@ -159,6 +159,13 @@ button,
   border-radius: 50%;
 }
 
+.stories-tray-ring .profile-avatar-lg,
+.stories-tray-ring .profile-avatar-img.profile-avatar-lg {
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center;
+}
+
 @media (max-width: 768px) {
   .conversation-item {
     margin: 0.06rem 0.3rem;

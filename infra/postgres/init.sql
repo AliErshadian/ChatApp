@@ -477,6 +477,53 @@ CREATE INDEX idx_note_revisions_note
 CREATE INDEX idx_note_revisions_editor
     ON note_revisions (edited_by, created_at DESC);
 
+-- Ephemeral stories (24h) visible to the author's contacts.
+CREATE TABLE stories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    attachment_id UUID NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
+    caption TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT stories_caption_length CHECK (caption IS NULL OR length(caption) <= 500)
+);
+
+CREATE INDEX idx_stories_author_expires
+    ON stories (author_id, expires_at DESC);
+
+CREATE INDEX idx_stories_expires
+    ON stories (expires_at);
+
+CREATE INDEX idx_stories_attachment
+    ON stories (attachment_id);
+
+CREATE TABLE story_views (
+    story_id UUID NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+    viewer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    viewed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (story_id, viewer_id)
+);
+
+CREATE INDEX idx_story_views_viewer
+    ON story_views (viewer_id, viewed_at DESC);
+
+CREATE TABLE story_likes (
+    story_id UUID NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    liked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (story_id, user_id)
+);
+
+CREATE INDEX idx_story_likes_user
+    ON story_likes (user_id, liked_at DESC);
+
+ALTER TABLE messages
+    ADD COLUMN story_id UUID REFERENCES stories(id) ON DELETE SET NULL;
+
+CREATE INDEX idx_messages_story_id
+    ON messages (story_id)
+    WHERE story_id IS NOT NULL;
+
 -- Fresh databases from init.sql are marked up-to-date for incremental migrations.
 -- Checksums are verified in CI via: npm run check:schema-drift
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -515,7 +562,9 @@ INSERT INTO schema_migrations (version, checksum) VALUES
     ('028_polls', 'd6f92cd7cfd8d6b3272865c1ceb8a1076180103e01d2323dbfbc1edf5287d544'),
     ('029_tasks', '3bd91f1bae7ec10b8985e4dfb887dbbf85294e8602ffc0e19a7a9568c87bc476'),
     ('030_task_assignment_acceptance', 'af9f274b3e46f0e19df6a78f688f34144a80c32fc069071a058a7335615d4cc5'),
-    ('031_notes', '2e6a86c5b974a07cc0dae19cb51eac0c0a5891f971f1736289c4c6f13d340bf3')
+    ('031_notes', '2e6a86c5b974a07cc0dae19cb51eac0c0a5891f971f1736289c4c6f13d340bf3'),
+    ('032_stories', '6b4140450223ad67b5e50c5a0214eaed333a19fd09d910c8c98b6fb38c6f261c'),
+    ('033_story_likes', '2175876714e4486f207281f3fa75f3e87f29c635a0e5a9e3de8f217960fb8bff')
 ON CONFLICT (version) DO NOTHING;
 
 -- Grant app user access (required when schema is created by postgres superuser)

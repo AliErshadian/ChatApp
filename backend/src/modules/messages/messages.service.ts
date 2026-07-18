@@ -17,6 +17,7 @@ import { MessageThreadRead } from './entities/message-thread-read.entity';
 import { Poll } from './entities/poll.entity';
 import { PollOption } from './entities/poll-option.entity';
 import { PollVote } from './entities/poll-vote.entity';
+import { Story } from '../stories/entities/story.entity';
 import { ConversationMember } from '../conversations/entities/conversation-member.entity';
 import { ConversationType } from '../conversations/entities/conversation.entity';
 import { ConversationsService } from '../conversations/conversations.service';
@@ -112,6 +113,14 @@ export interface MessagePayload {
   forwardedFrom?: MessageForwardedFrom;
   sender?: { id: string; displayName: string; username: string };
   poll?: PollPayload;
+  storyId?: string;
+  story?: {
+    id: string;
+    caption?: string;
+    mediaUrl: string;
+    mimeType: string;
+    authorId: string;
+  };
 }
 
 export interface ReactionUpdatePayload {
@@ -159,6 +168,8 @@ export class MessagesService {
     private readonly pollOptionRepo: Repository<PollOption>,
     @InjectRepository(PollVote)
     private readonly pollVoteRepo: Repository<PollVote>,
+    @InjectRepository(Story)
+    private readonly storyRepo: Repository<Story>,
     @InjectRepository(ConversationMember)
     private readonly memberRepo: Repository<ConversationMember>,
     private readonly conversationsService: ConversationsService,
@@ -243,6 +254,50 @@ export class MessagesService {
     });
 
     return this.toPayloadWithThreadMeta(withSender!, userId, 'sent');
+  }
+
+  async sendStoryReply(
+    userId: string,
+    conversationId: string,
+    storyId: string,
+    rawContent: string,
+  ): Promise<MessagePayload> {
+    await this.conversationsService.assertCanSendMessage(conversationId, userId);
+
+    const content = this.sanitization.sanitizeMessage(rawContent);
+    if (!content) throw new ConflictException('Message content is empty');
+
+    const message = this.messageRepo.create({
+      conversationId,
+      senderId: userId,
+      content,
+      storyId,
+    });
+
+    const saved = await this.messageRepo.save(message);
+    const withSender = await this.messageRepo.findOne({
+      where: { id: saved.id },
+      relations: [...this.messageRelations],
+    });
+
+    this.audit.record({
+      action: AuditAction.MESSAGE_SEND,
+      userId,
+      resourceType: 'message',
+      resourceId: saved.id,
+      metadata: {
+        conversationId,
+        preview: this.auditPreview(content),
+        contentType: 'text',
+        storyId,
+      },
+    });
+
+    const payload = await this.enrichPayloadWithStory(
+      await this.toPayloadWithThreadMeta(withSender!, userId, 'sent'),
+    );
+    await this.messagePublisher.publishNewMessage(payload, userId);
+    return payload;
   }
 
   async sendAttachment(
@@ -676,17 +731,19 @@ export class MessagesService {
     return {
       messages: await Promise.all(
         reversed.map(async (m) =>
-          this.enrichPayloadWithPoll(
-            this.toPayload(
-              m,
+          this.enrichPayloadWithStory(
+            await this.enrichPayloadWithPoll(
+              this.toPayload(
+                m,
+                userId,
+                m.senderId === userId ? statuses.get(m.id) : undefined,
+                reactions.get(m.id) ?? [],
+                mentions.get(m.id) ?? [],
+                undefined,
+                unreadByRoot.get(m.id) ?? 0,
+              ),
               userId,
-              m.senderId === userId ? statuses.get(m.id) : undefined,
-              reactions.get(m.id) ?? [],
-              mentions.get(m.id) ?? [],
-              undefined,
-              unreadByRoot.get(m.id) ?? 0,
             ),
-            userId,
           ),
         ),
       ),
@@ -1672,6 +1729,7 @@ export class MessagesService {
             username: message.sender.username,
           }
         : undefined,
+      storyId: message.storyId ?? undefined,
     };
   }
 
@@ -1689,9 +1747,11 @@ export class MessagesService {
         ? await this.computeStatus(message.id, message.senderId, message.conversationId)
         : undefined;
     const reactions = await this.getReactionsForMessage(message.id, viewerId);
-    return this.enrichPayloadWithPoll(
-      this.toPayload(message, viewerId, status, reactions),
-      viewerId,
+    return this.enrichPayloadWithStory(
+      await this.enrichPayloadWithPoll(
+        this.toPayload(message, viewerId, status, reactions),
+        viewerId,
+      ),
     );
   }
 
@@ -1716,6 +1776,27 @@ export class MessagesService {
     const poll = await this.buildPollPayload(payload.id, payload.senderId, viewerId);
     if (!poll) return payload;
     return { ...payload, poll };
+  }
+
+  private async enrichPayloadWithStory(payload: MessagePayload): Promise<MessagePayload> {
+    if (!payload.storyId || payload.deletedForEveryone) return payload;
+
+    const story = await this.storyRepo.findOne({
+      where: { id: payload.storyId },
+      relations: ['attachment'],
+    });
+    if (!story) return payload;
+
+    return {
+      ...payload,
+      story: {
+        id: story.id,
+        caption: story.caption ?? undefined,
+        mediaUrl: story.attachment?.url ?? `/api/v1/attachments/${story.attachmentId}/content`,
+        mimeType: story.attachment?.mimeType ?? 'application/octet-stream',
+        authorId: story.authorId,
+      },
+    };
   }
 
   private async buildPollPayload(
