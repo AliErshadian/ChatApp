@@ -69,6 +69,29 @@ export class UsersService {
       .getMany();
   }
 
+  async updateMe(userId: string, input: { displayName: string }) {
+    const user = await this.findById(userId);
+    if (!user) throw new BadRequestException('User not found');
+
+    const displayName = input.displayName.trim();
+    if (displayName.length < 2) {
+      throw new BadRequestException('Display name must be at least 2 characters');
+    }
+
+    user.displayName = displayName;
+    await this.userRepo.save(user);
+
+    this.audit.record({
+      action: AuditAction.USER_PROFILE_UPDATE,
+      userId,
+      resourceType: 'user',
+      resourceId: userId,
+      metadata: { displayName },
+    });
+
+    return this.toPublic(user);
+  }
+
   async updateAvatar(userId: string, file: Express.Multer.File) {
     const user = await this.findById(userId);
     if (!user) throw new BadRequestException('User not found');

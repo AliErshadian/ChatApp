@@ -13,9 +13,12 @@ import { Avatar } from './Avatar';
 import { Icon } from './Icon';
 import { ConfirmModal } from './ConfirmModal';
 import { compactDiffLines, diffText } from '../utils/noteDiff';
+import { Button } from './ui/Button';
+import { EmptyState } from './ui/EmptyState';
 import {
   faArrowLeft,
   faClockRotateLeft,
+  faNoteSticky,
   faPlus,
   faMagnifyingGlass,
   faShareNodes,
@@ -462,13 +465,16 @@ export function NotesPanel({ onClose, isMobile = false }: Props) {
             ) : error && notes.length === 0 ? (
               <p className="panel-error">{error}</p>
             ) : notes.length === 0 ? (
-              <div className="empty-state">
-                <h3>No notes yet</h3>
-                <p>Create a note for yourself or share it with others to read or contribute.</p>
-                <button type="button" className="btn-primary" onClick={() => void handleCreate()}>
-                  New note
-                </button>
-              </div>
+              <EmptyState
+                icon={faNoteSticky}
+                title="No notes yet"
+                description="Create a note for yourself or share it with others to read or contribute."
+                action={
+                  <Button variant="primary" onClick={() => void handleCreate()}>
+                    New note
+                  </Button>
+                }
+              />
             ) : (
               <ul className="tasks-list">
                 {notes.map((note) => (

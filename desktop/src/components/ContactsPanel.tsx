@@ -4,7 +4,9 @@ import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
 import { Avatar } from './Avatar';
 import { Icon } from './Icon';
-import { faArrowLeft, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { SkeletonListRows } from './Skeleton';
+import { EmptyState } from './ui/EmptyState';
+import { faArrowLeft, faUserGroup, faXmark } from '@fortawesome/free-solid-svg-icons';
 
 interface Props {
   onClose: () => void;
@@ -202,16 +204,18 @@ export function ContactsPanel({
           {error && <p className="profile-error-inline">{error}</p>}
 
           {loading ? (
-            <p className="contacts-hint">Loading contacts...</p>
+            <SkeletonListRows count={6} />
           ) : contacts.length === 0 ? (
-            <div className="contacts-empty">
-              <p>No contacts yet</p>
-              <span>
-                {isPicker
-                  ? 'Add people from Contacts to start chatting'
-                  : 'Enter a full username above to find people'}
-              </span>
-            </div>
+            <EmptyState
+              icon={faUserGroup}
+              title="No contacts yet"
+              description={
+                isPicker
+                  ? 'Add people from Contacts to start chatting.'
+                  : 'Enter a full username above to find people.'
+              }
+              className="empty-state--panel"
+            />
           ) : (
             <ul className={`contacts-list${isPicker ? ' contacts-list--picker' : ''}`}>
               {contacts.map((c) => {

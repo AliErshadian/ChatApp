@@ -6,7 +6,17 @@ import { realtime } from '../services/realtime';
 import { voiceCallManager } from '../services/voiceCall';
 import { Avatar } from './Avatar';
 import { Icon } from './Icon';
-import { faArrowLeft, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { SkeletonListRows } from './Skeleton';
+import { EmptyState } from './ui/EmptyState';
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
+import {
+  faArrowLeft,
+  faArrowTrendDown,
+  faArrowTrendUp,
+  faPhone,
+  faPhoneSlash,
+  faXmark,
+} from '@fortawesome/free-solid-svg-icons';
 
 interface Props {
   onClose: () => void;
@@ -53,20 +63,20 @@ function formatDuration(seconds: number | null | undefined): string | null {
   return `${secs}s`;
 }
 
-function callIcon(category: CallHistoryItem['category']) {
+function callIcon(category: CallHistoryItem['category']): IconDefinition {
   switch (category) {
     case 'incoming':
-      return '↙';
+      return faArrowTrendDown;
     case 'outgoing':
-      return '↗';
+      return faArrowTrendUp;
     case 'missed':
-      return '↙';
+      return faPhoneSlash;
     case 'cancelled':
-      return '↗';
+      return faPhoneSlash;
     case 'not_answered':
-      return '↗';
+      return faPhoneSlash;
     default:
-      return '☎';
+      return faPhone;
   }
 }
 
@@ -198,12 +208,14 @@ export function CallsPanel({ onClose, isMobile = false, onMessage }: Props) {
         {error && <p className="profile-error-inline">{error}</p>}
 
         {loading ? (
-          <p className="contacts-hint">Loading call history...</p>
+          <SkeletonListRows count={7} />
         ) : items.length === 0 ? (
-          <div className="contacts-empty">
-            <p>No calls yet</p>
-            <span>Your voice call history will appear here</span>
-          </div>
+          <EmptyState
+            icon={faPhone}
+            title="No calls yet"
+            description="Your voice and video call history will appear here."
+            className="empty-state--panel"
+          />
         ) : (
           <ul className="calls-list">
             {items.map((item) => {
@@ -226,7 +238,7 @@ export function CallsPanel({ onClose, isMobile = false, onMessage }: Props) {
                           className={`call-history-direction${isMissedLike ? ' call-history-direction--alert' : ''}`}
                           aria-hidden="true"
                         >
-                          {callIcon(item.category)}
+                          <Icon icon={callIcon(item.category)} />
                         </span>
                         <span className="call-history-name">{item.peer.displayName}</span>
                       </div>

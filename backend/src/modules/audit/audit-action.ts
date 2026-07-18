@@ -6,6 +6,7 @@ export const AuditAction = {
   AUTH_SESSION_REVOKE: 'auth.session_revoke',
   AUTH_SESSION_REVOKE_OTHERS: 'auth.session_revoke_others',
   USER_AVATAR_UPDATE: 'user.avatar_update',
+  USER_PROFILE_UPDATE: 'user.profile_update',
   CONTACT_ADD: 'contact.add',
   CONTACT_REMOVE: 'contact.remove',
   CONVERSATION_CREATE_DIRECT: 'conversation.create_direct',

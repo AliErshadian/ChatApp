@@ -1,0 +1,449 @@
+/* Mobile & small screens */
+@media (max-width: 768px) {
+  .auth-page {
+    align-items: stretch;
+    justify-content: flex-end;
+    padding: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .auth-theme-btn {
+    top: max(0.75rem, env(safe-area-inset-top));
+    right: max(0.75rem, env(safe-area-inset-right));
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .auth-shell {
+    width: 100%;
+    min-height: 100%;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 0;
+  }
+
+  .auth-hero {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding:
+      max(4.5rem, calc(env(safe-area-inset-top) + 3.5rem))
+      1.5rem
+      1.5rem;
+    text-align: center;
+  }
+
+  .auth-brand {
+    margin-bottom: 0.5rem;
+  }
+
+  .auth-brand h1 {
+    font-size: 2rem;
+  }
+
+  .auth-logo {
+    width: 4.5rem;
+    height: 4.5rem;
+    border-radius: 16px;
+  }
+
+  .auth-hero .subtitle {
+    font-size: 0.95rem;
+    max-width: 16rem;
+    line-height: 1.45;
+  }
+
+  .auth-card {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding:
+      1.35rem 1.25rem
+      max(1.35rem, calc(env(safe-area-inset-bottom) + 0.85rem));
+    border-radius: 1.5rem 1.5rem 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.18);
+  }
+
+  .auth-mode-toggle {
+    margin-bottom: 1.25rem;
+  }
+
+  .auth-mode-btn {
+    min-height: 2.75rem;
+    font-size: 0.92rem;
+  }
+
+  .auth-form {
+    gap: 0.85rem;
+  }
+
+  .auth-field-label {
+    font-size: 0.7rem;
+  }
+
+  .auth-card input,
+  .auth-field input {
+    font-size: 16px;
+    padding: 0.95rem 1rem;
+    border-radius: 14px;
+    min-height: 3rem;
+  }
+
+  .auth-submit,
+  .auth-card button[type="submit"] {
+    min-height: 3.25rem;
+    font-size: 1.05rem;
+    border-radius: 14px;
+    margin-top: 0.5rem;
+  }
+
+  .chat-layout {
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .chat-layout-body {
+    flex-direction: column;
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+.nav-rail--bottom {
+  width: 100%;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  padding: 0.3rem 0.25rem;
+  padding-bottom: max(0.3rem, env(safe-area-inset-bottom));
+  border-right: none;
+  border-top: 1px solid var(--glass-border);
+  flex-shrink: 0;
+  z-index: 100;
+  background: var(--surface-panel);
+}
+
+.nav-rail--bottom .nav-rail-primary,
+.nav-rail--bottom .nav-rail-account {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+}
+
+.nav-rail--bottom .nav-rail-primary {
+  flex: 1;
+  width: 100%;
+  justify-content: space-between;
+}
+
+.nav-rail--bottom .nav-rail-account {
+  flex: 0 0 auto;
+}
+
+  .nav-rail--bottom .nav-rail-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    width: auto;
+    height: auto;
+    min-height: 3.25rem;
+    gap: 0.2rem;
+    border-radius: 10px;
+    max-width: none;
+    padding: 0.2rem 0.1rem;
+  }
+
+  .nav-rail--bottom .nav-rail-btn svg,
+  .nav-rail--bottom .nav-rail-btn .fa-icon {
+    width: 1.2rem;
+    height: 1.2rem;
+    font-size: 1.15rem;
+  }
+
+  .nav-rail--bottom .nav-rail-badge {
+    top: -0.15rem;
+    right: -0.35rem;
+  }
+
+  .nav-rail--bottom .nav-rail-btn--avatar .profile-avatar-sm,
+  .nav-rail--bottom .nav-rail-btn--avatar .profile-avatar-img.profile-avatar-sm {
+    width: 1.75rem;
+    height: 1.75rem;
+    font-size: 0.7rem;
+  }
+
+  .nav-rail--bottom .nav-rail-btn--avatar.active {
+    box-shadow: none;
+    background: color-mix(in srgb, var(--c-accent) 22%, var(--glass-2));
+  }
+
+  .nav-rail--bottom .nav-rail-label {
+    color: inherit;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nav-rail--bottom .nav-more-wrap {
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .nav-rail--bottom .nav-more-menu {
+    right: 0;
+    left: auto;
+    min-width: 11.5rem;
+  }
+
+  .chat-layout.panel-open {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .chat-layout.panel-open .sidebar {
+    display: flex;
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+  }
+
+  .chat-layout.panel-open .chat-main {
+    display: flex;
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    min-height: 0;
+    will-change: transform;
+    box-shadow: -10px 0 42px rgba(0, 0, 0, 0.35);
+    /* Prevent sidebar bleed-through behind chat panel */
+    background: var(--chat-wash);
+  }
+
+  .chat-layout:not(.panel-open) .chat-main {
+    display: none;
+  }
+
+  .sidebar {
+    width: 100%;
+    max-width: 100%;
+    flex: 1;
+    border-right: none;
+    background: var(--surface-sidebar);
+  }
+
+  .chat-main {
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    touch-action: pan-y;
+    background: var(--surface-chat);
+  }
+
+  .sidebar-chrome {
+    padding: 0.75rem 0.85rem 0.45rem;
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+  }
+
+  .sidebar-chrome-heading h2 {
+    font-size: 1.2rem;
+  }
+
+  .sidebar-chrome-btn {
+    width: 2.55rem;
+    height: 2.55rem;
+  }
+
+  .sidebar-search {
+    padding: 0 0.85rem 0.75rem;
+  }
+
+  .sidebar-search input {
+    font-size: 16px;
+    min-height: 2.75rem;
+  }
+
+  .sidebar-actions {
+    display: none;
+  }
+
+  .contacts-content {
+    padding: 0.85rem 1rem 1.25rem;
+  }
+
+  .contacts-search-input {
+    font-size: 16px;
+    min-height: 2.75rem;
+  }
+
+  .contact-row {
+    flex-wrap: wrap;
+    padding: 0.75rem;
+  }
+
+  .contact-row-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .contact-action-btn {
+    min-height: 2.5rem;
+    padding: 0.5rem 0.85rem;
+  }
+
+  .conversation-item {
+    padding: 0.8rem 0.75rem;
+    min-height: 4.25rem;
+  }
+
+  .chat-header,
+  .profile-header,
+  .conversation-info-header {
+    padding: 0.55rem 0.75rem;
+    padding-top: max(0.55rem, env(safe-area-inset-top));
+    min-height: 3.5rem;
+  }
+
+  .chat-header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 0.4rem;
+  }
+
+  .messages {
+    padding: 0.75rem 1rem;
+  }
+
+  .message {
+    max-width: min(88%, 520px);
+  }
+
+  .composer {
+    padding: 0.75rem 1rem;
+    gap: 0.5rem;
+  }
+
+  .composer input {
+    font-size: 16px;
+    min-height: 2.75rem;
+  }
+
+  .composer button {
+    min-height: 2.75rem;
+    padding: 0.75rem 1rem;
+    flex-shrink: 0;
+  }
+
+  .icon-btn,
+  .close-chat-btn,
+  .back-btn {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
+  .close-chat-btn {
+    font-size: 1.25rem;
+  }
+
+  .chat-header-btn h3 {
+    font-size: 1rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+
+  .profile-content,
+  .conversation-info-content {
+    padding: 1.25rem 1rem max(1.75rem, calc(env(safe-area-inset-bottom) + 1rem));
+    max-width: none;
+  }
+
+  .profile-avatar-stage {
+    width: 6rem;
+    height: 6rem;
+  }
+
+  .profile-avatar-stage .avatar-with-presence,
+  .profile-avatar-stage .avatar-with-presence--lg,
+  .profile-avatar-stage .profile-avatar-lg,
+  .profile-avatar-stage .profile-avatar-img.profile-avatar-lg {
+    width: 6rem;
+    height: 6rem;
+  }
+
+  .profile-avatar-edit {
+    width: 2.35rem;
+    height: 2.35rem;
+  }
+
+  .profile-list-row {
+    grid-template-columns: minmax(5.5rem, 32%) 1fr;
+    padding: 0.95rem 1rem;
+  }
+
+  .profile-cache-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .profile-cache-btn,
+  .profile-cache-clear-btn {
+    min-height: 2.75rem;
+  }
+
+  .contact-info-prompt-actions {
+    width: 100%;
+  }
+
+  .contact-info-prompt-actions .contact-action-btn {
+    flex: 1;
+    min-height: 2.5rem;
+    padding: 0.55rem 0.85rem;
+    font-size: 0.82rem;
+  }
+
+  .modal {
+    width: calc(100% - 2rem);
+    max-width: 400px;
+    margin: 1rem;
+  }
+
+  .modal input {
+    font-size: 16px;
+  }
+
+  .modal-actions button {
+    min-height: 2.75rem;
+  }
+
+  .member-list-item {
+    min-height: 3.25rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .composer button {
+    padding: 0.75rem 0.85rem;
+    font-size: 0.85rem;
+  }
+
+  .empty-state {
+    padding: 1.5rem 1rem;
+  }
+
+  .profile-hero h2 {
+    font-size: 1.25rem;
+  }
+}
+

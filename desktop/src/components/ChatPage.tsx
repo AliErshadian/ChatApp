@@ -73,10 +73,13 @@ import { isMessagesNearBottom, scrollToMessageById, scrollContainerToMessage, sc
 import { getConversationMentionLabel, buildMentionNotificationText, buildNewChatNotificationText, buildAddedToConversationText } from '../utils/conversationLabel';
 import { isMessageInView } from '../utils/isMessageInView';
 import type { InAppNotification } from '../utils/inAppNotification';
+import { getInAppAlertsEnabled } from '../utils/notificationPrefs';
 import { buildNewSessionNotificationText } from '../utils/sessionDisplay';
 import { filterConversationsBySearch, isSearchQueryActive } from '../utils/search';
 import { useVoiceCall } from '../hooks/useVoiceCall';
 import { voiceCallManager } from '../services/voiceCall';
+import { EmptyState } from './ui/EmptyState';
+import { Button } from './ui/Button';
 
 export function ChatPage() {
   const { user, logout } = useAuth();
@@ -345,6 +348,8 @@ export function ChatPage() {
 
   const addInAppNotification = useCallback(
     (item: InAppNotification) => {
+      if (!getInAppAlertsEnabled()) return;
+
       setInAppNotifications((prev) => {
         if (prev.some((entry) => entry.id === item.id)) return prev;
         const next = [...prev, item];
@@ -3173,32 +3178,35 @@ export function ChatPage() {
             </div>
           </>
         ) : (
-          <div className="empty-state">
-            <div className="empty-state-icon"><Icon icon={faComments} /></div>
-            <h3>Welcome to ChatApp</h3>
-            <p>Select a conversation from the sidebar to start chatting</p>
-            {activeId && !isPanelOpen && (
-              <button
-                className="reopen-chat-btn"
-                onClick={() => {
-                  if (activeId) {
-                    const conv = conversations.find((c) => c.id === activeId);
-                    const membership = conv?.members.find((m) => m.userId === user?.id);
-                    lastReadAtOnOpenRef.current = membership?.lastReadAt;
-                    unreadCountOnOpenRef.current = conv?.unreadCount ?? 0;
-                  }
-                  setIsPanelOpen(true);
-                  setConversations((prev) =>
-                    prev.map((c) =>
-                      c.id === activeId ? { ...c, unreadCount: 0 } : c,
-                    ),
-                  );
-                }}
-              >
-                Reopen last chat
-              </button>
-            )}
-          </div>
+          <EmptyState
+            icon={faComments}
+            title="Welcome to ChatApp"
+            description="Select a conversation from the sidebar to start chatting."
+            action={
+              activeId && !isPanelOpen ? (
+                <Button
+                  variant="primary"
+                  className="reopen-chat-btn"
+                  onClick={() => {
+                    if (activeId) {
+                      const conv = conversations.find((c) => c.id === activeId);
+                      const membership = conv?.members.find((m) => m.userId === user?.id);
+                      lastReadAtOnOpenRef.current = membership?.lastReadAt;
+                      unreadCountOnOpenRef.current = conv?.unreadCount ?? 0;
+                    }
+                    setIsPanelOpen(true);
+                    setConversations((prev) =>
+                      prev.map((c) =>
+                        c.id === activeId ? { ...c, unreadCount: 0 } : c,
+                      ),
+                    );
+                  }}
+                >
+                  Reopen last chat
+                </Button>
+              ) : undefined
+            }
+          />
         )}
       </main>
       </div>

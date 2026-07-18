@@ -71,7 +71,8 @@ export function AppNav({
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const [logoFailed, setLogoFailed] = useState(false);
   const logoutConfirm = getLogoutConfirm();
-  const moreMenuActive = activeTab === 'tasks' || activeTab === 'notes' || activeTab === 'profile';
+  const moreMenuActive =
+    activeTab === 'contacts' || activeTab === 'notes' || activeTab === 'profile';
 
   useEffect(() => {
     if (!moreMenuOpen) return;
@@ -133,6 +134,27 @@ export function AppNav({
     </>
   );
 
+  const mobileTasksButton = (
+    <button
+      type="button"
+      className={`nav-rail-btn${activeTab === 'tasks' ? ' active' : ''}`}
+      onClick={onTasks}
+      title="Tasks"
+      aria-label={
+        tasksUnreadCount > 0
+          ? `Tasks, ${tasksUnreadCount} unread invitations`
+          : 'Tasks'
+      }
+      aria-current={activeTab === 'tasks' ? 'page' : undefined}
+    >
+      <span className="nav-rail-btn-icon">
+        <Icon icon={faListCheck} />
+        <NavTabBadge count={tasksUnreadCount} />
+      </span>
+      <span className="nav-rail-label">Tasks</span>
+    </button>
+  );
+
   const mobileMoreButton = (
     <div className="nav-more-wrap" ref={moreMenuRef}>
       <button
@@ -140,19 +162,14 @@ export function AppNav({
         className={`nav-rail-btn nav-rail-btn--more${moreMenuActive || moreMenuOpen ? ' active' : ''}`}
         onClick={() => setMoreMenuOpen((open) => !open)}
         title="More"
-        aria-label={
-          tasksUnreadCount > 0
-            ? `More, ${tasksUnreadCount} unread task invitations`
-            : 'More'
-        }
+        aria-label="More"
         aria-expanded={moreMenuOpen}
         aria-haspopup="menu"
       >
         <span className="nav-rail-btn-icon">
           <Icon icon={faEllipsisVertical} />
-          <NavTabBadge count={tasksUnreadCount} />
         </span>
-        {isBottom && <span className="nav-rail-label">More</span>}
+        <span className="nav-rail-label">More</span>
       </button>
 
       {moreMenuOpen && (
@@ -160,19 +177,14 @@ export function AppNav({
           <button
             type="button"
             role="menuitem"
-            className={`nav-more-menu-item${activeTab === 'tasks' ? ' active' : ''}`}
+            className={`nav-more-menu-item${activeTab === 'contacts' ? ' active' : ''}`}
             onClick={() => {
               closeMoreMenu();
-              onTasks();
+              onContacts();
             }}
           >
-            <Icon icon={faListCheck} />
-            <span>Tasks</span>
-            {tasksUnreadCount > 0 && (
-              <span className="nav-more-menu-badge">
-                {tasksUnreadCount > 99 ? '99+' : tasksUnreadCount}
-              </span>
-            )}
+            <Icon icon={faUserGroup} />
+            <span>Contacts</span>
           </button>
           <button
             type="button"
@@ -197,7 +209,7 @@ export function AppNav({
               }}
             >
               <Avatar name={displayName} avatarUrl={avatarUrl} size="sm" />
-              <span>Profile</span>
+              <span>Settings</span>
             </button>
           )}
         </div>
@@ -280,19 +292,26 @@ export function AppNav({
             {isBottom && <span className="nav-rail-label">Calls</span>}
           </button>
 
-          <button
-            type="button"
-            className={`nav-rail-btn${activeTab === 'contacts' ? ' active' : ''}`}
-            onClick={onContacts}
-            title="Contacts"
-            aria-label="Contacts"
-            aria-current={activeTab === 'contacts' ? 'page' : undefined}
-          >
-            <Icon icon={faUserGroup} />
-            {isBottom && <span className="nav-rail-label">Contacts</span>}
-          </button>
-
-          {isBottom ? mobileMoreButton : tasksNotesButtons}
+          {isBottom ? (
+            <>
+              {mobileTasksButton}
+              {mobileMoreButton}
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={`nav-rail-btn${activeTab === 'contacts' ? ' active' : ''}`}
+                onClick={onContacts}
+                title="Contacts"
+                aria-label="Contacts"
+                aria-current={activeTab === 'contacts' ? 'page' : undefined}
+              >
+                <Icon icon={faUserGroup} />
+              </button>
+              {tasksNotesButtons}
+            </>
+          )}
         </div>
 
         {!isBottom && <div className="nav-rail-spacer" />}
@@ -304,8 +323,8 @@ export function AppNav({
               type="button"
               className={`nav-rail-btn nav-rail-btn--avatar${activeTab === 'profile' ? ' active' : ''}`}
               onClick={onProfile}
-              title="My profile"
-              aria-label="My profile"
+              title="Settings"
+              aria-label="Settings"
               aria-current={activeTab === 'profile' ? 'page' : undefined}
             >
               <Avatar name={displayName} avatarUrl={avatarUrl} size="sm" />

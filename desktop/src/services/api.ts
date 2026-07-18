@@ -907,6 +907,13 @@ class ApiClient {
     return this.request<User>('/users/me');
   }
 
+  updateMe(input: { displayName: string }) {
+    return this.request<User>('/users/me', {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  }
+
   listConversations() {
     return this.request<Conversation[]>('/conversations');
   }

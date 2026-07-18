@@ -7,7 +7,14 @@ import { Icon } from './Icon';
 import { ConfirmModal } from './ConfirmModal';
 import { SessionsPanel } from './SessionsPanel';
 import { CacheManagementPanel } from './CacheManagementPanel';
+import { SkeletonProfile } from './Skeleton';
+import { Button } from './ui/Button';
+import { Input } from './ui/Input';
 import { getLogoutConfirm } from '../utils/deleteChatConfirm';
+import {
+  getInAppAlertsEnabled,
+  setInAppAlertsEnabled,
+} from '../utils/notificationPrefs';
 import {
   faArrowLeft,
   faCamera,
@@ -37,6 +44,9 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
   const [profile, setProfile] = useState<User | null>(authUser);
   const [loading, setLoading] = useState(!authUser);
   const [uploading, setUploading] = useState(false);
+  const [savingName, setSavingName] = useState(false);
+  const [displayNameDraft, setDisplayNameDraft] = useState(authUser?.displayName ?? '');
+  const [inAppAlerts, setInAppAlerts] = useState(getInAppAlertsEnabled);
   const [error, setError] = useState('');
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -45,10 +55,14 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
   useEffect(() => {
     if (authUser) {
       setProfile(authUser);
+      setDisplayNameDraft(authUser.displayName);
       setLoading(false);
       void api
         .me()
-        .then(setProfile)
+        .then((user) => {
+          setProfile(user);
+          setDisplayNameDraft(user.displayName);
+        })
         .catch(() => {
           // Keep cached profile from auth context on transient failures.
         });
@@ -58,8 +72,11 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
     setLoading(true);
     setError('');
     api.me()
-      .then(setProfile)
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load profile'))
+      .then((user) => {
+        setProfile(user);
+        setDisplayNameDraft(user.displayName);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load settings'))
       .finally(() => setLoading(false));
   }, [authUser]);
 
@@ -81,17 +98,46 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
     }
   };
 
-  const closeLabel = isMobile ? 'Back to conversations' : 'Close profile';
+  const handleSaveDisplayName = async () => {
+    if (!profile) return;
+    const next = displayNameDraft.trim();
+    if (next.length < 2) {
+      setError('Display name must be at least 2 characters');
+      return;
+    }
+    if (next === profile.displayName) return;
+
+    setSavingName(true);
+    setError('');
+    try {
+      const updated = await api.updateMe({ displayName: next });
+      setProfile(updated);
+      setDisplayNameDraft(updated.displayName);
+      updateUser(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update display name');
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const handleInAppAlertsChange = (enabled: boolean) => {
+    setInAppAlerts(enabled);
+    setInAppAlertsEnabled(enabled);
+  };
+
+  const closeLabel = isMobile ? 'Back to conversations' : 'Close settings';
   const closeIcon = isMobile ? <Icon icon={faArrowLeft} /> : <Icon icon={faXmark} />;
+  const nameDirty = Boolean(profile && displayNameDraft.trim() !== profile.displayName);
 
   if (!profile && loading) {
     return (
       <div className="profile-panel">
         <header className="profile-header">
           <button className="icon-btn close-chat-btn" onClick={onClose} aria-label={closeLabel} title={closeLabel}>{closeIcon}</button>
-          <h3>Profile</h3>
+          <h3>Settings</h3>
         </header>
-        <div className="profile-loading">Loading profile...</div>
+        <SkeletonProfile />
       </div>
     );
   }
@@ -101,9 +147,9 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
       <div className="profile-panel">
         <header className="profile-header">
           <button className="icon-btn close-chat-btn" onClick={onClose} aria-label={closeLabel} title={closeLabel}>{closeIcon}</button>
-          <h3>Profile</h3>
+          <h3>Settings</h3>
         </header>
-        <div className="profile-error">{error || 'Profile unavailable'}</div>
+        <div className="profile-error">{error || 'Settings unavailable'}</div>
       </div>
     );
   }
@@ -112,7 +158,7 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
     <div className="profile-panel">
       <header className="profile-header">
         <button className="icon-btn close-chat-btn" onClick={onClose} aria-label={closeLabel} title={closeLabel}>{closeIcon}</button>
-        <h3>Profile</h3>
+        <h3>Settings</h3>
       </header>
 
       <div className="profile-content">
@@ -169,7 +215,44 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
         </section>
 
         <section className="profile-section">
+          <h4>Notifications</h4>
+          <div className="profile-pref-card profile-pref-row">
+            <div>
+              <p className="profile-pref-title">Show in-app alerts</p>
+              <p className="profile-pref-desc">Mentions, new chats, and session notices</p>
+            </div>
+            <button
+              type="button"
+              className={`pref-switch${inAppAlerts ? ' on' : ''}`}
+              role="switch"
+              aria-checked={inAppAlerts}
+              onClick={() => handleInAppAlertsChange(!inAppAlerts)}
+            >
+              <span className="pref-switch-thumb" />
+            </button>
+          </div>
+        </section>
+
+        <section className="profile-section">
           <h4>Account</h4>
+          <div className="profile-pref-card profile-account-edit">
+            <Input
+              label="Display name"
+              value={displayNameDraft}
+              onChange={(e) => setDisplayNameDraft(e.target.value)}
+              maxLength={128}
+              disabled={savingName}
+            />
+            {nameDirty && (
+              <Button
+                variant="primary"
+                onClick={() => void handleSaveDisplayName()}
+                disabled={savingName || displayNameDraft.trim().length < 2}
+              >
+                {savingName ? 'Saving…' : 'Save name'}
+              </Button>
+            )}
+          </div>
           <dl className="profile-list">
             <div className="profile-list-row">
               <dt>Email</dt>
@@ -178,10 +261,6 @@ export function ProfilePanel({ onClose, isMobile = false }: Props) {
             <div className="profile-list-row">
               <dt>Username</dt>
               <dd>@{profile.username}</dd>
-            </div>
-            <div className="profile-list-row">
-              <dt>Display name</dt>
-              <dd>{profile.displayName}</dd>
             </div>
             <div className="profile-list-row">
               <dt>Member since</dt>

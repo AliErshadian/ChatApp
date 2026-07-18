@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
+  Body,
   Query,
   Param,
   UseGuards,
@@ -17,6 +19,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from './entities/user.entity';
 import { UsersService } from './users.service';
+import { UpdateMeDto } from './dto/update-me.dto';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
@@ -26,6 +29,11 @@ export class UsersController {
   @Get('me')
   me(@CurrentUser() user: User) {
     return this.usersService.toPublic(user);
+  }
+
+  @Patch('me')
+  updateMe(@CurrentUser() user: User, @Body() dto: UpdateMeDto) {
+    return this.usersService.updateMe(user.id, dto);
   }
 
   @Post('me/avatar')

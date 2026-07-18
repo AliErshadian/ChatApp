@@ -3,6 +3,7 @@ import { useAuth } from './context/AuthContext';
 import { PresenceProvider } from './context/PresenceContext';
 import { LoginPage } from './components/LoginPage';
 import { ChatPage } from './components/ChatPage';
+import { SkeletonAppBoot } from './components/Skeleton';
 import { parseInviteTokenFromLink, stashPendingInviteToken } from './utils/channelInvite';
 
 export function App() {
@@ -18,7 +19,7 @@ export function App() {
   }, []);
 
   if (loading) {
-    return <div className="loading">Loading...</div>;
+    return <SkeletonAppBoot />;
   }
 
   return user ? (
