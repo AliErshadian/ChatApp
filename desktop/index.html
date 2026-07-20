@@ -10,18 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <script>
-      (function () {
-        try {
-          var t = localStorage.getItem('chatapp-theme');
-          if (t !== 'light' && t !== 'dark') t = 'dark';
-          document.documentElement.setAttribute('data-theme', t);
-          document.documentElement.style.colorScheme = t;
-        } catch (e) {
-          document.documentElement.setAttribute('data-theme', 'dark');
-        }
-      })();
-    </script>
+    <script src="./theme-boot.js"></script>
     <title>ChatApp</title>
   </head>
   <body>

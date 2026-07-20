@@ -18,6 +18,34 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let pendingInviteUrl: string | null = null;
 
+/** Mirrors desktop/csp.ts — keep in sync for packaged Electron builds. */
+const DESKTOP_CSP = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "img-src 'self' data: blob: http: https:",
+  "media-src 'self' blob: http: https:",
+  "connect-src 'self' http: https: ws: wss: blob:",
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+].join('; ');
+
+function applyContentSecurityPolicy() {
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const headers = { ...details.responseHeaders };
+    // Enforce CSP on document navigations and HTML; skip in Vite HMR so Fast Refresh works
+    if (!isDev) {
+      headers['Content-Security-Policy'] = [DESKTOP_CSP];
+    }
+    callback({ responseHeaders: headers });
+  });
+}
+
 interface RefreshClientInfo {
   clientType?: string;
   platform?: string;
@@ -344,6 +372,8 @@ app.on('certificate-error', (event, _webContents, url, _error, _certificate, cal
 });
 
 app.whenReady().then(() => {
+  applyContentSecurityPolicy();
+
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === 'media');
   });

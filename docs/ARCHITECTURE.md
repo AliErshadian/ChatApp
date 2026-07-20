@@ -712,6 +712,18 @@ Key indexes:
 6. validateAccessToken checks user active + session not revoked (Redis session cache → DB fallback)
 ```
 
+### Content Security Policy (CSP)
+
+| Surface | How CSP is applied |
+|---------|-------------------|
+| NestJS API | Helmet (`backend/src/config/csp.ts`) — deny-by-default for any HTML from the API |
+| Desktop / browser SPA | Vite injects `<meta http-equiv="Content-Security-Policy">` on **production** builds (`desktop/csp.ts`) |
+| Admin SPA | Same pattern (`admin/csp.ts`) |
+| Electron packaged | `session.webRequest.onHeadersReceived` sets CSP header (skipped in Vite HMR dev) |
+| nginx (prod compose) | CSP + `X-Frame-Options DENY`, `nosniff`, `Referrer-Policy` |
+
+SPA policy allows `'self'` scripts, React inline styles, `blob:` media, Google Fonts (desktop), and `http(s)` / `ws(s)` connect for LAN API hosts. Dev servers omit CSP so Vite HMR works.
+
 ### Active Directory / LDAP
 
 - Service bind with encrypted bind password; user bind verifies credentials (password never persisted)

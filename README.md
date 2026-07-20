@@ -321,6 +321,12 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Security
 
+- **Content Security Policy (CSP)**
+  - API: Helmet deny-by-default CSP (`backend/src/config/csp.ts`)
+  - Desktop / admin production builds: CSP meta injected by Vite
+  - Electron (packaged): CSP response header on all navigations
+  - Prod nginx: CSP + `X-Frame-Options` / `nosniff` / `Referrer-Policy`
+  - Dev Vite skips CSP so HMR / Fast Refresh keep working
 - JWT access (15m, `sid`) + rotating refresh (7d, hashed)
 - Provider auth: local and optional AD; AD passwords never stored
 - LDAP bind password encrypted (`DIRECTORY_ENCRYPTION_KEY`)

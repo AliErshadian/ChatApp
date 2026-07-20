@@ -11,6 +11,7 @@ import { createHttpLogger } from './observability/logging';
 import { initSentry } from './observability/sentry';
 import { SentryExceptionFilter } from './observability/sentry-exception.filter';
 import { isOriginAllowed, parseCorsOriginList } from './config/cors';
+import { API_CSP_DIRECTIVES } from './config/csp';
 
 async function bootstrap() {
   initSentry();
@@ -27,6 +28,12 @@ async function bootstrap() {
   app.use(
     helmet({
       crossOriginResourcePolicy: { policy: 'cross-origin' },
+      contentSecurityPolicy: {
+        useDefaults: false,
+        directives: API_CSP_DIRECTIVES,
+      },
+      // SPA clients load cross-origin API media via fetch; keep COEP off
+      crossOriginEmbedderPolicy: false,
     }),
   );
 
