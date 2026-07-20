@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   ConflictException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -15,6 +16,9 @@ import { RefreshToken } from './entities/refresh-token.entity';
 import { UserSession } from './entities/user-session.entity';
 import { SessionRealtimePublisher } from './session-realtime.publisher';
 import { SessionCacheService } from './session-cache.service';
+import { LoginAttemptService } from './login-attempt.service';
+import { LoginCaptchaService } from './login-captcha.service';
+import { LOGIN_CAPTCHA_CODES } from './login-protection.constants';
 import { LoginDto, RegisterDto, SessionClientInfoDto } from './dto/auth.dto';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../audit/audit-action';
@@ -68,6 +72,8 @@ export class AuthService {
     private readonly sessionRepo: Repository<UserSession>,
     private readonly sessionRealtime: SessionRealtimePublisher,
     private readonly sessionCache: SessionCacheService,
+    private readonly loginAttempts: LoginAttemptService,
+    private readonly loginCaptcha: LoginCaptchaService,
     private readonly audit: AuditService,
     private readonly authenticationManager: AuthenticationManager,
   ) {}
@@ -113,6 +119,8 @@ export class AuthService {
         email: dto.email,
         password: dto.password,
         clientInfo: dto.clientInfo,
+        captchaToken: dto.captchaToken,
+        captchaAnswer: dto.captchaAnswer,
       },
       ipAddress,
     );
@@ -124,45 +132,121 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const preferredProvider: AuthenticationProviderId | undefined = dto.provider;
+    const captchaConfig = this.loginCaptcha.getPublicConfig();
+    const captchaRequired = await this.loginAttempts.isCaptchaRequired(ipAddress, identifier);
 
-    const result = await this.authenticationManager.authenticate(
-      {
-        identifier,
-        password: dto.password,
-        preferredProvider,
-      },
-      {
-        ipAddress,
-        userAgent: dto.clientInfo?.userAgent,
-      },
-    );
-
-    const user = await this.usersService.findById(result.userId);
-    if (!user || !user.isActive) {
-      throw new UnauthorizedException('Invalid credentials');
+    if (captchaRequired) {
+      if (!dto.captchaToken) {
+        throw new BadRequestException({
+          statusCode: 400,
+          message: 'CAPTCHA verification required after multiple failed attempts',
+          code: LOGIN_CAPTCHA_CODES.REQUIRED,
+          captchaRequired: true,
+          captchaProvider: captchaConfig.provider,
+          ...(captchaConfig.turnstileSiteKey
+            ? { turnstileSiteKey: captchaConfig.turnstileSiteKey }
+            : {}),
+        });
+      }
+      await this.loginCaptcha.assertValid({
+        captchaToken: dto.captchaToken,
+        captchaAnswer: dto.captchaAnswer,
+      });
     }
 
-    const tokens = await this.issueTokensForAuth(user.id, user.email, {
-      ...this.clientInfoToOptions(dto.clientInfo),
-      ipAddress,
-    });
+    const preferredProvider: AuthenticationProviderId | undefined = dto.provider;
 
-    this.audit.record({
-      action: AuditAction.AUTH_LOGIN,
-      userId: user.id,
-      ipAddress,
-      userAgent: dto.clientInfo?.userAgent,
-      metadata: {
-        email: user.email,
-        provider: result.provider,
-        deviceLabel: dto.clientInfo?.deviceLabel,
-        appName: dto.clientInfo?.appName,
-        created: result.created ?? false,
-      },
-    });
+    try {
+      const result = await this.authenticationManager.authenticate(
+        {
+          identifier,
+          password: dto.password,
+          preferredProvider,
+        },
+        {
+          ipAddress,
+          userAgent: dto.clientInfo?.userAgent,
+        },
+      );
 
-    return { user: this.usersService.toPublic(user), ...tokens };
+      const user = await this.usersService.findById(result.userId);
+      if (!user || !user.isActive) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+
+      await this.loginAttempts.clearFailures(ipAddress, identifier);
+
+      const tokens = await this.issueTokensForAuth(user.id, user.email, {
+        ...this.clientInfoToOptions(dto.clientInfo),
+        ipAddress,
+      });
+
+      this.audit.record({
+        action: AuditAction.AUTH_LOGIN,
+        userId: user.id,
+        ipAddress,
+        userAgent: dto.clientInfo?.userAgent,
+        metadata: {
+          email: user.email,
+          provider: result.provider,
+          deviceLabel: dto.clientInfo?.deviceLabel,
+          appName: dto.clientInfo?.appName,
+          created: result.created ?? false,
+        },
+      });
+
+      return { user: this.usersService.toPublic(user), ...tokens };
+    } catch (err) {
+      if (err instanceof UnauthorizedException) {
+        const failure = await this.loginAttempts.recordFailure(ipAddress, identifier);
+        this.audit.record({
+          action: AuditAction.AUTH_LOGIN_FAILED,
+          ipAddress,
+          userAgent: dto.clientInfo?.userAgent,
+          metadata: {
+            identifier,
+            provider: preferredProvider,
+            captchaRequired: failure.captchaRequired,
+            attempts: failure.attempts,
+          },
+        });
+        throw new UnauthorizedException({
+          statusCode: 401,
+          message: 'Invalid credentials',
+          code: 'INVALID_CREDENTIALS',
+          captchaRequired: failure.captchaRequired,
+          captchaProvider: captchaConfig.provider,
+          ...(captchaConfig.turnstileSiteKey
+            ? { turnstileSiteKey: captchaConfig.turnstileSiteKey }
+            : {}),
+        });
+      }
+      throw err;
+    }
+  }
+
+  getLoginProtectionStatus(ipAddress?: string, identifier?: string) {
+    return this.buildLoginProtectionStatus(ipAddress, identifier);
+  }
+
+  createLoginCaptchaChallenge() {
+    return this.loginCaptcha.createChallenge();
+  }
+
+  private async buildLoginProtectionStatus(ipAddress?: string, identifier?: string) {
+    const captchaConfig = this.loginCaptcha.getPublicConfig();
+    const captchaRequired = await this.loginAttempts.isCaptchaRequired(
+      ipAddress,
+      identifier?.trim() || undefined,
+    );
+    return {
+      captchaRequired,
+      captchaProvider: captchaConfig.provider,
+      threshold: this.loginAttempts.getThreshold(),
+      ...(captchaConfig.turnstileSiteKey
+        ? { turnstileSiteKey: captchaConfig.turnstileSiteKey }
+        : {}),
+    };
   }
 
   listAuthProviders() {

@@ -11,7 +11,7 @@ export function extractApiErrorMessage(body: unknown, status: number): string {
   }
 
   if (Array.isArray(message)) {
-    const parts = message.filter((part): part is string => typeof part === 'string' && part.trim());
+    const parts = message.filter((part): part is string => typeof part === 'string' && !!part.trim());
     if (parts.length > 0) return parts.join(' ');
   }
 
@@ -23,10 +23,39 @@ export function isSessionAuthFailure(message: string): boolean {
   return normalized === 'session terminated' || normalized === 'session required';
 }
 
+export type CaptchaProviderKind = 'challenge' | 'turnstile';
+
+export function getLoginCaptchaHint(error: unknown): {
+  required: boolean;
+  provider?: CaptchaProviderKind;
+  turnstileSiteKey?: string;
+} {
+  const body = (error as { body?: Record<string, unknown> } | null)?.body;
+  if (!body || typeof body !== 'object') {
+    return { required: false };
+  }
+  const required =
+    body.captchaRequired === true ||
+    body.code === 'CAPTCHA_REQUIRED' ||
+    body.code === 'CAPTCHA_INVALID';
+  if (!required) return { required: false };
+  return {
+    required: true,
+    provider: body.captchaProvider === 'turnstile' ? 'turnstile' : 'challenge',
+    turnstileSiteKey:
+      typeof body.turnstileSiteKey === 'string' ? body.turnstileSiteKey : undefined,
+  };
+}
+
 type AuthMode = 'login' | 'register';
 
 const LOGIN_MESSAGES: Record<string, string> = {
   'Invalid credentials': 'Incorrect email or password. Please try again.',
+  'CAPTCHA verification required after multiple failed attempts':
+    'Too many failed attempts. Complete the CAPTCHA to continue.',
+  'Incorrect CAPTCHA answer': 'Incorrect CAPTCHA answer. Try again.',
+  'CAPTCHA challenge expired. Refresh and try again.':
+    'CAPTCHA expired. Refresh the challenge and try again.',
 };
 
 const REGISTER_MESSAGES: Record<string, string> = {

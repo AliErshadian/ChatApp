@@ -45,6 +45,18 @@ export class ProviderLoginDto {
   @ValidateNested()
   @Type(() => SessionClientInfoDto)
   clientInfo?: SessionClientInfoDto;
+
+  /** Required after multiple failed logins (challenge token or Turnstile response). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(4096)
+  captchaToken?: string;
+
+  /** Answer for built-in math challenge CAPTCHA. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  captchaAnswer?: string;
 }
 
 export class UpdateDirectorySettingsDto {

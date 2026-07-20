@@ -1,14 +1,15 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { api, User } from '../services/api';
+import { api, LoginCaptchaPayload, User } from '../services/api';
 
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, captcha?: LoginCaptchaPayload) => Promise<void>;
   loginWithProvider: (
     provider: 'local' | 'active_directory',
     identifier: string,
     password: string,
+    captcha?: LoginCaptchaPayload,
   ) => Promise<void>;
   register: (email: string, username: string, displayName: string, password: string) => Promise<void>;
   logout: () => void;
@@ -76,8 +77,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = async (email: string, password: string) => {
-    const res = await api.login(email, password);
+  const login = async (email: string, password: string, captcha?: LoginCaptchaPayload) => {
+    const res = await api.login(email, password, captcha);
     await api.setTokens({
       accessToken: res.accessToken,
       refreshToken: res.refreshToken,
@@ -91,8 +92,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     provider: 'local' | 'active_directory',
     identifier: string,
     password: string,
+    captcha?: LoginCaptchaPayload,
   ) => {
-    const res = await api.loginWithProvider(provider, identifier, password);
+    const res = await api.loginWithProvider(provider, identifier, password, captcha);
     await api.setTokens({
       accessToken: res.accessToken,
       refreshToken: res.refreshToken,

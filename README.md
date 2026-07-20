@@ -335,9 +335,11 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   - Removed members are forced out of `conversation:{id}` rooms
   - Per-user Redis token-bucket rate limits on all mutating / signaling events
   - Session revoke → `session:terminated` + hard `disconnectSockets`
+- **Login CAPTCHA**: after N failed attempts (default 3), CAPTCHA is required — built-in math challenge, or Cloudflare Turnstile when `TURNSTILE_*` keys are set
 - Provider auth: local and optional AD; AD passwords never stored
 - LDAP bind password encrypted (`DIRECTORY_ENCRYPTION_KEY`)
 - Session revoke kills REST, WS, and SSE immediately
+- JWT access (15m, `sid`) + rotating refresh (7d, hashed)
 - DTO validation, HTML sanitize, Helmet, CORS allowlist, throttling (stricter on auth)
 - **File scanning (uploads)**
   - Dangerous extensions blocked (`.exe`, scripts, `.html`, `.svg`, …)

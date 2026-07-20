@@ -1,10 +1,10 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { api, AdminUser } from '../services/api';
+import { api, AdminUser, LoginCaptchaPayload } from '../services/api';
 
 interface AuthContextValue {
   admin: AdminUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, captcha?: LoginCaptchaPayload) => Promise<void>;
   logout: () => void;
 }
 
@@ -34,8 +34,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = async (email: string, password: string) => {
-    const res = await api.login(email, password);
+  const login = async (email: string, password: string, captcha?: LoginCaptchaPayload) => {
+    const res = await api.login(email, password, captcha);
     api.setTokens(res);
     const me = await api.me();
     setAdmin(me);

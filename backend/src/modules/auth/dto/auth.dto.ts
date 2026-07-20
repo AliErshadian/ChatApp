@@ -73,6 +73,16 @@ export class LoginDto {
   @ValidateNested()
   @Type(() => SessionClientInfoDto)
   clientInfo?: SessionClientInfoDto;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(4096)
+  captchaToken?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  captchaAnswer?: string;
 }
 
 export class RefreshTokenDto {

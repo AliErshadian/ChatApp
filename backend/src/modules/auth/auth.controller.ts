@@ -42,6 +42,19 @@ export class AuthController {
     return this.authService.register(dto, req.ip);
   }
 
+  @Get('login/protection')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  loginProtection(@Query('identifier') identifier: string | undefined, @Req() req: Request) {
+    return this.authService.getLoginProtectionStatus(req.ip, identifier);
+  }
+
+  @Post('captcha/challenge')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  captchaChallenge() {
+    return this.authService.createLoginCaptchaChallenge();
+  }
+
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 10, ttl: 60000 } })

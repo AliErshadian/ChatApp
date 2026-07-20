@@ -1,22 +1,30 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { formatAuthError } from '../utils/authError';
+import { LoginCaptchaFields, useLoginCaptcha } from '../components/LoginCaptcha';
 
 export function LoginPage() {
   const { login } = useAuth();
+  const captcha = useLoginCaptcha();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    void captcha.checkProtection();
+  }, [captcha.checkProtection]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
+      await login(email, password, captcha.payload);
+      captcha.reset();
     } catch (err) {
       setError(formatAuthError(err));
+      await captcha.applyFromError(err);
     } finally {
       setLoading(false);
     }
@@ -40,6 +48,9 @@ export function LoginPage() {
                 setEmail(e.target.value);
                 if (error) setError('');
               }}
+              onBlur={() => {
+                if (email.trim()) void captcha.checkProtection(email.trim());
+              }}
               required
               autoComplete="email"
             />
@@ -57,6 +68,7 @@ export function LoginPage() {
               autoComplete="current-password"
             />
           </label>
+          <LoginCaptchaFields captcha={captcha} />
           {error && (
             <p className="error-banner" role="alert">
               {error}

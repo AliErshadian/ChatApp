@@ -4,6 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import { api } from '../services/api';
 import { formatAuthError } from '../utils/authError';
 import { Icon } from './Icon';
+import { LoginCaptchaFields, useLoginCaptcha } from './LoginCaptcha';
 import { faMoon, faSun } from '@fortawesome/free-solid-svg-icons';
 
 type AuthProviderId = 'local' | 'active_directory';
@@ -20,6 +21,7 @@ interface PublicProvider {
 export function LoginPage() {
   const { login, loginWithProvider, register } = useAuth();
   const { theme, setTheme } = useTheme();
+  const captcha = useLoginCaptcha();
   const [isRegister, setIsRegister] = useState(false);
   const [providers, setProviders] = useState<PublicProvider[]>([]);
   const [defaultProvider, setDefaultProvider] = useState<AuthProviderId>('local');
@@ -42,6 +44,10 @@ export function LoginPage() {
       .then((preview) => setInviteChannelName(preview.channelName))
       .catch(() => setInviteChannelName(null));
   }, []);
+
+  useEffect(() => {
+    void captcha.checkProtection();
+  }, [captcha.checkProtection]);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,16 +107,21 @@ export function LoginPage() {
     try {
       if (isRegister) {
         await register(identifier, username, displayName, password);
+        captcha.reset();
       } else {
         const provider = activeProvider?.id ?? defaultProvider;
         if (provider === 'local') {
-          await login(identifier, password);
+          await login(identifier, password, captcha.payload);
         } else {
-          await loginWithProvider(provider, identifier, password);
+          await loginWithProvider(provider, identifier, password, captcha.payload);
         }
+        captcha.reset();
       }
     } catch (err) {
       setError(formatAuthError(err, mode));
+      if (!isRegister) {
+        await captcha.applyFromError(err);
+      }
     } finally {
       setLoading(false);
     }
@@ -226,6 +237,11 @@ export function LoginPage() {
                   setIdentifier(e.target.value);
                   if (error) setError('');
                 }}
+                onBlur={() => {
+                  if (!isRegister && identifier.trim()) {
+                    void captcha.checkProtection(identifier.trim());
+                  }
+                }}
                 required
                 autoComplete={
                   canRegister || activeProvider?.id === 'local' ? 'email' : 'username'
@@ -290,6 +306,8 @@ export function LoginPage() {
                 autoComplete={isRegister ? 'new-password' : 'current-password'}
               />
             </label>
+
+            {!isRegister && <LoginCaptchaFields captcha={captcha} />}
 
             {error && (
               <p className="error auth-error" role="alert">

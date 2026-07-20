@@ -8,6 +8,18 @@ export interface AuthTokens {
   sessionId?: string;
 }
 
+export interface LoginCaptchaPayload {
+  captchaToken?: string;
+  captchaAnswer?: string;
+}
+
+export interface LoginProtectionStatus {
+  captchaRequired: boolean;
+  captchaProvider: 'challenge' | 'turnstile';
+  threshold: number;
+  turnstileSiteKey?: string;
+}
+
 export interface AdminUser {
   id: string;
   email: string;
@@ -193,8 +205,16 @@ class AdminApiClient {
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       const message = extractApiErrorMessage(body, res.status);
-      const error = new Error(message) as Error & { status?: number };
+      const error = new Error(message) as Error & {
+        status?: number;
+        body?: Record<string, unknown>;
+        code?: string;
+      };
       error.status = res.status;
+      error.body = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+      if (typeof (body as { code?: unknown }).code === 'string') {
+        error.code = (body as { code: string }).code;
+      }
       throw error;
     }
 
@@ -239,7 +259,7 @@ class AdminApiClient {
     }
   }
 
-  login(email: string, password: string) {
+  login(email: string, password: string, captcha?: LoginCaptchaPayload) {
     return this.request<{ user: unknown } & AuthTokens>(
       '/auth/login',
       {
@@ -254,8 +274,22 @@ class AdminApiClient {
             deviceLabel: 'ChatApp Admin, Web',
             userAgent: navigator.userAgent,
           },
+          ...captcha,
         }),
       },
+      false,
+    );
+  }
+
+  getLoginProtection(identifier?: string) {
+    const q = identifier ? `?identifier=${encodeURIComponent(identifier)}` : '';
+    return this.request<LoginProtectionStatus>(`/auth/login/protection${q}`, undefined, false);
+  }
+
+  createCaptchaChallenge() {
+    return this.request<{ captchaToken: string; question: string; expiresIn: number }>(
+      '/auth/captcha/challenge',
+      { method: 'POST' },
       false,
     );
   }

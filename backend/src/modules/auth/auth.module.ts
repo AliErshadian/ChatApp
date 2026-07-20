@@ -7,6 +7,8 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { SessionRealtimePublisher } from './session-realtime.publisher';
 import { SessionCacheService } from './session-cache.service';
+import { LoginAttemptService } from './login-attempt.service';
+import { LoginCaptchaService } from './login-captcha.service';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { UserSession } from './entities/user-session.entity';
 import { UsersModule } from '../users/users.module';
@@ -30,6 +32,8 @@ import { AuthenticationManager } from './providers/authentication-manager.servic
     JwtStrategy,
     SessionRealtimePublisher,
     SessionCacheService,
+    LoginAttemptService,
+    LoginCaptchaService,
     LocalAuthProvider,
     ActiveDirectoryAuthProvider,
     AuthenticationManager,

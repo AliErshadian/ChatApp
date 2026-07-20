@@ -757,6 +757,15 @@ CORS still restricts which origins may call the API with credentials-style reque
 - On member removal / conversation leave-delete: sockets leave `conversation:{id}` so they stop receiving room broadcasts
 - Session revoke: emit `session:terminated` then `disconnectSockets(true)` on `session:{sid}`
 
+### Login protection (CAPTCHA)
+
+- Failed logins counted per IP and identifier (Redis keys `auth:fail:*`, in-memory fallback)
+- After `LOGIN_FAIL_CAPTCHA_THRESHOLD` (default **3**) within `LOGIN_FAIL_WINDOW_SECONDS` (default **900**), subsequent logins require CAPTCHA
+- Default CAPTCHA: signed math challenge (`POST /auth/captcha/challenge`)
+- Optional Cloudflare Turnstile when both `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` are set
+- Status probe: `GET /auth/login/protection?identifier=`
+- Successful login clears failure counters; failures recorded via `auth.login_failed` audit action
+
 ### Rate Limiting
 
 | Endpoint | Limit |

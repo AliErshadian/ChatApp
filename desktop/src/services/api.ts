@@ -14,6 +14,18 @@ export interface User {
   createdAt?: string;
 }
 
+export interface LoginCaptchaPayload {
+  captchaToken?: string;
+  captchaAnswer?: string;
+}
+
+export interface LoginProtectionStatus {
+  captchaRequired: boolean;
+  captchaProvider: 'challenge' | 'turnstile';
+  threshold: number;
+  turnstileSiteKey?: string;
+}
+
 export interface Contact extends User {
   addedAt?: string;
 }
@@ -819,8 +831,16 @@ class ApiClient {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       const message = extractApiErrorMessage(err, res.status);
-      const error = new Error(message) as Error & { status?: number };
+      const error = new Error(message) as Error & {
+        status?: number;
+        body?: Record<string, unknown>;
+        code?: string;
+      };
       error.status = res.status;
+      error.body = err && typeof err === 'object' ? (err as Record<string, unknown>) : {};
+      if (typeof (err as { code?: unknown }).code === 'string') {
+        error.code = (err as { code: string }).code;
+      }
       throw error;
     }
     return res.json();
@@ -905,7 +925,7 @@ class ApiClient {
     );
   }
 
-  login(email: string, password: string) {
+  login(email: string, password: string, captcha?: LoginCaptchaPayload) {
     return this.request<{ user: User } & AuthTokens>(
       '/auth/login',
       {
@@ -915,6 +935,7 @@ class ApiClient {
           password,
           provider: 'local',
           clientInfo: getClientSessionInfo(),
+          ...captcha,
         }),
       },
       { refreshOnUnauthorized: false, timeoutMs: 10_000 },
@@ -925,11 +946,13 @@ class ApiClient {
     provider: 'local' | 'active_directory',
     identifier: string,
     password: string,
+    captcha?: LoginCaptchaPayload,
   ) {
     const body: Record<string, unknown> = {
       provider,
       password,
       clientInfo: getClientSessionInfo(),
+      ...captcha,
     };
     if (provider === 'local') {
       body.email = identifier;
@@ -943,6 +966,22 @@ class ApiClient {
         body: JSON.stringify(body),
       },
       { refreshOnUnauthorized: false, timeoutMs: 15_000 },
+    );
+  }
+
+  getLoginProtection(identifier?: string) {
+    const q = identifier ? `?identifier=${encodeURIComponent(identifier)}` : '';
+    return this.request<LoginProtectionStatus>(`/auth/login/protection${q}`, undefined, {
+      refreshOnUnauthorized: false,
+      timeoutMs: 8_000,
+    });
+  }
+
+  createCaptchaChallenge() {
+    return this.request<{ captchaToken: string; question: string; expiresIn: number }>(
+      '/auth/captcha/challenge',
+      { method: 'POST' },
+      { refreshOnUnauthorized: false, timeoutMs: 8_000 },
     );
   }
 
