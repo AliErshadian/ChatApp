@@ -646,13 +646,13 @@ export class AuthService {
   }
 
   private inferAppName(clientType?: string, deviceLabel?: string): string {
-    if (clientType === 'electron') return 'ChatApp';
+    if (clientType === 'electron') return 'RELAY';
     if (deviceLabel?.includes(',')) return deviceLabel.split(',')[0].trim();
     return 'Browser';
   }
 
   private fallbackDeviceLabel(appName?: string, platform?: string): string {
-    const name = appName ?? 'ChatApp';
+    const name = appName ?? 'RELAY';
     if (platform) return `${name}, ${platform}`;
     return name;
   }

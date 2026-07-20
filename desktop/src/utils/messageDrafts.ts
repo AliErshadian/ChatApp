@@ -1,6 +1,6 @@
 import type { Message } from '../services/api';
 
-const STORAGE_KEY = 'chatapp_message_drafts';
+const STORAGE_KEY = 'relay_message_drafts';
 
 export interface DraftReplyTo {
   id: string;

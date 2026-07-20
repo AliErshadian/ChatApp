@@ -1,4 +1,4 @@
-# ChatApp Architecture
+# RELAY Architecture
 
 Internal team chat: NestJS API, PostgreSQL, Redis, MinIO, Electron/browser client, and an admin dashboard. Auth is provider-based (local + optional Active Directory). Realtime prefers Socket.IO and falls back to SSE when WebSocket is blocked.
 
@@ -81,13 +81,13 @@ Internal team chat: NestJS API, PostgreSQL, Redis, MinIO, Electron/browser clien
 npm workspaces — one lockfile, root scripts orchestrate workspaces with `-w <package>`.
 
 ```
-ChatApp/
+RELAY/
 ├── package.json                 # workspaces + root scripts
 ├── package-lock.json
 ├── scripts/setup-env.js         # copy *.env.example → .env
-├── backend/                     # chatapp-backend · NestJS API
-├── desktop/                     # chatapp-desktop · Electron + React
-├── admin/                       # chatapp-admin · Vite admin UI
+├── backend/                     # relay-backend · NestJS API
+├── desktop/                     # relay-desktop · Electron + React
+├── admin/                       # relay-admin · Vite admin UI
 ├── infra/
 │   ├── postgres/                # init.sql · migrations/
 │   └── docker/migrate.Dockerfile
@@ -98,9 +98,9 @@ ChatApp/
 
 | Directory | Package | Role |
 |-----------|---------|------|
-| `backend/` | `chatapp-backend` | REST, WebSocket, SSE, migrations |
-| `desktop/` | `chatapp-desktop` | Chat UI (Electron + browser) |
-| `admin/` | `chatapp-admin` | Admin dashboard (`:5174`) |
+| `backend/` | `relay-backend` | REST, WebSocket, SSE, migrations |
+| `desktop/` | `relay-desktop` | Chat UI (Electron + browser) |
+| `admin/` | `relay-admin` | Admin dashboard (`:5174`) |
 
 > Nest’s `backend/src/modules/admin/` is the **Admin API**, not the `admin/` frontend workspace.
 
@@ -281,7 +281,7 @@ Realtime replies include `threadRootId` + `thread: { replyCount, latestReplyAt }
 
 ### Group polls
 
-Groups only (not DMs/channels). `content_type = application/vnd.chatapp.poll+json`.
+Groups only (not DMs/channels). `content_type = application/vnd.relay.poll+json`.
 
 | Table | Role |
 |-------|------|
@@ -451,7 +451,7 @@ Secrets live in **environment variables** (not source). `.env` is gitignored; pr
 
 ## 11. Clients
 
-### Chat (`desktop/` — `chatapp-desktop`)
+### Chat (`desktop/` — `relay-desktop`)
 
 ```
 AuthProvider → PresenceProvider → ChatPage
@@ -473,7 +473,7 @@ TasksPanel · NotesPanel · SessionsPanel · search modals
 
 **Dev HTTPS / LAN:** Vite `@vitejs/plugin-basic-ssl`, `host: true`, proxies `/api` + `/socket.io`. On `https://` LAN hosts, API/WS use same origin (proxy). Mic/camera need a secure context — use `https://192.168.x.x:5173`, not plain HTTP.
 
-### Admin (`admin/` — `chatapp-admin`)
+### Admin (`admin/` — `relay-admin`)
 
 Same JWT; requires `users.is_admin`. Dashboard, users, authentication (LDAP), audit log. Media via the same `/content` proxy.
 

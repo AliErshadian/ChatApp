@@ -1,5 +1,5 @@
 /**
- * Content-Security-Policy for the ChatApp desktop / browser client (production).
+ * Content-Security-Policy for the RELAY desktop / browser client (production).
  * Dev (Vite HMR) skips this so React Fast Refresh and WS HMR keep working.
  */
 export const DESKTOP_CSP = [

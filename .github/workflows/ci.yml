@@ -27,22 +27,22 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: npm run lint -w chatapp-backend -- --max-warnings=0
+        run: npm run lint -w relay-backend -- --max-warnings=0
 
       - name: Build
-        run: npm run build -w chatapp-backend
+        run: npm run build -w relay-backend
 
       - name: Check schema drift (init.sql vs migrations)
-        run: npm run check:schema-drift -w chatapp-backend
+        run: npm run check:schema-drift -w relay-backend
 
       - name: Check secrets are not committed
-        run: npm run check:secrets -w chatapp-backend
+        run: npm run check:secrets -w relay-backend
 
       - name: Validate production env rules
         shell: bash
         run: |
           export NODE_ENV=production
-          export DATABASE_URL=postgresql://chatapp:ci-strong-db-password-32chars@localhost:5432/chatapp
+          export DATABASE_URL=postgresql://relay:ci-strong-db-password-32chars@localhost:5432/relay
           export REDIS_URL=redis://localhost:6379
           export JWT_ACCESS_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
           export JWT_REFRESH_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
@@ -57,7 +57,7 @@ jobs:
           export S3_BUCKET_DOCUMENTS=documents
           export S3_BUCKET_VIDEOS=videos
           export S3_BUCKET_VOICE=voice
-          npm run validate:env -w chatapp-backend
+          npm run validate:env -w relay-backend
 
   desktop:
     name: Desktop (typecheck/build)
@@ -76,10 +76,10 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: npm run lint -w chatapp-desktop -- --max-warnings=0
+        run: npm run lint -w relay-desktop -- --max-warnings=0
 
       - name: Build
-        run: npm run build -w chatapp-desktop
+        run: npm run build -w relay-desktop
 
   admin:
     name: Admin (lint/build)
@@ -98,10 +98,10 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: npm run lint -w chatapp-admin -- --max-warnings=0
+        run: npm run lint -w relay-admin -- --max-warnings=0
 
       - name: Build
-        run: npm run build -w chatapp-admin
+        run: npm run build -w relay-admin
 
   docker:
     name: Docker build (backend)
@@ -118,4 +118,4 @@ jobs:
           context: .
           file: ./backend/Dockerfile
           push: false
-          tags: chatapp-backend:ci
+          tags: relay-backend:ci

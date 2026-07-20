@@ -1,5 +1,5 @@
 {
-  "name": "chatapp-desktop",
+  "name": "relay-desktop",
   "version": "1.0.0",
   "private": true,
   "description": "Enterprise internal chat desktop client",
@@ -37,14 +37,12 @@
     "wait-on": "^8.0.1"
   },
   "build": {
-    "appId": "com.chatapp.desktop",
-    "productName": "ChatApp",
+    "appId": "com.relay.desktop",
+    "productName": "RELAY",
     "protocols": [
       {
-        "name": "ChatApp Invite",
-        "schemes": [
-          "chatapp"
-        ]
+        "name": "RELAY Invite",
+        "schemes": ["relay"]
       }
     ],
     "directories": {

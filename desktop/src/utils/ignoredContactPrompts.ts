@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'chatapp_ignored_contact_prompts';
+const STORAGE_KEY = 'relay_ignored_contact_prompts';
 
 export function loadIgnoredContactPrompts(): Set<string> {
   try {

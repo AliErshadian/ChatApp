@@ -224,9 +224,9 @@ export function AppNav({
         aria-label="Main navigation"
       >
         {!isBottom && (
-          <div className="nav-rail-brand" title="ChatApp">
+          <div className="nav-rail-brand" title="RELAY">
             {logoFailed ? (
-              'C'
+              'R'
             ) : (
               <img
                 src={APP_LOGO_URL}

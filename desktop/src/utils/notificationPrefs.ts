@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'chatapp.inAppAlertsEnabled';
+const STORAGE_KEY = 'relay.inAppAlertsEnabled';
 
 export function getInAppAlertsEnabled(): boolean {
   try {

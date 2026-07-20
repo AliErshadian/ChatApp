@@ -1490,8 +1490,8 @@ export function ChatPage() {
       if (detail?.token) void handleInviteToken(detail.token);
     };
 
-    window.addEventListener('chatapp:invite', onInvite);
-    return () => window.removeEventListener('chatapp:invite', onInvite);
+    window.addEventListener('relay:invite', onInvite);
+    return () => window.removeEventListener('relay:invite', onInvite);
   }, [user, handleInviteToken]);
 
   useEffect(() => {
@@ -3219,7 +3219,7 @@ export function ChatPage() {
         ) : (
           <EmptyState
             icon={faComments}
-            title="Welcome to ChatApp"
+            title="Welcome to RELAY"
             description="Select a conversation from the sidebar to start chatting."
             action={
               activeId && !isPanelOpen ? (

@@ -35,7 +35,7 @@ export function LoginPage() {
       <div className="login-card">
         <div className="login-brand">
           <span className="login-logo">◆</span>
-          <h1>ChatApp Admin</h1>
+          <h1>RELAY Admin</h1>
         </div>
         <p className="login-subtitle">Sign in with an administrator account</p>
         <form onSubmit={handleSubmit}>

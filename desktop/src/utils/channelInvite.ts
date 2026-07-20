@@ -1,4 +1,4 @@
-export const APP_INVITE_SCHEME = 'chatapp';
+export const APP_INVITE_SCHEME = 'relay';
 export const APP_INVITE_PREFIX = `${APP_INVITE_SCHEME}://invite/`;
 
 export function buildChannelInviteLink(token: string): string {
@@ -11,7 +11,8 @@ export function parseInviteTokenFromLink(link: string): string | null {
 
   try {
     const url = new URL(trimmed);
-    if (url.protocol !== `${APP_INVITE_SCHEME}:`) return null;
+    const scheme = url.protocol.replace(/:$/, '').toLowerCase();
+    if (scheme !== APP_INVITE_SCHEME && scheme !== 'chatapp') return null;
 
     if (url.hostname === 'invite') {
       const token = url.pathname.replace(/^\//, '');
@@ -26,13 +27,13 @@ export function parseInviteTokenFromLink(link: string): string | null {
     // Fall through to regex.
   }
 
-  const match = trimmed.match(/^chatapp:\/\/invite\/([A-Za-z0-9_-]+)$/);
+  const match = trimmed.match(/^(?:relay|chatapp):\/\/invite\/([A-Za-z0-9_-]+)$/i);
   return match?.[1] ?? null;
 }
 
 export function stashPendingInviteToken(token: string) {
   sessionStorage.setItem('pendingInviteToken', token);
-  window.dispatchEvent(new CustomEvent('chatapp:invite', { detail: { token } }));
+  window.dispatchEvent(new CustomEvent('relay:invite', { detail: { token } }));
 }
 
 export function takePendingInviteToken(): string | null {

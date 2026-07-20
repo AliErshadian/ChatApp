@@ -2,16 +2,16 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: chatapp
-      POSTGRES_PASSWORD: chatapp_secret
-      POSTGRES_DB: chatapp
+      POSTGRES_USER: relay
+      POSTGRES_PASSWORD: relay_secret
+      POSTGRES_DB: relay
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U chatapp -d chatapp"]
+      test: ["CMD-SHELL", "pg_isready -U relay -d relay"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -66,7 +66,7 @@ services:
       context: .
       dockerfile: infra/docker/migrate.Dockerfile
     environment:
-      DATABASE_URL: postgresql://chatapp:chatapp_secret@postgres:5432/chatapp
+      DATABASE_URL: postgresql://relay:relay_secret@postgres:5432/relay
     depends_on:
       postgres:
         condition: service_healthy
@@ -81,7 +81,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: postgresql://chatapp:chatapp_secret@postgres:5432/chatapp
+      DATABASE_URL: postgresql://relay:relay_secret@postgres:5432/relay
       REDIS_URL: redis://redis:6379
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret-min-32-chars}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret-min-32-chars}

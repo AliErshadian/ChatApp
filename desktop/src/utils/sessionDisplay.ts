@@ -4,7 +4,7 @@ import { faDesktop, faGlobe, faMobileScreen } from '@fortawesome/free-solid-svg-
 import { formatRelativeTime } from './time';
 
 export function sessionIcon(session: ActiveSession): IconDefinition {
-  if (session.appName === 'ChatApp') return faDesktop;
+  if (session.appName === 'RELAY' || session.appName === 'ChatApp') return faDesktop;
   if (session.platform?.match(/iOS|Android/i)) return faMobileScreen;
   return faGlobe;
 }

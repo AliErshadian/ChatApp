@@ -1,4 +1,4 @@
-const DB_NAME = 'chatapp-admin-media-cache';
+const DB_NAME = 'relay-admin-media-cache';
 const DB_VERSION = 1;
 const STORE_NAME = 'entries';
 const MAX_CACHE_BYTES = 150 * 1024 * 1024;
@@ -133,7 +133,7 @@ export async function clearMediaCache(): Promise<void> {
     revokeObjectUrl(key);
   }
   await runTransaction('readwrite', (store) => store.clear());
-  window.dispatchEvent(new CustomEvent('chatapp-media-cache-cleared'));
+  window.dispatchEvent(new CustomEvent('relay-media-cache-cleared'));
 }
 
 export async function getMediaCacheStats(): Promise<MediaCacheStats> {

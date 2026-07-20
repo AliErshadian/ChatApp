@@ -14,6 +14,7 @@ const PLACEHOLDER_SECRET_PATTERNS = [
 ];
 
 const WEAK_DATABASE_PASSWORDS = new Set([
+  'relay_secret',
   'chatapp_secret',
   'password',
   'postgres',

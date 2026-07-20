@@ -73,6 +73,7 @@ export class SecretEncryptionService implements OnModuleInit {
       );
     }
     return createHash('sha256')
+      // Stable KDF label — do not rename (would invalidate derived keys for existing ciphertexts).
       .update(`chatapp-directory-secrets:${access}:${refresh}`)
       .digest();
   }

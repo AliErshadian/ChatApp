@@ -1,5 +1,5 @@
 /*
-  ChatApp theme — section barrel.
+  RELAY theme — section barrel.
   Keep imports ordered: tokens -> base -> surfaces -> mobile overrides last.
 */
 @import './styles/tokens.css';

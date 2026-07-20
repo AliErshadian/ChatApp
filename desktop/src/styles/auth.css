@@ -269,4 +269,39 @@
   color: var(--accent);
 }
 
+.auth-credit {
+  margin: 1.25rem 0 0;
+  text-align: center;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--text, currentColor) 55%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+.auth-credit span {
+  color: color-mix(in srgb, var(--text, currentColor) 85%, transparent);
+  font-weight: 600;
+}
+
+.auth-credit-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in srgb, var(--text, currentColor) 60%, transparent);
+  text-decoration: none;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.auth-credit-link:hover {
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.auth-credit-link .fa-icon {
+  font-size: 0.95rem;
+}
+
 

@@ -55,7 +55,7 @@ export function ChannelInviteSection({ conversationId }: Props) {
     <section className="profile-section">
       <h4>Invite Link</h4>
       <p className="channel-invite-hint">
-        Share this ChatApp link. Others can paste it or open it to join the channel.
+        Share this RELAY link. Others can paste it or open it to join the channel.
       </p>
       {loading ? (
         <p className="contacts-hint">Loading invite link...</p>

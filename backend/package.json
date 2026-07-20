@@ -1,5 +1,5 @@
 {
-  "name": "chatapp-backend",
+  "name": "relay-backend",
   "version": "1.0.0",
   "private": true,
   "description": "Enterprise internal chat API",

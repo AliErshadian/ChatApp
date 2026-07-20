@@ -1,4 +1,4 @@
-# ChatApp — Enterprise Internal Messaging
+# RELAY — Enterprise Internal Messaging
 
 Slack-style internal chat for teams: Electron desktop, browser client, admin dashboard, NestJS API, PostgreSQL, Redis, and MinIO object storage.
 
@@ -161,7 +161,7 @@ Migration: `034_directory_auth.sql`.
 ## Project structure
 
 ```
-ChatApp/
+RELAY/
 ├── package.json              # workspaces root
 ├── backend/                  # NestJS API + WebSocket
 │   └── src/modules/          # auth, directory, users, messages, calls, tasks, notes, stories, admin, …
@@ -203,7 +203,7 @@ Content-Type: application/json
   "provider": "active_directory",
   "username": "jsmith",
   "password": "...",
-  "clientInfo": { "clientType": "electron", "deviceLabel": "ChatApp, Windows" }
+  "clientInfo": { "clientType": "electron", "deviceLabel": "RELAY, Windows" }
 }
 ```
 
@@ -371,7 +371,7 @@ Configure `S3_*` in `backend/.env`. Switch to AWS S3 with env only (`S3StoragePr
 5. Managed Postgres (+ pooling) and Redis HA
 6. Shared MinIO/S3 across instances
 7. Logging (pino), Sentry, Prometheus
-8. Validate: `npm run build -w chatapp-backend && NODE_ENV=production npm run validate:env -w chatapp-backend`
+8. Validate: `npm run build -w relay-backend && NODE_ENV=production npm run validate:env -w relay-backend`
 
 ## CI/CD
 

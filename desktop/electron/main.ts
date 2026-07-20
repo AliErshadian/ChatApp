@@ -12,7 +12,7 @@ import {
 } from './auth-store';
 
 const isDev = !app.isPackaged;
-const APP_PROTOCOL = 'chatapp';
+const APP_PROTOCOL = 'relay';
 const DEV_APP_URL = 'https://localhost:5173';
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -66,9 +66,9 @@ function defaultElectronClientInfo(): RefreshClientInfo {
   return {
     clientType: 'electron',
     platform,
-    appName: 'ChatApp',
-    deviceLabel: `ChatApp, ${platform}`,
-    userAgent: `ChatApp Desktop (${platform})`,
+    appName: 'RELAY',
+    deviceLabel: `RELAY, ${platform}`,
+    userAgent: `RELAY Desktop (${platform})`,
   };
 }
 
@@ -317,7 +317,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'ChatApp',
+    title: 'RELAY',
     ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -328,7 +328,7 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL(DEV_APP_URL);
-    if (process.env.CHATAPP_OPEN_DEVTOOLS === '1') {
+    if (process.env.RELAY_OPEN_DEVTOOLS === '1') {
       mainWindow.webContents.openDevTools({ mode: 'detach' });
     }
   } else {
@@ -352,7 +352,7 @@ function createTray() {
     appIcon ??
     nativeImage.createEmpty();
   tray = new Tray(trayIcon);
-  tray.setToolTip('ChatApp');
+  tray.setToolTip('RELAY');
 
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Show', click: () => mainWindow?.show() },

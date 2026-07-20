@@ -88,10 +88,11 @@ export function isTextContentType(contentType: string): boolean {
   return contentType === 'text/plain' || contentType.startsWith('text/');
 }
 
-export const POLL_CONTENT_TYPE = 'application/vnd.chatapp.poll+json';
+export const POLL_CONTENT_TYPE = 'application/vnd.relay.poll+json';
+const LEGACY_POLL_CONTENT_TYPE = 'application/vnd.chatapp.poll+json';
 
 export function isPollContentType(contentType: string): boolean {
-  return contentType === POLL_CONTENT_TYPE;
+  return contentType === POLL_CONTENT_TYPE || contentType === LEGACY_POLL_CONTENT_TYPE;
 }
 
 export function getMessageMediaKind(contentType: string): MessageMediaKind | 'text' | 'poll' {

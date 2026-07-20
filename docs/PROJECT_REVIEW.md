@@ -1,4 +1,4 @@
-# ChatApp — Project Review
+# RELAY — Project Review
 
 **Date:** 2026-07-20 · Snapshot of the codebase: strengths, gaps, and a prioritized roadmap.
 
@@ -28,11 +28,11 @@ Companion: [ARCHITECTURE.md](./ARCHITECTURE.md) (system design) · [README.md](.
 | **Data** | PostgreSQL · Redis · MinIO (S3) |
 | **Auth** | Local email/password **and** optional Active Directory (LDAP) |
 | **Clients** | Electron desktop · browser (same React app) · admin dashboard (`:5174`) |
-| **Repo** | npm workspaces monorepo (`chatapp-backend`, `chatapp-desktop`, `chatapp-admin`) |
+| **Repo** | npm workspaces monorepo (`relay-backend`, `relay-desktop`, `relay-admin`) |
 | **Infra** | Docker Compose (dev + prod-like with nginx) |
 
 ```
-ChatApp/
+RELAY/
 ├── backend/          # NestJS API + realtime
 ├── desktop/          # Electron + React chat client
 ├── admin/            # Admin dashboard (Vite)
@@ -117,7 +117,7 @@ ChatApp/
 | Risk | Mitigation |
 |------|------------|
 | CORS `*` in dev | Set explicit `CORS_ORIGIN` in production |
-| Weak Compose defaults (`minioadmin`, `chatapp_secret`) | Override in prod; Zod rejects weak DB password / JWT |
+| Weak Compose defaults (`minioadmin`, `relay_secret`) | Override in prod; Zod rejects weak DB password / JWT |
 | No cloud Secret Manager | Use orchestrator / vault secrets injected as env |
 | AD misconfig can lock out AD-only users | Keep Local enabled during rollout; set `DIRECTORY_ENCRYPTION_KEY` |
 | Routine dependency CVEs | `npm audit` / Dependabot |

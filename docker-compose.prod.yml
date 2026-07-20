@@ -2,14 +2,14 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-chatapp}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chatapp_secret}
-      POSTGRES_DB: ${POSTGRES_DB:-chatapp}
+      POSTGRES_USER: ${POSTGRES_USER:-relay}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-relay_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-relay}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chatapp} -d ${POSTGRES_DB:-chatapp}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-relay} -d ${POSTGRES_DB:-relay}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -64,7 +64,7 @@ services:
       context: .
       dockerfile: infra/docker/migrate.Dockerfile
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://chatapp:chatapp_secret@postgres:5432/chatapp}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://relay:relay_secret@postgres:5432/relay}
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,7 +77,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: ${DATABASE_URL:-postgresql://chatapp:chatapp_secret@postgres:5432/chatapp}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://relay:relay_secret@postgres:5432/relay}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET}

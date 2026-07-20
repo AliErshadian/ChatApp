@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
-RUN npm ci -w chatapp-backend --omit=dev && npm cache clean --force
+RUN npm ci -w relay-backend --omit=dev && npm cache clean --force
 
 COPY backend/scripts/migrate.mjs backend/scripts/migrate.mjs
 COPY infra/postgres/migrations infra/postgres/migrations

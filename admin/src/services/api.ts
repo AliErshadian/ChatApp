@@ -241,8 +241,8 @@ class AdminApiClient {
           clientInfo: {
             clientType: 'browser',
             platform: 'Web',
-            appName: 'ChatApp Admin',
-            deviceLabel: 'ChatApp Admin, Web',
+            appName: 'RELAY Admin',
+            deviceLabel: 'RELAY Admin, Web',
             userAgent: navigator.userAgent,
           },
         }),
@@ -270,8 +270,8 @@ class AdminApiClient {
           clientInfo: {
             clientType: 'browser',
             platform: 'Web',
-            appName: 'ChatApp Admin',
-            deviceLabel: 'ChatApp Admin, Web',
+            appName: 'RELAY Admin',
+            deviceLabel: 'RELAY Admin, Web',
             userAgent: navigator.userAgent,
           },
           ...captcha,

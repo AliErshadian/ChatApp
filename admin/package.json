@@ -1,8 +1,8 @@
 {
-  "name": "chatapp-admin",
+  "name": "relay-admin",
   "version": "1.0.0",
   "private": true,
-  "description": "ChatApp admin dashboard",
+  "description": "RELAY admin dashboard",
   "type": "module",
   "scripts": {
     "dev": "vite",

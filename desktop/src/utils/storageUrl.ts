@@ -116,11 +116,11 @@ export function useStorageUrl(reference?: string): string | undefined {
     reload();
 
     const onCacheCleared = () => reload();
-    window.addEventListener('chatapp-media-cache-cleared', onCacheCleared);
+    window.addEventListener('relay-media-cache-cleared', onCacheCleared);
 
     return () => {
       cancelled = true;
-      window.removeEventListener('chatapp-media-cache-cleared', onCacheCleared);
+      window.removeEventListener('relay-media-cache-cleared', onCacheCleared);
     };
   }, [reference]);
 

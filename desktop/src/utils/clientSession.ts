@@ -30,7 +30,7 @@ function detectBrowserPlatform(userAgent: string): string {
   return 'Unknown';
 }
 
-/** Telegram-style labels: "Chrome, Windows" / "ChatApp, Windows" */
+/** Telegram-style labels: "Chrome, Windows" / "RELAY, Windows" */
 export function getClientSessionInfo(): SessionClientInfo {
   const userAgent = navigator.userAgent;
 
@@ -39,8 +39,8 @@ export function getClientSessionInfo(): SessionClientInfo {
     return {
       clientType: 'electron',
       platform,
-      appName: 'ChatApp',
-      deviceLabel: `ChatApp, ${platform}`,
+      appName: 'RELAY',
+      deviceLabel: `RELAY, ${platform}`,
       userAgent,
     };
   }
@@ -61,8 +61,8 @@ export function getElectronClientSessionInfo(platform: string): SessionClientInf
   return {
     clientType: 'electron',
     platform: formatted,
-    appName: 'ChatApp',
-    deviceLabel: `ChatApp, ${formatted}`,
-    userAgent: `ChatApp Desktop (${formatted})`,
+    appName: 'RELAY',
+    deviceLabel: `RELAY, ${formatted}`,
+    userAgent: `RELAY Desktop (${formatted})`,
   };
 }

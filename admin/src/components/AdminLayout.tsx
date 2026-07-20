@@ -49,7 +49,7 @@ export function AdminLayout({ page, onNavigate, children }: Props) {
         <div className="sidebar-brand">
           <span className="sidebar-logo">◆</span>
           <div className="sidebar-brand-text">
-            <strong>ChatApp</strong>
+            <strong>RELAY</strong>
             <small>Admin</small>
           </div>
         </div>

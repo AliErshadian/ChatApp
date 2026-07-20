@@ -78,7 +78,7 @@ const DANGEROUS_EXTENSIONS = new Set([
   '.wasm',
 ]);
 
-/** All extensions ChatApp may accept (for double-extension detection). */
+/** All extensions RELAY may accept (for double-extension detection). */
 const KNOWN_SAFE_EXTENSIONS = new Set([
   '.png',
   '.jpg',

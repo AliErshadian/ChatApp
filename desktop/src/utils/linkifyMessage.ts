@@ -1,7 +1,7 @@
 import { parseInviteTokenFromLink, stashPendingInviteToken } from './channelInvite';
 
 const LINK_PATTERN =
-  /(https?:\/\/[^\s<]+[^\s<.,;:!?'")\]}>]|chatapp:\/\/invite\/[A-Za-z0-9_-]+)/gi;
+  /(https?:\/\/[^\s<]+[^\s<.,;:!?'")\]}>]|(?:relay|chatapp):\/\/invite\/[A-Za-z0-9_-]+)/gi;
 
 function trimTrailingPunctuation(url: string): string {
   return url.replace(/[.,;:!?)]+$/, '');

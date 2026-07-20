@@ -1,5 +1,5 @@
 /**
- * Content-Security-Policy for the ChatApp admin dashboard (production).
+ * Content-Security-Policy for the RELAY admin dashboard (production).
  */
 export const ADMIN_CSP = [
   "default-src 'self'",

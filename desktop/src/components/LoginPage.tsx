@@ -5,7 +5,7 @@ import { api } from '../services/api';
 import { formatAuthError } from '../utils/authError';
 import { Icon } from './Icon';
 import { LoginCaptchaFields, useLoginCaptcha } from './LoginCaptcha';
-import { faMoon, faSun } from '@fortawesome/free-solid-svg-icons';
+import { faGlobe, faMoon, faSun } from '@fortawesome/free-solid-svg-icons';
 
 type AuthProviderId = 'local' | 'active_directory';
 
@@ -160,9 +160,9 @@ export function LoginPage() {
                 onError={() => setLogoFailed(true)}
               />
             )}
-            <h1>ChatApp</h1>
+            <h1>RELAY</h1>
           </div>
-          <p className="subtitle">Secure messaging for your team</p>
+          <p className="subtitle">Fast - Secure - Connected.</p>
         </header>
 
         <div className="auth-card">
@@ -320,6 +320,20 @@ export function LoginPage() {
             </button>
           </form>
         </div>
+
+        <p className="auth-credit">
+          Developed by <span>Ali Ershadian</span>
+          <a
+            className="auth-credit-link"
+            href="https://aliershadian.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Ali Ershadian website"
+            title="aliershadian.com"
+          >
+            <Icon icon={faGlobe} />
+          </a>
+        </p>
       </div>
     </div>
   );

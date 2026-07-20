@@ -10,7 +10,7 @@ import {
 
 export type ThemeMode = 'dark' | 'light';
 
-const STORAGE_KEY = 'chatapp-theme';
+const STORAGE_KEY = 'relay-theme';
 
 interface ThemeContextValue {
   theme: ThemeMode;

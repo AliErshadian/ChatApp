@@ -4,14 +4,18 @@ import { isVoiceMessage, VOICE_MESSAGE_PREFIX } from './voiceMessage';
 
 export type MessageMediaKind = 'text' | 'image' | 'video' | 'audio' | 'document' | 'voice' | 'poll';
 
-export const POLL_CONTENT_TYPE = 'application/vnd.chatapp.poll+json';
+export const POLL_CONTENT_TYPE = 'application/vnd.relay.poll+json';
+const LEGACY_POLL_CONTENT_TYPE = 'application/vnd.chatapp.poll+json';
 
 export function isTextMessage(message: Pick<Message, 'contentType'>): boolean {
   return message.contentType === 'text/plain' || message.contentType.startsWith('text/');
 }
 
 export function isPollMessage(message: Pick<Message, 'contentType'>): boolean {
-  return message.contentType === POLL_CONTENT_TYPE;
+  return (
+    message.contentType === POLL_CONTENT_TYPE ||
+    message.contentType === LEGACY_POLL_CONTENT_TYPE
+  );
 }
 
 export function getMessageMediaKind(
