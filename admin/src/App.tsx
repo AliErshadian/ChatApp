@@ -6,6 +6,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { UsersPage } from './pages/UsersPage';
 import { UserDetailPage } from './pages/UserDetailPage';
 import { AuditLogsPage } from './pages/AuditLogsPage';
+import { AuthenticationSettingsPage } from './pages/AuthenticationSettingsPage';
 
 function AdminApp() {
   const { admin, loading } = useAuth();
@@ -50,6 +51,7 @@ function AdminApp() {
           onViewAudit={openUserAudit}
         />
       )}
+      {page === 'authentication' && <AuthenticationSettingsPage />}
       {page === 'audit' && (
         <AuditLogsPage initialUserId={auditUserId} onSelectUser={selectUser} />
       )}

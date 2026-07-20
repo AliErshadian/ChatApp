@@ -913,11 +913,54 @@ class ApiClient {
         body: JSON.stringify({
           email,
           password,
+          provider: 'local',
           clientInfo: getClientSessionInfo(),
         }),
       },
       { refreshOnUnauthorized: false, timeoutMs: 10_000 },
     );
+  }
+
+  loginWithProvider(
+    provider: 'local' | 'active_directory',
+    identifier: string,
+    password: string,
+  ) {
+    const body: Record<string, unknown> = {
+      provider,
+      password,
+      clientInfo: getClientSessionInfo(),
+    };
+    if (provider === 'local') {
+      body.email = identifier;
+    } else {
+      body.username = identifier;
+    }
+    return this.request<{ user: User } & AuthTokens>(
+      '/auth/login',
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+      },
+      { refreshOnUnauthorized: false, timeoutMs: 15_000 },
+    );
+  }
+
+  getAuthProviders() {
+    return this.request<{
+      providers: Array<{
+        id: 'local' | 'active_directory';
+        label: string;
+        enabled: boolean;
+        supportsRegistration: boolean;
+        identifierLabel: string;
+        identifierPlaceholder: string;
+      }>;
+      defaultProvider: 'local' | 'active_directory';
+    }>('/auth/providers', {}, {
+      refreshOnUnauthorized: false,
+      timeoutMs: 8_000,
+    });
   }
 
   listSessions() {

@@ -118,6 +118,8 @@ const EnvSchema = z
     STORAGE_MAX_DOCUMENT_MB: z.coerce.number().min(1).optional(),
     STORAGE_MAX_VIDEO_MB: z.coerce.number().min(1).optional(),
     STORAGE_MAX_VOICE_MB: z.coerce.number().min(1).optional(),
+    /** AES-256 key as 64 hex chars, or any string (SHA-256 derived). Encrypts LDAP bind password at rest. */
+    DIRECTORY_ENCRYPTION_KEY: z.string().trim().optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;

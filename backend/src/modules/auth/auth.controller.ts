@@ -16,6 +16,7 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto, LoginDto, RefreshTokenDto } from './dto/auth.dto';
+import { ProviderLoginDto } from '../directory/dto/directory.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
@@ -23,6 +24,11 @@ import { User } from '../users/entities/user.entity';
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  @Get('providers')
+  listProviders() {
+    return this.authService.listAuthProviders();
+  }
 
   @Post('register')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
@@ -33,7 +39,16 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  login(@Body() dto: LoginDto, @Req() req: Request) {
+  login(@Body() dto: ProviderLoginDto, @Req() req: Request) {
+    // Backward compatible: classic local email login still works via ProviderLoginDto
+    return this.authService.loginWithProvider(dto, req.ip);
+  }
+
+  /** @deprecated Prefer POST /auth/login with provider field */
+  @Post('login/local')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  loginLocal(@Body() dto: LoginDto, @Req() req: Request) {
     return this.authService.login(dto, req.ip);
   }
 

@@ -1,15 +1,15 @@
-# ChatApp — Project Review (2026-07-18)
+# ChatApp — Project Review (2026-07-20)
 
 This document summarizes the current codebase, highlights strengths and weaknesses, and proposes a prioritized improvement roadmap.
 
 ## Overview
 
 - **Product**: internal Slack-like chat (desktop + browser client + admin dashboard + API)
-- **Backend**: NestJS (REST + Socket.IO realtime), PostgreSQL, Redis (presence + Socket.IO adapter), **MinIO** (S3-compatible object storage)
+- **Backend**: NestJS (REST + Socket.IO realtime), PostgreSQL, Redis (presence + Socket.IO adapter), **MinIO** (S3-compatible object storage), optional **Windows Active Directory (LDAP)** auth
 - **Clients**:
   - **Desktop**: Electron + React (Vite)
   - **Browser**: same React app for development (`localStorage` auth)
-  - **Admin**: separate Vite + React app (`admin/`, port 5174)
+  - **Admin**: separate Vite + React app (`admin/`, port 5174) — includes **Authentication** settings
 - **Infra**: Docker Compose (Postgres/Redis/MinIO/API), production-like compose with Nginx reverse proxy
 - **Repo layout**: **npm workspaces** monorepo — one root `package-lock.json`, workspaces `chatapp-backend`, `chatapp-desktop`, `chatapp-admin`
 
@@ -33,7 +33,7 @@ ChatApp/
 
 ### Backend (NestJS)
 
-- **Modules**: `auth`, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`, `audit`, `admin`, **`storage`**, **`calls`**, **`tasks`**, **`notes`**, **`stories`**
+- **Modules**: `auth`, **`directory`**, `users`, `contacts`, `conversations`, `messages`, `presence`, `realtime`, `audit`, `admin`, **`storage`**, **`calls`**, **`tasks`**, **`notes`**, **`stories`**
 - **Auth & sessions**:
   - JWT access tokens (15m) with required `sid` claim; validated against `user_sessions` on every REST and WebSocket request
   - Rotating refresh tokens (SHA-256 hashed, grouped by `session_family_id`)
@@ -41,6 +41,16 @@ ChatApp/
   - `GET /auth/sessions`, terminate one / terminate all others
   - Realtime: `session:created`, `session:terminated` (remote logout)
   - Login reuses session for same device fingerprint; refresh preserves session
+  - **Provider-based auth** — `AuthenticationManager` + `LocalAuthProvider` + `ActiveDirectoryAuthProvider`; `GET /auth/providers`; `POST /auth/login` accepts `provider` / `email` / `username`
+- **Directory / Active Directory** (`directory` module, migration `034`):
+  - Hot-reloadable `directory_configurations` (enable local/AD, sync flags, LDAP host/port/TLS, filters, timeouts)
+  - Bind password encrypted at rest (`DIRECTORY_ENCRYPTION_KEY` / AES-256-GCM)
+  - LDAP via `ldapts` (LDAPS / StartTLS); test connection, preview users/groups
+  - Auto-provision local users (no password stored); profile/group sync; scheduled sync (manual/hourly/daily/weekly)
+  - `directory_group_mappings` — AD group → allow login / approved group / `system_admin`
+  - `authentication_audit_logs` + admin APIs under `/admin/settings/authentication/*`
+  - Admin UI page **Authentication** (providers, LDAP, mappings, sync, failed logins)
+  - Desktop login shows Local / Active Directory toggle when AD is enabled
 - **Messaging**:
   - Monotonic per-conversation `sequence`; `clientMessageId` dedup
   - Edit, delete (me / everyone), forwards, reactions
@@ -121,7 +131,7 @@ ChatApp/
   - `GET /api/v1/health`
 - **DB**:
   - `infra/postgres/init.sql` for new databases (includes `schema_migrations` seed)
-  - Incremental SQL migrations in `infra/postgres/migrations/` (002–033)
+  - Incremental SQL migrations in `infra/postgres/migrations/` (002–034)
   - **Auto-applied** via `npm run migrate` / Compose `migrate` → `api`
   - **Drift check**: `npm run check:schema-drift` (CI) keeps `init.sql` aligned with migrations
 
@@ -131,6 +141,7 @@ ChatApp/
 - Own auth flow; uses admin JWT against `/api/v1/admin/*`
 - **Dashboard**: platform stats, recent activity, collapsible storage panel (MinIO + DB)
 - **Users**: role/status filters, sort, pagination, avatars; user detail with counts and sessions
+- **Authentication**: enable local/AD, LDAP config + test/preview, group mappings, sync history, auth statistics
 - **Audit log**: expandable rows, date presets, action filter, debounced search, metadata copy
 
 ### Desktop / Browser client
@@ -159,20 +170,23 @@ ChatApp/
   - **Devices panel**: list sessions, terminate, terminate all others
   - **Offline cache** (Profile): IndexedDB blob cache with size stats and clear action
   - User-friendly auth error messages on login/register
+  - **Multi-provider login**: loads `GET /auth/providers`; Local / Active Directory toggle when AD is enabled
 - **Lint**: ESLint configured for backend, desktop, and admin; runs in CI
 
 ## Pros (what’s good)
 
 - **Clear modular boundaries** — good foundation for team scaling and service extraction
+- **Provider-based authentication** — local + AD without forking JWT/session paths; ready for future IdPs
 - **Realtime scaling pattern** — Socket.IO + Redis adapter, websocket-only; SSE + REST fallback for restricted networks
 - **Security baseline beyond typical MVP**:
   - bcrypt passwords, hashed refresh tokens, session revocation
   - WS auth on connect; session checked on each API use
   - DTO validation, throttling on auth, message sanitization
+  - Encrypted LDAP bind password; AD passwords never stored locally
 - **Thoughtful schema** — message ordering, dedup indexes, membership constraints, session tables
 - **Dev ergonomics** — npm workspaces monorepo, root `npm run dev` / `dev:all`, compose stack, CI/CD from single lockfile
 - **Object storage** — MinIO/S3; clients download through API proxy (LAN/mobile friendly); presigned URLs optional
-- **Admin & audit** — separate admin app, storage visibility, append-only audit trail
+- **Admin & audit** — separate admin app, storage visibility, append-only audit trail, **Authentication** settings UI
 - **Search UX** — unified conversation + message content search with jump-to-message
 - **File management** — per-conversation shared files browser with media-type filters and jump-to-message
 - **Slack-style threads** — timeline roots + side-panel replies; per-thread search/files/reactions; unread thread bar and first-unread scroll
@@ -189,16 +203,18 @@ ChatApp/
 
 - **CORS**: configurable allowlist; dev allows private LAN origins — tighten for production
 - **Dependency audit**: routine `npm audit` / Dependabot recommended
+- **AD/LDAP**: requires network reachability to domain controllers; misconfigured filters or TLS can lock out AD-only users — keep Local enabled during rollout; set `DIRECTORY_ENCRYPTION_KEY` in production
 
 ### Correctness & performance
 
-- **No automated tests** — auth, ACL, messaging, session, storage, and call signaling flows are untested in CI
+- **No automated tests** — auth, ACL, messaging, session, storage, call signaling, and LDAP flows are untested in CI
 - **Some gateway paths** still use per-member emits where room broadcast would suffice — watch fanout cost in large channels
 - **Voice/video calls**: in-memory call registry is not shared across API instances; TURN not bundled (needed for some NAT/firewall setups)
 
 
 ## Recently addressed (2026-07)
 
+- **Active Directory / LDAP auth** — migration `034`; `directory` module (config, LDAP client, provisioning, sync, group mappings, auth audit); provider pattern (`LocalAuthProvider`, `ActiveDirectoryAuthProvider`, `AuthenticationManager`); admin **Authentication** page; desktop multi-provider login; encrypted bind password; same JWT path after AD login
 - **Stories** — migrations `032`/`033`; `stories` module (feed, create, view, like, viewers, reply→DM, delete); contact audience + 24h expiry; `StoriesTray` / composer / viewer (progress, like, reply pause, viewers sheet); `MessageStoryQuote` in DM bubbles; `story:created` / `story:deleted` realtime (WebSocket + SSE)
 - **Notes** — migration `031`; `notes` module (CRUD, share with reader/contributor roles, revision history, clear history, optimistic `version`); `NotesPanel` with share side panel, GitHub-style history diff, mobile **More** nav (Tasks + Notes + Profile); `note:updated` / `note:deleted` realtime (WebSocket + SSE)
 - **Tasks + assignment acceptance** — migrations `029`/`030`; `tasks` module (CRUD, assign/accept/reject/cancel, pending unseen badge); `TasksPanel` with Open/Pending/Completed; **Convert to Task** from messages; `task:updated` / `task:deleted` realtime (WebSocket + SSE)
@@ -241,18 +257,20 @@ ChatApp/
 
 ### P0 (before real production)
 
-- **Automated tests**: auth + refresh rotation, membership ACL, message send/edit/delete, session revoke, task assignment acceptance, note sharing and revision ACL
+- **Automated tests**: auth + refresh rotation, membership ACL, message send/edit/delete, session revoke, task assignment acceptance, note sharing and revision ACL, **AD login / provisioning (mocked LDAP)**
 
 ### P1 (high value next)
 
 - **OpenAPI** for REST + formal realtime event catalog
 - **Desktop release pipeline** (signed builds for Windows/Linux)
+- **Additional IdPs** (Azure AD / OIDC) via the same auth provider interface
 
 ### P2 (polish and scale)
 
 - Room-only fanout audit in gateway (remove remaining per-member loops)
 - **TURN server** (e.g. coturn in Compose) for reliable voice/video calls behind symmetric NAT
 - **Redis-backed call registry** if scaling call signaling across multiple API instances
+- LDAP connection pooling / richer StartTLS certificate pinning options for hard enterprise networks
 
 ## Suggested “definition of done” for production readiness
 
@@ -291,10 +309,11 @@ ChatApp/
 | `STORAGE_MAX_*_MB` | Upload size limits per category |
 | `WEBRTC_STUN_URLS` | Comma-separated STUN URLs for voice/video calls |
 | `TURN_URL` / `TURN_USERNAME` / `TURN_PASSWORD` | Optional TURN for restrictive NAT |
+| `DIRECTORY_ENCRYPTION_KEY` | Encrypt LDAP bind password at rest (recommended when AD is enabled) |
 
 See `backend/.env.example` for defaults. Required in production (`NODE_ENV=production`).
 
 ## Related docs
 
-- [README.md](../README.md) — quick start and API summary
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — system design, sessions, events, schema
+- [README.md](../README.md) — quick start, **Active Directory setup**, and API summary
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — system design, provider auth, sessions, events, schema

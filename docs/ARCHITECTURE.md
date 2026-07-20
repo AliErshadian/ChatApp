@@ -9,8 +9,8 @@
 │  │  Electron Desktop    │    │  Browser (Vite dev)  │    │  Admin Web     │ │
 │  │  Windows / Linux     │    │  LAN or localhost    │    │  (port 5174)   │ │
 │  │  ┌────────────────┐  │    │  ┌────────────────┐  │    │  Dashboard,    │ │
-│  │  │ React Renderer │  │    │  │ React (same)   │  │    │  users, audit  │ │
-│  │  │ REST + WS      │  │    │  │ localStorage   │  │    │  REST only     │ │
+│  │  │ React Renderer │  │    │  │ React (same)   │  │    │  users, auth,  │ │
+│  │  │ REST + WS      │  │    │  │ localStorage   │  │    │  audit         │ │
 │  │  └───────┬────────┘  │    │  └───────┬────────┘  │    └───────┬────────┘ │
 │  │  Main: tray, secure  │    │                      │            │          │
 │  │  auth store, notify  │    │                      │            │          │
@@ -27,9 +27,9 @@
               ▼                ▼                ▼
 ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
 │   API Instance 1 │ │   API Instance 2 │ │   API Instance N │
-│  Auth, Users,    │ │  Contacts, Conv, │ │  Messages,       │
-│  Messages,       │ │  Presence,       │ │  Realtime GW     │
-│  Realtime GW     │ │  Realtime GW     │ │                  │
+│  Auth, Directory │ │  Contacts, Conv, │ │  Messages,       │
+│  Users, Realtime │ │  Presence,       │ │  Realtime GW     │
+│  GW              │ │  Realtime GW     │ │                  │
 └────────┬─────────┘ └────────┬─────────┘ └────────┬─────────┘
          └────────────────────┼────────────────────┘
                               │
@@ -40,8 +40,16 @@
 │  users, msgs,   │  │  presence,      │  │  avatars,       │
 │  attachments    │  │  Socket.IO      │  │  attachments,   │
 │  (metadata),    │  │  pub/sub        │  │  videos, etc.   │
-│  sessions, etc. │  │                 │  │                 │
+│  sessions,      │  │                 │  │                 │
+│  directory_*    │  │                 │  │                 │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
+                              │
+                              │  optional LDAP / LDAPS
+                              ▼
+                    ┌─────────────────────┐
+                    │ Windows Active      │
+                    │ Directory           │
+                    └─────────────────────┘
 ```
 
 ## 2. Repository & Monorepo Layout
@@ -110,8 +118,9 @@ The MVP ships as a **modular monolith** with clean boundaries:
 
 | Module | Responsibility | Future Service |
 |--------|---------------|----------------|
-| `auth` | Registration, login, JWT + refresh rotation, **device sessions** | Auth Service |
-| `users` | Profiles, search, avatars | User Service |
+| `auth` | Registration, login, JWT + refresh rotation, **device sessions**, **provider-based auth** (local + AD) | Auth Service |
+| `directory` | AD/LDAP config (hot reload), bind encryption, group mapping, sync scheduler, auth audit | Directory / IdP Service |
+| `users` | Profiles, search, avatars, directory profile fields | User Service |
 | `contacts` | Contact list | Contacts Service |
 | `conversations` | DMs, channels, groups, invites, membership ACL | Conversation Service |
 | `messages` | Persistence, ordering, sanitization, mentions, attachments, reactions, **Slack-style threads**, **group polls**, **content search** | Messaging Service |
@@ -153,7 +162,35 @@ Client A                    API Gateway              PostgreSQL        Redis    
 
 ## 5. Session & Auth Architecture
 
-Telegram-style **device sessions** tie refresh tokens and access tokens to a logical device.
+Telegram-style **device sessions** tie refresh tokens and access tokens to a logical device. Authentication is **provider-based**: local email/password and optional Windows Active Directory (LDAP) share the same token issuance path.
+
+### Provider pattern
+
+```
+                    ┌──────────────────────────┐
+                    │  AuthenticationManager   │
+                    │  (strategy selection)    │
+                    └────────────┬─────────────┘
+               ┌─────────────────┴─────────────────┐
+               ▼                                   ▼
+    ┌────────────────────┐              ┌────────────────────────┐
+    │ LocalAuthProvider  │              │ ActiveDirectoryProvider│
+    │ email + bcrypt     │              │ LDAP bind + search     │
+    │ PostgreSQL users   │              │ provision / sync user  │
+    └─────────┬──────────┘              └───────────┬────────────┘
+              └─────────────────┬───────────────────┘
+                                ▼
+                     AuthService.issueTokens
+                     (user_sessions + JWT + refresh)
+```
+
+- Interface: `IAuthenticationProvider` (`backend/src/modules/auth/providers/`)
+- Runtime config: `directory_configurations` (cached ~5s; admin PUT invalidates cache — **no restart**)
+- Adding Azure AD / OAuth / OIDC later: implement the interface and register in `AUTH_PROVIDERS`
+- AD passwords are never stored; `users.password_hash` is nullable for directory users
+- Bind password encrypted at rest (`SecretEncryptionService`, AES-256-GCM; key from `DIRECTORY_ENCRYPTION_KEY`)
+
+### Device sessions
 
 ```
 ┌─────────────┐     login/register      ┌──────────────────┐
@@ -173,11 +210,13 @@ Telegram-style **device sessions** tie refresh tokens and access tokens to a log
 **Behaviors:**
 
 1. **Login/register** sends `clientInfo` (`deviceLabel`, `platform`, `clientType`, `appName`). Same device reuses an existing session row when possible.
-2. **Refresh** rotates the opaque refresh token but keeps the same `sessionId`.
-3. **Access token** carries required `sid`; every REST request and WebSocket message validates the session is not revoked (Redis cache first, PostgreSQL on miss).
-4. **Terminate session** revokes DB row + refresh tokens, invalidates Redis session cache, emits `session:terminated`, and disconnects sockets.
-5. **New login** on another device emits `session:created` to other sessions (excluding the new one).
-6. **Session cache** (`SessionCacheService`): `session:valid:{sid}` (TTL = access token lifetime), `session:revoked:{sid}` (short negative cache); `last_active_at` DB writes debounced to ~60s per session.
+2. **Provider login** (`POST /auth/login`): optional `provider`; `email` (local) or `username` (AD). `GET /auth/providers` drives the login UI.
+3. **AD success path**: LDAP authenticate → policy/group checks → auto-create or sync local user → same token issuance as local.
+4. **Refresh** rotates the opaque refresh token but keeps the same `sessionId`.
+5. **Access token** carries required `sid`; every REST request and WebSocket message validates the session is not revoked (Redis cache first, PostgreSQL on miss).
+6. **Terminate session** revokes DB row + refresh tokens, invalidates Redis session cache, emits `session:terminated`, and disconnects sockets.
+7. **New login** on another device emits `session:created` to other sessions (excluding the new one).
+8. **Session cache** (`SessionCacheService`): `session:valid:{sid}` (TTL = access token lifetime), `session:revoked:{sid}` (short negative cache); `last_active_at` DB writes debounced to ~60s per session.
 
 **Client storage:**
 
@@ -229,13 +268,14 @@ Telegram-style **device sessions** tie refresh tokens and access tokens to a log
 
 ## 9. REST API Payload Examples
 
-### Register / Login
+### Register / Login (local)
 
 ```http
 POST /api/v1/auth/login
 Content-Type: application/json
 
 {
+  "provider": "local",
   "email": "alice@company.com",
   "password": "securepass123",
   "clientInfo": {
@@ -248,6 +288,26 @@ Content-Type: application/json
 }
 ```
 
+### Login (Active Directory)
+
+```http
+POST /api/v1/auth/login
+Content-Type: application/json
+
+{
+  "provider": "active_directory",
+  "username": "alice",
+  "password": "...",
+  "clientInfo": { "clientType": "electron", "deviceLabel": "ChatApp, Windows" }
+}
+```
+
+```http
+GET /api/v1/auth/providers
+```
+
+Returns enabled providers and `defaultProvider` for the login UI (no auth required).
+
 ```json
 {
   "user": { "id": "...", "email": "...", "username": "alice", "displayName": "Alice Smith" },
@@ -258,6 +318,7 @@ Content-Type: application/json
 }
 ```
 
+Response shape is identical for local and AD — clients do not need a separate token path.
 ### List active sessions
 
 ```http
@@ -596,13 +657,18 @@ users ─────────────┬──── conversation_member
                    │              └── note_revisions (per-version history)
                    ├──── refresh_tokens (session_family_id)
                    ├──── user_sessions
-                   └──── call_records (1:1 DM call history; caller/callee, media_type, end_reason, callee_seen_at)
+                   ├──── call_records (1:1 DM call history)
+                   ├──── directory_configurations (singleton auth/LDAP settings)
+                   ├──── directory_group_mappings (AD group → chat role)
+                   ├──── directory_sync_history
+                   └──── authentication_audit_logs (provider login events)
 
 direct_conversation_pairs ── conversations (DM uniqueness)
 channel_invites ── conversations
 audit_logs ── users (user_id, actor_user_id)
 ```
 
+**User directory fields** (migration `034_directory_auth`): `authentication_provider`, `ad_guid`, `ad_sid`, `department`, `job_title`, `company`, `phone`, `manager`, `last_directory_sync`, `directory_enabled`, `directory_groups`; `password_hash` nullable for AD-only users.
 **Schema delivery:**
 
 - `infra/postgres/init.sql` — full schema for new databases; seeds `schema_migrations` with checksums
@@ -638,13 +704,22 @@ Key indexes:
 ### JWT Auth Flow
 
 ```
-1. Login → accessToken (15m, includes sid) + refreshToken (opaque, 7d)
+1. Login (local or AD) → accessToken (15m, includes sid) + refreshToken (opaque, 7d)
 2. refreshToken stored as SHA-256 hash; session metadata in user_sessions
 3. REST: Authorization: Bearer; WS: auth.token on handshake
 4. On 401 → POST /auth/refresh (rotates refresh token, same sessionId)
 5. Logout / terminate → revoke session + refresh tokens; push session:terminated
 6. validateAccessToken checks user active + session not revoked (Redis session cache → DB fallback)
 ```
+
+### Active Directory / LDAP
+
+- Service bind with encrypted bind password; user bind verifies credentials (password never persisted)
+- Prefer LDAPS or StartTLS; optional certificate validation
+- Provisioning: auto-create local user; sync display name, email, department, title, company, phone, groups, status
+- Group mappings: allow/deny login, approved security groups, `system_admin` → `users.is_admin`
+- Scheduled sync: manual / hourly / daily / weekly (`@nestjs/schedule`)
+- Admin APIs under `/admin/settings/authentication/*` (hot-reload config)
 
 ### Secure WebSocket Handshake
 
@@ -659,6 +734,8 @@ Key indexes:
 | Global | 100 req/min per IP |
 | `/auth/register` | 5 req/min |
 | `/auth/login` | 10 req/min |
+| `/admin/settings/authentication/test-connection` | 10 req/min |
+| `/admin/settings/authentication/sync` | 5 req/min |
 | `POST /stories/:id/view` | 120 req/min (idempotent browsing) |
 | WS events | Per-user rate limit guard (partial) |
 
@@ -787,6 +864,7 @@ Separate workspace: Vite + React (port 5174). Uses the same JWT auth; requires `
 
 - **Dashboard**: user/message/conversation counts, recent activity, collapsible storage breakdown (MinIO + DB)
 - **Users**: list with role/status filters, avatars, debounced search; detail with session count, message stats
+- **Authentication**: provider toggles, LDAP connection (test/preview), group mappings, sync interval/history, auth statistics and failed-login audit
 - **Audit log**: filterable paginated trail with expandable metadata, debounced search
 
 Admin avatars and attachments use the same API content proxy as the chat client (`admin/src/utils/storageUrl.ts`, `mediaCache.ts`).
@@ -810,15 +888,18 @@ Override with `VITE_API_URL` / `VITE_WS_URL` in `desktop/.env`.
 │  (5174)      │     /admin/*           │  AdminGuard     │
 └──────────────┘                        └────────┬────────┘
                                                  │
-                    ┌────────────────────────────┼────────────────────────────┐
-                    ▼                            ▼                            ▼
-            ┌───────────────┐           ┌───────────────┐           ┌───────────────┐
-            │ user stats    │           │ storage stats │           │ audit_logs    │
-            │ sessions      │           │ DB + MinIO    │           │ (append-only) │
-            └───────────────┘           └───────────────┘           └───────────────┘
+     ┌───────────────────┬───────────────────────┼───────────────────────┐
+     ▼                   ▼                       ▼                       ▼
+┌─────────────┐  ┌─────────────┐  ┌──────────────────────────┐  ┌─────────────┐
+│ user stats  │  │ storage     │  │ DirectoryModule          │  │ audit_logs  │
+│ sessions    │  │ DB + MinIO  │  │ /settings/authentication │  │ append-only │
+└─────────────┘  └─────────────┘  │ LDAP, sync, mappings     │  └─────────────┘
+                                  └──────────────────────────┘
 ```
 
 **AuditModule** (global): `AuditService.record()` called from auth, messages, conversations, contacts, notes, tasks, stories, and admin actions. Writes to `audit_logs` with action, resource, metadata JSON, IP, and user agent.
+
+**AuthenticationAuditService** (directory): provider-scoped events (login success/fail, config change, connection test, sync) in `authentication_audit_logs`.
 
 **Admin storage metrics** (`AdminStorageService`):
 
@@ -931,8 +1012,9 @@ All delegate to `StorageService.upload()`.
 | `WEBRTC_STUN_URLS` | Comma-separated STUN URLs for voice/video calls | Google public STUN (dev) |
 | `TURN_URL` | Optional TURN server URL | unset |
 | `TURN_USERNAME` / `TURN_PASSWORD` | TURN credentials (all three required to enable) | unset |
+| `DIRECTORY_ENCRYPTION_KEY` | AES key for LDAP bind password at rest (64 hex chars preferred) | optional (derived from JWT secrets if unset) |
 
-**Production:** `S3_ENDPOINT`, credentials, region, and bucket env vars are required (Zod validation in `backend/src/config/env.ts`).
+**Production:** `S3_ENDPOINT`, credentials, region, and bucket env vars are required (Zod validation in `backend/src/config/env.ts`). Set `DIRECTORY_ENCRYPTION_KEY` when Active Directory is enabled.
 
 **Per-workspace env files** (created by `npm run setup` from `*.env.example`):
 

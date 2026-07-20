@@ -10,7 +10,7 @@ export interface CreateUserInput {
   email: string;
   username: string;
   displayName: string;
-  passwordHash: string;
+  passwordHash: string | null;
 }
 
 @Injectable()
@@ -132,6 +132,10 @@ export class UsersService {
       username: user.username,
       displayName: user.displayName,
       avatarUrl: user.avatarUrl,
+      authenticationProvider: user.authenticationProvider ?? 'local',
+      department: user.department ?? undefined,
+      jobTitle: user.jobTitle ?? undefined,
+      company: user.company ?? undefined,
       createdAt: user.createdAt,
     };
   }

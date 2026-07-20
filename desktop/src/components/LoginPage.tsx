@@ -6,11 +6,25 @@ import { formatAuthError } from '../utils/authError';
 import { Icon } from './Icon';
 import { faMoon, faSun } from '@fortawesome/free-solid-svg-icons';
 
+type AuthProviderId = 'local' | 'active_directory';
+
+interface PublicProvider {
+  id: AuthProviderId;
+  label: string;
+  enabled: boolean;
+  supportsRegistration: boolean;
+  identifierLabel: string;
+  identifierPlaceholder: string;
+}
+
 export function LoginPage() {
-  const { login, register } = useAuth();
+  const { login, loginWithProvider, register } = useAuth();
   const { theme, setTheme } = useTheme();
   const [isRegister, setIsRegister] = useState(false);
-  const [email, setEmail] = useState('');
+  const [providers, setProviders] = useState<PublicProvider[]>([]);
+  const [defaultProvider, setDefaultProvider] = useState<AuthProviderId>('local');
+  const [selectedProvider, setSelectedProvider] = useState<AuthProviderId>('local');
+  const [identifier, setIdentifier] = useState('');
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
@@ -29,6 +43,56 @@ export function LoginPage() {
       .catch(() => setInviteChannelName(null));
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getAuthProviders()
+      .then((res) => {
+        if (cancelled) return;
+        const enabled = res.providers.filter((p) => p.enabled);
+        setProviders(enabled.length ? enabled : [{
+          id: 'local',
+          label: 'Local',
+          enabled: true,
+          supportsRegistration: true,
+          identifierLabel: 'Email',
+          identifierPlaceholder: 'you@company.com',
+        }]);
+        const nextDefault =
+          enabled.find((p) => p.id === res.defaultProvider)?.id ??
+          enabled[0]?.id ??
+          'local';
+        setDefaultProvider(nextDefault);
+        setSelectedProvider(nextDefault);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setProviders([
+          {
+            id: 'local',
+            label: 'Local',
+            enabled: true,
+            supportsRegistration: true,
+            identifierLabel: 'Email',
+            identifierPlaceholder: 'you@company.com',
+          },
+        ]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const activeProvider =
+    providers.find((p) => p.id === selectedProvider) ??
+    providers[0] ??
+    null;
+
+  const canRegister =
+    isRegister &&
+    (activeProvider?.id === 'local' || !activeProvider) &&
+    (providers.find((p) => p.id === 'local')?.supportsRegistration ?? true);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -36,9 +100,14 @@ export function LoginPage() {
     const mode = isRegister ? 'register' : 'login';
     try {
       if (isRegister) {
-        await register(email, username, displayName, password);
+        await register(identifier, username, displayName, password);
       } else {
-        await login(email, password);
+        const provider = activeProvider?.id ?? defaultProvider;
+        if (provider === 'local') {
+          await login(identifier, password);
+        } else {
+          await loginWithProvider(provider, identifier, password);
+        }
       }
     } catch (err) {
       setError(formatAuthError(err, mode));
@@ -50,7 +119,12 @@ export function LoginPage() {
   const setMode = (nextRegister: boolean) => {
     setIsRegister(nextRegister);
     setError('');
+    if (nextRegister) {
+      setSelectedProvider('local');
+    }
   };
+
+  const showProviderToggle = !isRegister && providers.length > 1;
 
   return (
     <div className="auth-page">
@@ -91,16 +165,39 @@ export function LoginPage() {
             >
               Sign in
             </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={isRegister}
-              className={`auth-mode-btn${isRegister ? ' active' : ''}`}
-              onClick={() => setMode(true)}
-            >
-              Register
-            </button>
+            {(providers.some((p) => p.id === 'local' && p.supportsRegistration) ||
+              providers.length === 0) && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={isRegister}
+                className={`auth-mode-btn${isRegister ? ' active' : ''}`}
+                onClick={() => setMode(true)}
+              >
+                Register
+              </button>
+            )}
           </div>
+
+          {showProviderToggle && (
+            <div className="auth-mode-toggle auth-provider-toggle" role="tablist" aria-label="Sign-in method">
+              {providers.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={selectedProvider === p.id}
+                  className={`auth-mode-btn${selectedProvider === p.id ? ' active' : ''}`}
+                  onClick={() => {
+                    setSelectedProvider(p.id);
+                    setError('');
+                  }}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          )}
 
           {inviteChannelName && (
             <p className="auth-invite-banner">
@@ -110,24 +207,38 @@ export function LoginPage() {
 
           <form className="auth-form" onSubmit={handleSubmit}>
             <label className="auth-field">
-              <span className="auth-field-label">Email</span>
+              <span className="auth-field-label">
+                {canRegister || activeProvider?.id === 'local'
+                  ? 'Email'
+                  : activeProvider?.identifierLabel ?? 'Username'}
+              </span>
               <input
-                type="email"
-                placeholder="you@company.com"
-                value={email}
+                type={
+                  canRegister || activeProvider?.id === 'local' ? 'email' : 'text'
+                }
+                placeholder={
+                  canRegister || activeProvider?.id === 'local'
+                    ? 'you@company.com'
+                    : activeProvider?.identifierPlaceholder ?? 'DOMAIN\\username'
+                }
+                value={identifier}
                 onChange={(e) => {
-                  setEmail(e.target.value);
+                  setIdentifier(e.target.value);
                   if (error) setError('');
                 }}
                 required
-                autoComplete="email"
-                inputMode="email"
+                autoComplete={
+                  canRegister || activeProvider?.id === 'local' ? 'email' : 'username'
+                }
+                inputMode={
+                  canRegister || activeProvider?.id === 'local' ? 'email' : 'text'
+                }
                 autoCapitalize="none"
                 autoCorrect="off"
               />
             </label>
 
-            {isRegister && (
+            {canRegister && (
               <>
                 <label className="auth-field">
                   <span className="auth-field-label">Username</span>
@@ -166,14 +277,16 @@ export function LoginPage() {
               <span className="auth-field-label">Password</span>
               <input
                 type="password"
-                placeholder="At least 8 characters"
+                placeholder={
+                  isRegister ? 'At least 8 characters' : 'Your password'
+                }
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
                   if (error) setError('');
                 }}
                 required
-                minLength={8}
+                minLength={isRegister ? 8 : 1}
                 autoComplete={isRegister ? 'new-password' : 'current-password'}
               />
             </label>

@@ -6,19 +6,39 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE TYPE conversation_type AS ENUM ('direct', 'channel', 'group');
 CREATE TYPE member_role AS ENUM ('owner', 'admin', 'member');
 CREATE TYPE presence_status AS ENUM ('online', 'away', 'offline');
+CREATE TYPE authentication_provider AS ENUM ('local', 'active_directory');
+CREATE TYPE directory_tls_mode AS ENUM ('none', 'ldaps', 'starttls');
+CREATE TYPE directory_sync_interval AS ENUM ('manual', 'hourly', 'daily', 'weekly');
+CREATE TYPE directory_sync_status AS ENUM ('pending', 'running', 'success', 'partial', 'failed');
+CREATE TYPE directory_chat_role AS ENUM ('system_admin', 'none');
 
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(255) NOT NULL UNIQUE,
     username VARCHAR(64) NOT NULL UNIQUE,
     display_name VARCHAR(128) NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255),
     avatar_url TEXT,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+    authentication_provider authentication_provider NOT NULL DEFAULT 'local',
+    ad_guid VARCHAR(64),
+    ad_sid VARCHAR(184),
+    department VARCHAR(256),
+    job_title VARCHAR(256),
+    company VARCHAR(256),
+    phone VARCHAR(64),
+    manager VARCHAR(512),
+    last_directory_sync TIMESTAMPTZ,
+    directory_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    directory_groups JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX idx_users_ad_guid ON users (ad_guid) WHERE ad_guid IS NOT NULL;
+CREATE UNIQUE INDEX idx_users_ad_sid ON users (ad_sid) WHERE ad_sid IS NOT NULL;
+CREATE INDEX idx_users_authentication_provider ON users (authentication_provider);
 
 CREATE TABLE conversations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -524,6 +544,111 @@ CREATE INDEX idx_messages_story_id
     ON messages (story_id)
     WHERE story_id IS NOT NULL;
 
+CREATE TABLE directory_configurations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    local_login_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    active_directory_login_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    default_provider authentication_provider NOT NULL DEFAULT 'local',
+    allow_local_fallback BOOLEAN NOT NULL DEFAULT TRUE,
+    auto_create_users BOOLEAN NOT NULL DEFAULT TRUE,
+    auto_sync_profile BOOLEAN NOT NULL DEFAULT TRUE,
+    auto_sync_department BOOLEAN NOT NULL DEFAULT TRUE,
+    auto_sync_display_name BOOLEAN NOT NULL DEFAULT TRUE,
+    auto_sync_email BOOLEAN NOT NULL DEFAULT TRUE,
+    auto_sync_group_membership BOOLEAN NOT NULL DEFAULT TRUE,
+    require_account_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    reject_locked_accounts BOOLEAN NOT NULL DEFAULT TRUE,
+    reject_expired_passwords BOOLEAN NOT NULL DEFAULT TRUE,
+    reject_expired_accounts BOOLEAN NOT NULL DEFAULT TRUE,
+    require_approved_group BOOLEAN NOT NULL DEFAULT FALSE,
+    ldap_host VARCHAR(255),
+    ldap_port INTEGER NOT NULL DEFAULT 389,
+    tls_mode directory_tls_mode NOT NULL DEFAULT 'none',
+    validate_tls_certificate BOOLEAN NOT NULL DEFAULT TRUE,
+    domain_name VARCHAR(255),
+    base_dn VARCHAR(512),
+    bind_dn VARCHAR(512),
+    bind_password_encrypted TEXT,
+    user_search_base VARCHAR(512),
+    group_search_base VARCHAR(512),
+    user_filter VARCHAR(512) NOT NULL DEFAULT '(&(objectCategory=person)(objectClass=user)(sAMAccountName={username}))',
+    group_filter VARCHAR(512) NOT NULL DEFAULT '(objectClass=group)',
+    connection_timeout_ms INTEGER NOT NULL DEFAULT 5000,
+    read_timeout_ms INTEGER NOT NULL DEFAULT 10000,
+    sync_interval directory_sync_interval NOT NULL DEFAULT 'manual',
+    last_connection_test_at TIMESTAMPTZ,
+    last_connection_test_ok BOOLEAN,
+    last_connection_test_message TEXT,
+    health_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO directory_configurations (id) VALUES (gen_random_uuid());
+
+CREATE TABLE directory_group_mappings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ad_group_dn VARCHAR(1024) NOT NULL,
+    ad_group_name VARCHAR(256) NOT NULL,
+    chat_role directory_chat_role NOT NULL DEFAULT 'none',
+    allow_login BOOLEAN NOT NULL DEFAULT TRUE,
+    is_approved_security_group BOOLEAN NOT NULL DEFAULT FALSE,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_directory_group_mappings_dn UNIQUE (ad_group_dn)
+);
+
+CREATE INDEX idx_directory_group_mappings_enabled
+  ON directory_group_mappings (enabled);
+
+CREATE TABLE directory_sync_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    triggered_by VARCHAR(32) NOT NULL DEFAULT 'manual',
+    triggered_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    status directory_sync_status NOT NULL DEFAULT 'pending',
+    users_examined INTEGER NOT NULL DEFAULT 0,
+    users_updated INTEGER NOT NULL DEFAULT 0,
+    users_created INTEGER NOT NULL DEFAULT 0,
+    users_disabled INTEGER NOT NULL DEFAULT 0,
+    groups_examined INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    details JSONB NOT NULL DEFAULT '{}'::jsonb,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_directory_sync_history_started
+  ON directory_sync_history (started_at DESC);
+
+CREATE TABLE authentication_audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider authentication_provider NOT NULL,
+    event_type VARCHAR(64) NOT NULL,
+    success BOOLEAN NOT NULL DEFAULT FALSE,
+    username VARCHAR(255),
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    error_code VARCHAR(64),
+    message TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_authentication_audit_logs_created
+  ON authentication_audit_logs (created_at DESC);
+CREATE INDEX idx_authentication_audit_logs_provider
+  ON authentication_audit_logs (provider);
+CREATE INDEX idx_authentication_audit_logs_event
+  ON authentication_audit_logs (event_type);
+CREATE INDEX idx_authentication_audit_logs_success
+  ON authentication_audit_logs (success);
+
+CREATE INDEX idx_messages_story_id
+    ON messages (story_id)
+    WHERE story_id IS NOT NULL;
+
 -- Fresh databases from init.sql are marked up-to-date for incremental migrations.
 -- Checksums are verified in CI via: npm run check:schema-drift
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -564,7 +689,8 @@ INSERT INTO schema_migrations (version, checksum) VALUES
     ('030_task_assignment_acceptance', 'af9f274b3e46f0e19df6a78f688f34144a80c32fc069071a058a7335615d4cc5'),
     ('031_notes', '2e6a86c5b974a07cc0dae19cb51eac0c0a5891f971f1736289c4c6f13d340bf3'),
     ('032_stories', '6b4140450223ad67b5e50c5a0214eaed333a19fd09d910c8c98b6fb38c6f261c'),
-    ('033_story_likes', '2175876714e4486f207281f3fa75f3e87f29c635a0e5a9e3de8f217960fb8bff')
+    ('033_story_likes', '2175876714e4486f207281f3fa75f3e87f29c635a0e5a9e3de8f217960fb8bff'),
+    ('034_directory_auth', '69f0dcec6c62e7c879c89ad7a2334f8b0cd2e3b1e11a1506d1067811b5e5d8f1')
 ON CONFLICT (version) DO NOTHING;
 
 -- Grant app user access (required when schema is created by postgres superuser)

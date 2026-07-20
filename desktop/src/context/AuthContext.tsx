@@ -5,6 +5,11 @@ interface AuthContextValue {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithProvider: (
+    provider: 'local' | 'active_directory',
+    identifier: string,
+    password: string,
+  ) => Promise<void>;
   register: (email: string, username: string, displayName: string, password: string) => Promise<void>;
   logout: () => void;
   endSession: () => void;
@@ -82,6 +87,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(res.user);
   };
 
+  const loginWithProvider = async (
+    provider: 'local' | 'active_directory',
+    identifier: string,
+    password: string,
+  ) => {
+    const res = await api.loginWithProvider(provider, identifier, password);
+    await api.setTokens({
+      accessToken: res.accessToken,
+      refreshToken: res.refreshToken,
+      expiresIn: res.expiresIn,
+      sessionId: res.sessionId ?? res.sessionFamilyId,
+    });
+    setUser(res.user);
+  };
+
   const register = async (email: string, username: string, displayName: string, password: string) => {
     const res = await api.register(email, username, displayName, password);
     await api.setTokens({
@@ -112,7 +132,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, endSession, updateUser }}>
+    <AuthContext.Provider
+      value={{ user, loading, login, loginWithProvider, register, logout, endSession, updateUser }}
+    >
       {children}
     </AuthContext.Provider>
   );

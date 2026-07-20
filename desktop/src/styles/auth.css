@@ -99,6 +99,10 @@
   background: linear-gradient(90deg, var(--c-accent) 0%, var(--c-accent2) 100%);
 }
 
+.auth-provider-toggle {
+  margin-top: 0.75rem;
+}
+
 .auth-mode-toggle {
   display: grid;
   grid-template-columns: 1fr 1fr;

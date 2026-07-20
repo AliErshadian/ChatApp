@@ -34,6 +34,8 @@ export const AuditAction = {
   ADMIN_USER_UPDATE: 'admin.user_update',
   ADMIN_SESSION_REVOKE: 'admin.session_revoke',
   ADMIN_SESSION_REVOKE_ALL: 'admin.session_revoke_all',
+  ADMIN_DIRECTORY_CONFIG_UPDATE: 'admin.directory_config_update',
+  ADMIN_DIRECTORY_SYNC: 'admin.directory_sync',
   ATTACHMENT_UPLOAD: 'attachment.upload',
   ATTACHMENT_DOWNLOAD: 'attachment.download',
   ATTACHMENT_DELETE: 'attachment.delete',

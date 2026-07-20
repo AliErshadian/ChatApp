@@ -22,6 +22,10 @@ import {
   AUTH_SESSION_REQUIRED_MESSAGE,
   AUTH_SESSION_TERMINATED_MESSAGE,
 } from './auth-session.constants';
+import { AuthenticationManager } from './providers/authentication-manager.service';
+import { AUTH_PROVIDER_IDS } from './providers/auth-provider.types';
+import type { AuthenticationProviderId } from './providers/auth-provider.types';
+import type { ProviderLoginDto } from '../directory/dto/directory.dto';
 
 export interface TokenPair {
   accessToken: string;
@@ -65,9 +69,15 @@ export class AuthService {
     private readonly sessionRealtime: SessionRealtimePublisher,
     private readonly sessionCache: SessionCacheService,
     private readonly audit: AuditService,
+    private readonly authenticationManager: AuthenticationManager,
   ) {}
 
   async register(dto: RegisterDto, ipAddress?: string) {
+    const { providers } = await this.authenticationManager.listPublicProviders();
+    if (!providers.some((p) => p.id === AUTH_PROVIDER_IDS.LOCAL)) {
+      throw new UnauthorizedException('Local registration is disabled');
+    }
+
     const existing = await this.usersService.findByEmail(dto.email);
     if (existing) throw new ConflictException('Email already registered');
 
@@ -97,25 +107,39 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, ipAddress?: string) {
-    const user = await this.usersService.findByEmailWithPassword(dto.email);
-    if (!user || !user.isActive) {
-      this.audit.record({
-        action: AuditAction.AUTH_LOGIN_FAILED,
-        ipAddress,
-        userAgent: dto.clientInfo?.userAgent,
-        metadata: { email: dto.email },
-      });
+    return this.loginWithProvider(
+      {
+        provider: AUTH_PROVIDER_IDS.LOCAL,
+        email: dto.email,
+        password: dto.password,
+        clientInfo: dto.clientInfo,
+      },
+      ipAddress,
+    );
+  }
+
+  async loginWithProvider(dto: ProviderLoginDto, ipAddress?: string) {
+    const identifier = (dto.username ?? dto.email ?? '').trim();
+    if (!identifier) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const valid = await bcrypt.compare(dto.password, user.passwordHash);
-    if (!valid) {
-      this.audit.record({
-        action: AuditAction.AUTH_LOGIN_FAILED,
+    const preferredProvider: AuthenticationProviderId | undefined = dto.provider;
+
+    const result = await this.authenticationManager.authenticate(
+      {
+        identifier,
+        password: dto.password,
+        preferredProvider,
+      },
+      {
         ipAddress,
         userAgent: dto.clientInfo?.userAgent,
-        metadata: { email: dto.email },
-      });
+      },
+    );
+
+    const user = await this.usersService.findById(result.userId);
+    if (!user || !user.isActive) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -123,6 +147,7 @@ export class AuthService {
       ...this.clientInfoToOptions(dto.clientInfo),
       ipAddress,
     });
+
     this.audit.record({
       action: AuditAction.AUTH_LOGIN,
       userId: user.id,
@@ -130,11 +155,18 @@ export class AuthService {
       userAgent: dto.clientInfo?.userAgent,
       metadata: {
         email: user.email,
+        provider: result.provider,
         deviceLabel: dto.clientInfo?.deviceLabel,
         appName: dto.clientInfo?.appName,
+        created: result.created ?? false,
       },
     });
+
     return { user: this.usersService.toPublic(user), ...tokens };
+  }
+
+  listAuthProviders() {
+    return this.authenticationManager.listPublicProviders();
   }
 
   async refresh(refreshToken: string, clientInfo?: SessionClientInfoDto, ipAddress?: string) {

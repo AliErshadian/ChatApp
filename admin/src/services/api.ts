@@ -166,9 +166,11 @@ class AdminApiClient {
       res = await this.fetchWithTimeout(`${this.apiBase()}${path}`, { ...options, headers });
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
-        throw new Error('Request timed out. Check that the API is running.', { cause: err });
+        throw Object.assign(new Error('Request timed out. Check that the API is running.'), {
+          cause: err,
+        });
       }
-      throw new Error(`Cannot reach server (${this.apiBase()}).`, { cause: err });
+      throw Object.assign(new Error(`Cannot reach server (${this.apiBase()}).`), { cause: err });
     }
 
     if (res.status === 401 && allowRefresh) {
@@ -342,6 +344,227 @@ class AdminApiClient {
     const query = qs.toString();
     return this.request<PaginatedAuditLogs>(`/admin/audit-logs${query ? `?${query}` : ''}`);
   }
+
+  getAuthSettings() {
+    return this.request<DirectoryAuthSettings>('/admin/settings/authentication');
+  }
+
+  updateAuthSettings(data: Partial<DirectoryAuthSettingsUpdate>) {
+    return this.request<DirectoryAuthSettings>('/admin/settings/authentication', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  getDirectoryHealth() {
+    return this.request<DirectoryHealth>('/admin/settings/authentication/health');
+  }
+
+  getAuthStatistics() {
+    return this.request<AuthStatistics>('/admin/settings/authentication/statistics');
+  }
+
+  testDirectoryConnection() {
+    return this.request<{ ok: boolean; message: string }>(
+      '/admin/settings/authentication/test-connection',
+      { method: 'POST', body: '{}' },
+    );
+  }
+
+  previewDirectoryUsers(limit = 25) {
+    return this.request<DirectoryPreviewUser[]>(
+      `/admin/settings/authentication/preview/users?limit=${limit}`,
+    );
+  }
+
+  previewDirectoryGroups(limit = 50) {
+    return this.request<DirectoryPreviewGroup[]>(
+      `/admin/settings/authentication/preview/groups?limit=${limit}`,
+    );
+  }
+
+  runDirectorySync() {
+    return this.request<Record<string, unknown>>('/admin/settings/authentication/sync', {
+      method: 'POST',
+      body: '{}',
+    });
+  }
+
+  listDirectorySyncHistory(page = 1, limit = 20) {
+    return this.request<PaginatedSyncHistory>(
+      `/admin/settings/authentication/sync/history?page=${page}&limit=${limit}`,
+    );
+  }
+
+  listAuthAuditLogs(params: {
+    page?: number;
+    limit?: number;
+    provider?: string;
+    success?: boolean;
+  }) {
+    const qs = new URLSearchParams();
+    if (params.page) qs.set('page', String(params.page));
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.provider) qs.set('provider', params.provider);
+    if (params.success !== undefined) qs.set('success', String(params.success));
+    return this.request<PaginatedAuthAudit>(
+      `/admin/settings/authentication/audit?${qs.toString()}`,
+    );
+  }
+
+  listGroupMappings() {
+    return this.request<DirectoryGroupMapping[]>('/admin/settings/authentication/group-mappings');
+  }
+
+  createGroupMapping(data: Partial<DirectoryGroupMapping> & { adGroupDn: string; adGroupName: string }) {
+    return this.request<DirectoryGroupMapping>('/admin/settings/authentication/group-mappings', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  updateGroupMapping(id: string, data: Partial<DirectoryGroupMapping>) {
+    return this.request<DirectoryGroupMapping>(
+      `/admin/settings/authentication/group-mappings/${id}`,
+      { method: 'PATCH', body: JSON.stringify(data) },
+    );
+  }
+
+  deleteGroupMapping(id: string) {
+    return this.request<{ success: boolean }>(
+      `/admin/settings/authentication/group-mappings/${id}`,
+      { method: 'DELETE' },
+    );
+  }
+}
+
+export interface DirectoryAuthSettings {
+  localLoginEnabled: boolean;
+  activeDirectoryLoginEnabled: boolean;
+  defaultProvider: 'local' | 'active_directory';
+  allowLocalFallback: boolean;
+  autoCreateUsers: boolean;
+  autoSyncProfile: boolean;
+  autoSyncDepartment: boolean;
+  autoSyncDisplayName: boolean;
+  autoSyncEmail: boolean;
+  autoSyncGroupMembership: boolean;
+  requireAccountEnabled: boolean;
+  rejectLockedAccounts: boolean;
+  rejectExpiredPasswords: boolean;
+  rejectExpiredAccounts: boolean;
+  requireApprovedGroup: boolean;
+  ldapHost: string | null;
+  ldapPort: number;
+  tlsMode: 'none' | 'ldaps' | 'starttls';
+  validateTlsCertificate: boolean;
+  domainName: string | null;
+  baseDn: string | null;
+  bindDn: string | null;
+  bindPasswordSet: boolean;
+  userSearchBase: string | null;
+  groupSearchBase: string | null;
+  userFilter: string;
+  groupFilter: string;
+  connectionTimeoutMs: number;
+  readTimeoutMs: number;
+  syncInterval: 'manual' | 'hourly' | 'daily' | 'weekly';
+  lastConnectionTestAt: string | null;
+  lastConnectionTestOk: boolean | null;
+  lastConnectionTestMessage: string | null;
+  healthStatus: string;
+  updatedAt: string;
+}
+
+export type DirectoryAuthSettingsUpdate = Omit<
+  DirectoryAuthSettings,
+  | 'bindPasswordSet'
+  | 'lastConnectionTestAt'
+  | 'lastConnectionTestOk'
+  | 'lastConnectionTestMessage'
+  | 'healthStatus'
+  | 'updatedAt'
+> & { bindPassword?: string | null };
+
+export interface DirectoryHealth {
+  healthStatus: string;
+  activeDirectoryLoginEnabled: boolean;
+  localLoginEnabled: boolean;
+  lastConnectionTestAt: string | null;
+  lastConnectionTestOk: boolean | null;
+  lastConnectionTestMessage: string | null;
+  ldapHostConfigured: boolean;
+  bindPasswordSet: boolean;
+  syncInterval: string;
+}
+
+export interface AuthStatistics {
+  last24h: {
+    localSuccess: number;
+    localFailed: number;
+    adSuccess: number;
+    adFailed: number;
+  };
+}
+
+export interface DirectoryPreviewUser {
+  dn: string;
+  username: string;
+  displayName: string;
+  email: string;
+  department?: string;
+  enabled: boolean;
+}
+
+export interface DirectoryPreviewGroup {
+  dn: string;
+  name: string;
+  description?: string;
+}
+
+export interface DirectoryGroupMapping {
+  id: string;
+  adGroupDn: string;
+  adGroupName: string;
+  chatRole: 'system_admin' | 'none';
+  allowLogin: boolean;
+  isApprovedSecurityGroup: boolean;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaginatedSyncHistory {
+  items: Array<{
+    id: string;
+    triggeredBy: string;
+    status: string;
+    usersExamined: number;
+    usersUpdated: number;
+    usersCreated: number;
+    usersDisabled: number;
+    errorMessage: string | null;
+    startedAt: string;
+    finishedAt: string | null;
+  }>;
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface PaginatedAuthAudit {
+  items: Array<{
+    id: string;
+    provider: string;
+    eventType: string;
+    success: boolean;
+    username: string | null;
+    message: string | null;
+    createdAt: string;
+  }>;
+  total: number;
+  page: number;
+  limit: number;
 }
 
 export const api = new AdminApiClient();
