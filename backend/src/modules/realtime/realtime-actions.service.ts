@@ -103,8 +103,12 @@ export class RealtimeActionsService {
     return { success: true };
   }
 
-  async queryPresence(userIds: string[]) {
-    const presence = await this.presenceService.getPresence(userIds);
+  async queryPresence(requesterId: string, userIds: string[]) {
+    const related = await this.conversationsService.getRelatedUserIds(requesterId);
+    const allowed = new Set(related);
+    const requested = [...new Set((userIds ?? []).filter(Boolean))].slice(0, 100);
+    const filtered = requested.filter((id) => allowed.has(id));
+    const presence = await this.presenceService.getPresence(filtered);
     return { event: 'presence:batch', data: presence };
   }
 }

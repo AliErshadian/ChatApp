@@ -328,7 +328,13 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   - Prod nginx: CSP + `X-Frame-Options` / `nosniff` / `Referrer-Policy`
   - Dev Vite skips CSP so HMR / Fast Refresh keep working
 - **CSRF**: not required with the current token model — access tokens go only in the `Authorization: Bearer` header; refresh tokens are sent in the JSON body (`POST /auth/refresh`), never in cookies. Browsers do not auto-attach those on cross-site requests, so classic cookie CSRF does not apply. If refresh tokens are later moved to `HttpOnly` cookies, add CSRF protection (e.g. double-submit token) at that time.
-- JWT access (15m, `sid`) + rotating refresh (7d, hashed)
+- **WebSocket (`/realtime`)**
+  - JWT verified on connect (`handshake.auth.token`); session must be active
+  - `WsJwtGuard` re-checks session on every event; revoked sessions disconnect immediately
+  - Sensitive events re-assert conversation membership / call participation
+  - Removed members are forced out of `conversation:{id}` rooms
+  - Per-user Redis token-bucket rate limits on all mutating / signaling events
+  - Session revoke → `session:terminated` + hard `disconnectSockets`
 - Provider auth: local and optional AD; AD passwords never stored
 - LDAP bind password encrypted (`DIRECTORY_ENCRYPTION_KEY`)
 - Session revoke kills REST, WS, and SSE immediately

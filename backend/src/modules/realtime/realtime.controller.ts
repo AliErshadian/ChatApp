@@ -122,7 +122,10 @@ export class RealtimeController {
   }
 
   @Post('presence/query')
-  queryPresence(@Body() dto: RealtimePresenceQueryDto) {
-    return this.actions.queryPresence(dto.userIds);
+  queryPresence(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: RealtimePresenceQueryDto,
+  ) {
+    return this.actions.queryPresence(user.id, dto.userIds);
   }
 }

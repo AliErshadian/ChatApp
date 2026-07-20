@@ -1,6 +1,7 @@
 import { CanActivate, ExecutionContext, Inject, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import { WsException } from '@nestjs/websockets';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../infrastructure/redis/redis.constants';
 import { WS_RATE_LIMIT_META, WsRateLimitOptions } from './ws-rate-limit.decorator';
@@ -142,13 +143,19 @@ export class WsRateLimitGuard implements CanActivate {
     const key = this.buildKey(userId, options, body);
     const nowMs = Date.now();
 
+    let allowed: boolean;
     try {
       // Lazy-connect; if Redis is unavailable, fall back to in-memory.
       await this.redis.connect().catch(() => undefined);
-      return await this.allowWithRedis(key, options, nowMs);
+      allowed = await this.allowWithRedis(key, options, nowMs);
     } catch {
-      return this.allowWithMemory(key, options, nowMs);
+      allowed = this.allowWithMemory(key, options, nowMs);
     }
+
+    if (!allowed) {
+      throw new WsException('Rate limit exceeded');
+    }
+    return true;
   }
 }
 

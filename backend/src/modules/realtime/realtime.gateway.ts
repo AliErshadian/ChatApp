@@ -169,7 +169,12 @@ export class RealtimeGateway
     this.logger.log(`Client disconnected: ${client.id}`);
   }
 
-  @UseGuards(WsJwtGuard)
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'conversation_join',
+    capacity: 30,
+    refillPerSec: 2,
+  })
   @SubscribeMessage('conversation:join')
   async joinConversation(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -180,12 +185,20 @@ export class RealtimeGateway
     return { success: true, conversationId: data.conversationId };
   }
 
-  @UseGuards(WsJwtGuard)
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'conversation_leave',
+    capacity: 30,
+    refillPerSec: 2,
+  })
   @SubscribeMessage('conversation:leave')
   async leaveConversation(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { conversationId: string },
   ) {
+    if (!data?.conversationId) {
+      return { success: false };
+    }
     await client.leave(`conversation:${data.conversationId}`);
     return { success: true };
   }
@@ -212,7 +225,12 @@ export class RealtimeGateway
     return this.actions.sendMessage(client.data.userId, client.data.sessionId, data);
   }
 
-  @UseGuards(WsJwtGuard)
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'message_delivered',
+    capacity: 60,
+    refillPerSec: 10,
+  })
   @SubscribeMessage('message:delivered')
   async handleDelivered(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -255,7 +273,12 @@ export class RealtimeGateway
     return { success: true };
   }
 
-  @UseGuards(WsJwtGuard)
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'message_read',
+    capacity: 60,
+    refillPerSec: 10,
+  })
   @SubscribeMessage('message:read')
   async handleRead(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -264,7 +287,12 @@ export class RealtimeGateway
     return this.actions.markRead(client.data.userId, data.messageId);
   }
 
-  @UseGuards(WsJwtGuard)
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'message_edit',
+    capacity: 20,
+    refillPerSec: 1,
+  })
   @SubscribeMessage('message:edit')
   async handleEdit(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -273,7 +301,12 @@ export class RealtimeGateway
     return this.actions.editMessage(client.data.userId, data.messageId, data.content);
   }
 
-  @UseGuards(WsJwtGuard)
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'message_delete',
+    capacity: 20,
+    refillPerSec: 1,
+  })
   @SubscribeMessage('message:delete')
   async handleDelete(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -287,7 +320,12 @@ export class RealtimeGateway
     );
   }
 
-  @UseGuards(WsJwtGuard)
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'message_reaction',
+    capacity: 40,
+    refillPerSec: 4,
+  })
   @SubscribeMessage('message:reaction')
   async handleReaction(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -296,30 +334,50 @@ export class RealtimeGateway
     return this.actions.toggleReaction(client.data.userId, data.messageId, data.emoji);
   }
 
-  @UseGuards(WsJwtGuard)
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'conversation_delete',
+    capacity: 10,
+    refillPerSec: 0.2,
+  })
   @SubscribeMessage('conversation:delete')
   async handleConversationDelete(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { conversationId: string; scope: 'me' | 'everyone' },
   ) {
-    return this.actions.deleteConversation(
+    const result = await this.actions.deleteConversation(
       client.data.userId,
       client.data.sessionId,
       data.conversationId,
       data.scope,
     );
+    await this.broadcast.leaveConversationRoom(client.data.userId, data.conversationId);
+    return result;
   }
 
-  @UseGuards(WsJwtGuard)
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'presence_heartbeat',
+    capacity: 6,
+    refillPerSec: 0.2,
+  })
   @SubscribeMessage('presence:heartbeat')
   async heartbeat(@ConnectedSocket() client: AuthenticatedSocket) {
     return this.actions.heartbeat(client.data.userId);
   }
 
-  @UseGuards(WsJwtGuard)
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'presence_query',
+    capacity: 20,
+    refillPerSec: 2,
+  })
   @SubscribeMessage('presence:query')
-  async queryPresence(@MessageBody() data: { userIds: string[] }) {
-    return this.actions.queryPresence(data.userIds);
+  async queryPresence(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { userIds: string[] },
+  ) {
+    return this.actions.queryPresence(client.data.userId, data.userIds);
   }
 
   @UseGuards(WsJwtGuard, WsRateLimitGuard)
@@ -342,7 +400,12 @@ export class RealtimeGateway
     return { success: true, ...result };
   }
 
-  @UseGuards(WsJwtGuard)
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'call_accept',
+    capacity: 10,
+    refillPerSec: 0.5,
+  })
   @SubscribeMessage('call:accept')
   async handleCallAccept(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -356,7 +419,12 @@ export class RealtimeGateway
     return { success: true, ...result };
   }
 
-  @UseGuards(WsJwtGuard)
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'call_reject',
+    capacity: 10,
+    refillPerSec: 0.5,
+  })
   @SubscribeMessage('call:reject')
   async handleCallReject(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -370,7 +438,12 @@ export class RealtimeGateway
     return { success: true, ...result };
   }
 
-  @UseGuards(WsJwtGuard)
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'call_end',
+    capacity: 10,
+    refillPerSec: 0.5,
+  })
   @SubscribeMessage('call:end')
   async handleCallEnd(
     @ConnectedSocket() client: AuthenticatedSocket,

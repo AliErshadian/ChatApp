@@ -749,9 +749,13 @@ CORS still restricts which origins may call the API with credentials-style reque
 
 ### Secure WebSocket Handshake
 
-- JWT verified in `handleConnection`; `AuthService.validateAccessToken` enforces session
+- JWT verified in `handleConnection` (`handshake.auth.token` or `Authorization`); `AuthService.validateAccessToken` enforces active user + non-revoked session
 - Join `user:{id}` and `session:{sid}` rooms
-- `WsJwtGuard` on subscribed handlers; membership checked before join/send
+- `WsJwtGuard` on every subscribed handler re-validates the session (disconnects if revoked)
+- Membership / call-participant checks on sensitive actions (`conversation:join`, send/typing, call signaling, etc.)
+- `presence:query` limited to users who share a conversation with the requester
+- On member removal / conversation leave-delete: sockets leave `conversation:{id}` so they stop receiving room broadcasts
+- Session revoke: emit `session:terminated` then `disconnectSockets(true)` on `session:{sid}`
 
 ### Rate Limiting
 
@@ -763,7 +767,10 @@ CORS still restricts which origins may call the API with credentials-style reque
 | `/admin/settings/authentication/test-connection` | 10 req/min |
 | `/admin/settings/authentication/sync` | 5 req/min |
 | `POST /stories/:id/view` | 120 req/min (idempotent browsing) |
-| WS events | Per-user rate limit guard (partial) |
+| WS `message:send` | Token bucket (default capacity 15, refill 0.5/s; env-overridable) |
+| WS `user:typing` | Token bucket (default 6 / 1.5/s per conversation) |
+| WS other mutating events | Per-action token buckets (`WsRateLimitGuard`; Redis + in-memory fallback) |
+| WS `call:invite` / `call:signal` | Strict invite (3 / 0.1/s); generous signal (120 / 30/s per call) |
 
 ### Message Sanitization
 

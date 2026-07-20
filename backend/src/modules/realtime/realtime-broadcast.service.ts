@@ -238,7 +238,16 @@ export class RealtimeBroadcastService {
 
   async broadcastMemberRemoved(conversationId: string, removedUserId: string) {
     await this.emitToUser(removedUserId, 'conversation:hidden', { conversationId });
+    await this.leaveConversationRoom(removedUserId, conversationId);
     await this.broadcastConversationUpdated(conversationId);
+  }
+
+  /** Force a user's sockets out of a conversation room (e.g. after kick/leave). */
+  async leaveConversationRoom(userId: string, conversationId: string) {
+    if (!this.server) return;
+    const room = `conversation:${conversationId}`;
+    const sockets = await this.server.in(`user:${userId}`).fetchSockets();
+    await Promise.all(sockets.map((socket) => socket.leave(room)));
   }
 
   async broadcastMessageUpdate(message: {
