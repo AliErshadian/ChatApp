@@ -17,7 +17,7 @@ export interface StorageUploadContext {
 }
 
 export interface StorageHook {
-  /** Runs before upload (virus scan, image compression, etc.). */
+  /** Runs before upload (FileScanHook, compression, etc.). */
   onBeforeUpload?(context: StorageUploadContext): Promise<void>;
   /** Runs after metadata is persisted (thumbnail generation, audit enrichment, etc.). */
   onAfterUpload?(context: StorageUploadContext, attachmentId: string): Promise<void>;

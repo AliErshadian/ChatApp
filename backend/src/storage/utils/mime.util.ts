@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { extname } from 'path';
+import { extractExtensions, scanUploadedFile, type SniffedContent } from './file-scan.util';
 
 export type StorageCategory = 'avatar' | 'image' | 'video' | 'audio' | 'document';
 
@@ -75,71 +75,101 @@ function isVoiceRecordingName(name: string): boolean {
   return base.startsWith('voice-');
 }
 
-function resolveRule(
-  mime: string,
-  ext: string,
+function categoryForSniffed(
+  sniffed: SniffedContent,
+  finalExt: string,
+  declaredMime: string,
+  originalName: string,
   allowedCategories?: StorageCategory[],
-  originalName?: string,
-): MediaRule | undefined {
+): StorageCategory | undefined {
   const rules = allowedCategories
     ? MEDIA_RULES.filter((rule) => allowedCategories.includes(rule.category))
     : MEDIA_RULES;
 
-  const normalizedMime = normalizeMimeType(mime);
-
-  if (originalName && isVoiceRecordingName(originalName)) {
-    return rules.find((rule) => rule.category === 'audio');
+  // Voice notes: EBML/webm often sniffs as video/webm; prefer audio when named voice-* or declared audio/*
+  if (
+    (isVoiceRecordingName(originalName) || declaredMime.startsWith('audio/')) &&
+    (finalExt === '.webm' || sniffed.mimeType.includes('webm') || sniffed.mimeType === 'audio/ogg')
+  ) {
+    const audio = rules.find((rule) => rule.category === 'audio');
+    if (audio?.extensions.has(finalExt)) return 'audio';
   }
 
-  const mimeMatch = rules.find((rule) => rule.mimeTypes.has(normalizedMime));
-  if (mimeMatch) return mimeMatch;
-
-  if (ext === '.webm' && normalizedMime.startsWith('audio/')) {
-    return rules.find((rule) => rule.category === 'audio');
+  if (sniffed.kind === 'image') {
+    return rules.find((r) => r.category === 'image') ? 'image' : undefined;
   }
+  if (sniffed.kind === 'video') {
+    // .webm without audio hint → video
+    if (finalExt === '.webm' && declaredMime.startsWith('audio/')) {
+      return rules.find((r) => r.category === 'audio') ? 'audio' : undefined;
+    }
+    return rules.find((r) => r.category === 'video') ? 'video' : undefined;
+  }
+  if (sniffed.kind === 'audio') {
+    return rules.find((r) => r.category === 'audio') ? 'audio' : undefined;
+  }
+  if (sniffed.kind === 'document' || sniffed.kind === 'archive') {
+    return rules.find((r) => r.category === 'document') ? 'document' : undefined;
+  }
+  return undefined;
+}
 
-  return rules.find((rule) => rule.extensions.has(ext));
+function resolveCanonicalMime(rule: MediaRule, sniffed: SniffedContent, declared: string): string {
+  if (rule.mimeTypes.has(sniffed.mimeType)) return sniffed.mimeType;
+  if (rule.category === 'audio' && sniffed.mimeType.includes('webm')) return 'audio/webm';
+  if (rule.mimeTypes.has(declared)) return declared;
+  return [...rule.mimeTypes][0] ?? sniffed.mimeType;
 }
 
 export function validateMediaFile(
   file: Express.Multer.File,
   options: { allowedCategories?: StorageCategory[]; forceCategory?: StorageCategory } = {},
 ): ValidatedMedia {
-  const ext = extname(file.originalname).toLowerCase();
-  const mime = normalizeMimeType(file.mimetype);
+  const { finalExtension, sniffed } = scanUploadedFile(file);
+  const declared = normalizeMimeType(file.mimetype);
+  const originalName = sanitizeOriginalName(file.originalname);
 
   if (options.forceCategory === 'avatar') {
-    if (!AVATAR_RULE.extensions.has(ext) && !AVATAR_RULE.mimeTypes.has(mime)) {
+    if (sniffed.kind !== 'image' || !AVATAR_RULE.extensions.has(finalExtension)) {
       throw new BadRequestException('Unsupported avatar file type');
     }
-    const resolvedMime = AVATAR_RULE.mimeTypes.has(mime)
-      ? mime
-      : [...AVATAR_RULE.mimeTypes].find((type) => type.startsWith('image/')) ?? mime;
-
+    if (!AVATAR_RULE.mimeTypes.has(sniffed.mimeType) && !AVATAR_RULE.mimeTypes.has(declared)) {
+      throw new BadRequestException('Unsupported avatar file type');
+    }
     return {
       category: 'avatar',
-      mimeType: resolvedMime || file.mimetype,
-      extension: AVATAR_RULE.extensions.has(ext) ? ext : '.png',
-      originalName: sanitizeOriginalName(file.originalname),
+      mimeType: sniffed.mimeType === 'image/jpeg' ? 'image/jpeg' : sniffed.mimeType,
+      extension: finalExtension,
+      originalName,
     };
   }
 
-  const rule = resolveRule(mime, ext, options.allowedCategories, file.originalname);
-  if (!rule) {
+  const category = categoryForSniffed(
+    sniffed,
+    finalExtension,
+    declared,
+    file.originalname,
+    options.allowedCategories,
+  );
+  if (!category) {
     throw new BadRequestException('Unsupported file type');
   }
 
-  const resolvedMime = rule.mimeTypes.has(mime)
-    ? mime
-    : mime.startsWith(`${rule.category}/`)
-      ? mime
-      : [...rule.mimeTypes].find((type) => type.startsWith(`${rule.category}/`)) ?? mime;
+  const rule = MEDIA_RULES.find((r) => r.category === category);
+  if (!rule || !rule.extensions.has(finalExtension)) {
+    throw new BadRequestException('File extension does not match content type');
+  }
+
+  // Require extension ∈ rule AND sniffed content aligns with category (already from scan)
+  if (options.allowedCategories && !options.allowedCategories.includes(category)) {
+    throw new BadRequestException('Unsupported file type for this upload');
+  }
 
   return {
-    category: rule.category,
-    mimeType: resolvedMime || file.mimetype,
-    extension: rule.extensions.has(ext) ? ext : `.${rule.category}`,
-    originalName: sanitizeOriginalName(file.originalname),
+    category,
+    mimeType: resolveCanonicalMime(rule, sniffed, declared),
+    extension: finalExtension,
+    originalName,
   };
 }
 
@@ -159,3 +189,6 @@ export function categoryToBucketEnvKey(category: StorageCategory): string {
       return 'S3_BUCKET_ATTACHMENTS';
   }
 }
+
+/** Re-export for callers that only need extension parsing. */
+export { extractExtensions };

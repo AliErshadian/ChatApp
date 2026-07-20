@@ -333,7 +333,12 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - LDAP bind password encrypted (`DIRECTORY_ENCRYPTION_KEY`)
 - Session revoke kills REST, WS, and SSE immediately
 - DTO validation, HTML sanitize, Helmet, CORS allowlist, throttling (stricter on auth)
-- Uploads: MIME/size checks; downloads via authenticated API proxy
+- **File scanning (uploads)**
+  - Dangerous extensions blocked (`.exe`, scripts, `.html`, `.svg`, …)
+  - Double-extension names rejected (`photo.jpg.exe`, `invoice.pdf.js`)
+  - Magic-byte sniffing: content must match the final extension and declared MIME
+  - Optional ClamAV: `FILE_SCAN_CLAMAV_ENABLED=true` + `FILE_SCAN_CLAMAV_HOST` / `PORT`
+  - Size limits per category; downloads via authenticated API proxy
 - Production: terminate TLS at the reverse proxy
 
 ## Object storage

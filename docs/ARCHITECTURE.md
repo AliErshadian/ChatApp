@@ -963,7 +963,8 @@ Client                    NestJS API                    Storage Layer
 - **API content proxy (primary client path)** — `GET /attachments/:id/content` streams object bytes through the API with JWT auth. Clients never need direct MinIO access (works on LAN/mobile when only the API port is reachable).
 - **Presigned URLs (optional)** — `GET /attachments/:id/download` returns a short-lived MinIO URL for external integrations; chat/admin clients use `/content` instead.
 - **Permission checks** — conversation membership, ownership, avatar bucket read access for authenticated users.
-- **Extension hooks** — `StorageHook` interface for future virus scan, compression, thumbnails (not implemented).
+- **Upload scanning** — `file-scan.util.ts` rejects dangerous extensions, double-extension filenames, and content that does not match magic bytes / MIME. `FileScanHook` re-checks content on `onBeforeUpload`; optional ClamAV INSTREAM when `FILE_SCAN_CLAMAV_ENABLED=true`.
+- **Extension hooks** — `StorageHook` for scan (implemented), compression, thumbnails.
 
 ### Buckets
 
