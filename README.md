@@ -327,6 +327,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   - Electron (packaged): CSP response header on all navigations
   - Prod nginx: CSP + `X-Frame-Options` / `nosniff` / `Referrer-Policy`
   - Dev Vite skips CSP so HMR / Fast Refresh keep working
+- **CSRF**: not required with the current token model — access tokens go only in the `Authorization: Bearer` header; refresh tokens are sent in the JSON body (`POST /auth/refresh`), never in cookies. Browsers do not auto-attach those on cross-site requests, so classic cookie CSRF does not apply. If refresh tokens are later moved to `HttpOnly` cookies, add CSRF protection (e.g. double-submit token) at that time.
 - JWT access (15m, `sid`) + rotating refresh (7d, hashed)
 - Provider auth: local and optional AD; AD passwords never stored
 - LDAP bind password encrypted (`DIRECTORY_ENCRYPTION_KEY`)

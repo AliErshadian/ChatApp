@@ -21,6 +21,12 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
 
+/**
+ * Auth HTTP surface.
+ *
+ * Tokens are Bearer / JSON-body only (no auth cookies), so classic CSRF
+ * protection is intentionally not applied here. See docs/ARCHITECTURE.md §12 CSRF.
+ */
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}

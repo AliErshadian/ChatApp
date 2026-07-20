@@ -724,6 +724,20 @@ Key indexes:
 
 SPA policy allows `'self'` scripts, React inline styles, `blob:` media, Google Fonts (desktop), and `http(s)` / `ws(s)` connect for LAN API hosts. Dev servers omit CSP so Vite HMR works.
 
+### CSRF
+
+**Not required** under the current design:
+
+| Token | Transport | Auto-sent by browser on cross-site request? |
+|-------|-----------|-----------------------------------------------|
+| Access JWT | `Authorization: Bearer` header | No |
+| Refresh token | JSON body on `POST /auth/refresh` | No |
+| Session id | Inside JWT `sid` claim | N/A |
+
+Storage: Electron encrypted file / renderer memory; browser `localStorage` (admin + web client). No auth cookies (`Set-Cookie` / `HttpOnly` refresh) are used.
+
+CORS still restricts which origins may call the API with credentials-style requests. If refresh tokens are later moved to cookies, introduce CSRF defense (synchronizer or double-submit token) before enabling that path.
+
 ### Active Directory / LDAP
 
 - Service bind with encrypted bind password; user bind verifies credentials (password never persisted)
