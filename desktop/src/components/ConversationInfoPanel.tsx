@@ -25,6 +25,7 @@ interface Props {
   onDeleteChat?: (scope: 'me' | 'everyone') => void;
   onLeaveChannel?: (newOwnerId?: string) => void;
   onChannelAvatarUpdated?: (avatarUrl: string) => void;
+  onMessageUser?: (user: User) => void;
   deleteChatBusy?: boolean;
 }
 
@@ -50,6 +51,7 @@ export function ConversationInfoPanel({
   onDeleteChat,
   onLeaveChannel,
   onChannelAvatarUpdated,
+  onMessageUser,
   deleteChatBusy = false,
 }: Props) {
   const { getPresence, refreshPresence } = usePresence();
@@ -136,6 +138,17 @@ export function ConversationInfoPanel({
     } finally {
       setRemoveMemberBusy(false);
     }
+  };
+
+  const openDirectChat = (member: (typeof channelMembers)[number]) => {
+    if (!onMessageUser || member.userId === currentUserId) return;
+    onMessageUser({
+      id: member.userId,
+      email: '',
+      username: member.username ?? '',
+      displayName: member.displayName ?? 'Unknown',
+      avatarUrl: member.avatarUrl,
+    });
   };
 
   return (
@@ -292,7 +305,20 @@ export function ConversationInfoPanel({
                 )}
               </div>
               <ul className="member-list">
-                {channelMembers.map((member) => (
+                {channelMembers.map((member) => {
+                  const canOpenDm =
+                    isGroup && onMessageUser && member.userId !== currentUserId;
+                  const memberInfo = (
+                    <>
+                      <span className="member-list-name">
+                        {member.displayName ?? 'Unknown'}
+                        {member.userId === currentUserId && ' (You)'}
+                      </span>
+                      <span className="member-list-username">@{member.username}</span>
+                    </>
+                  );
+
+                  return (
                   <li key={member.userId} className="member-list-item">
                     <Avatar
                       name={member.displayName ?? member.username ?? '?'}
@@ -300,13 +326,18 @@ export function ConversationInfoPanel({
                       size="sm"
                       presence={getPresence(member.userId)}
                     />
-                    <div className="member-list-info">
-                      <span className="member-list-name">
-                        {member.displayName ?? 'Unknown'}
-                        {member.userId === currentUserId && ' (You)'}
-                      </span>
-                      <span className="member-list-username">@{member.username}</span>
-                    </div>
+                    {canOpenDm ? (
+                      <button
+                        type="button"
+                        className="member-list-info member-list-info--clickable"
+                        onClick={() => openDirectChat(member)}
+                        title={`Message ${member.displayName ?? member.username ?? 'member'}`}
+                      >
+                        {memberInfo}
+                      </button>
+                    ) : (
+                      <div className="member-list-info">{memberInfo}</div>
+                    )}
                     <div className="member-list-actions">
                       <span className={`member-role${member.role === 'owner' ? ' member-role--owner' : ''}`}>
                         {member.role}
@@ -328,7 +359,8 @@ export function ConversationInfoPanel({
                         )}
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
               {memberActionError && <p className="profile-error-inline">{memberActionError}</p>}
             </section>

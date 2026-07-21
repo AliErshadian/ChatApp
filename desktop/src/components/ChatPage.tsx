@@ -3211,6 +3211,11 @@ export function ChatPage() {
                       ),
                     );
                   }}
+                  onMessageUser={
+                    activeConversation.type === 'group'
+                      ? (targetUser) => void startDM(targetUser)
+                      : undefined
+                  }
                   deleteChatBusy={deleteChatBusy}
                 />
               )}

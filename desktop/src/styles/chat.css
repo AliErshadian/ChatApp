@@ -955,6 +955,27 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  text-align: left;
+}
+
+.member-list-info--clickable {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.member-list-info--clickable:hover .member-list-name {
+  color: var(--accent);
+}
+
+.member-list-info--clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .member-list-name {
