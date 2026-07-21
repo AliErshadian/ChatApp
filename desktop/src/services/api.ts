@@ -120,6 +120,12 @@ export type CallHistoryFilter =
 
 export type CallHistoryCategory = Exclude<CallHistoryFilter, 'all'>;
 
+export interface AppFeaturesSettings {
+  voiceCallsEnabled: boolean;
+  videoCallsEnabled: boolean;
+  updatedAt: string;
+}
+
 export interface CallHistoryItem {
   id: string;
   callId: string;
@@ -997,6 +1003,13 @@ class ApiClient {
       }>;
       defaultProvider: 'local' | 'active_directory';
     }>('/auth/providers', {}, {
+      refreshOnUnauthorized: false,
+      timeoutMs: 8_000,
+    });
+  }
+
+  getAppFeatures() {
+    return this.request<AppFeaturesSettings>('/config/features', {}, {
       refreshOnUnauthorized: false,
       timeoutMs: 8_000,
     });

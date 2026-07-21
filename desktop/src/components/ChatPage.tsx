@@ -21,6 +21,7 @@ import { api, Conversation, Message, MessageSearchResult, MessageStatus, User, C
 import { realtime } from '../services/realtime';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
+import { useAppFeatures } from '../context/AppFeaturesContext';
 import { MessageBubble } from './MessageBubble';
 import { MessageReplyQuote } from './MessageReplyQuote';
 import { ProfilePanel } from './ProfilePanel';
@@ -88,6 +89,7 @@ import type { StoryFeedRing } from '../services/api';
 export function ChatPage() {
   const { user, logout } = useAuth();
   const { getPresence, getLastSeen, refreshPresence } = usePresence();
+  const { features, callsEnabled } = useAppFeatures();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
@@ -1201,6 +1203,7 @@ export function ChatPage() {
   }, []);
 
   const openCalls = useCallback(() => {
+    if (!callsEnabled) return;
     setShowCalls(true);
     setShowProfile(false);
     setShowContacts(false);
@@ -1211,7 +1214,14 @@ export function ChatPage() {
     setIsPanelOpen(true);
     setMissedCallsBadge(0);
     void api.markMissedCallsSeen().catch(() => undefined);
-  }, []);
+  }, [callsEnabled]);
+
+  useEffect(() => {
+    if (!callsEnabled && showCalls) {
+      setShowCalls(false);
+      setIsPanelOpen(false);
+    }
+  }, [callsEnabled, showCalls]);
 
   const openTasks = useCallback(() => {
     setShowTasks(true);
@@ -2589,6 +2599,7 @@ export function ChatPage() {
           channelsUnreadCount={channelsNavBadge}
           callsMissedCount={missedCallsBadge}
           tasksUnreadCount={tasksUnreadBadge}
+          showCallsTab={callsEnabled}
           onChats={openChats}
           onChannels={openChannels}
           onCalls={openCalls}
@@ -2903,6 +2914,7 @@ export function ChatPage() {
               <div className="chat-header-trailing">
                 {activeConversation.type === 'direct' && activePeer && (
                   <>
+                    {features.voiceCallsEnabled && (
                     <button
                       type="button"
                       className="icon-btn chat-header-call-btn"
@@ -2912,6 +2924,8 @@ export function ChatPage() {
                     >
                       <Icon icon={faPhone} />
                     </button>
+                    )}
+                    {features.videoCallsEnabled && (
                     <button
                       type="button"
                       className="icon-btn chat-header-call-btn"
@@ -2921,6 +2935,7 @@ export function ChatPage() {
                     >
                       <Icon icon={faVideo} />
                     </button>
+                    )}
                   </>
                 )}
                 <button
@@ -3265,6 +3280,7 @@ export function ChatPage() {
           channelsUnreadCount={channelsNavBadge}
           callsMissedCount={missedCallsBadge}
           tasksUnreadCount={tasksUnreadBadge}
+          showCallsTab={callsEnabled}
           onChats={openChats}
           onChannels={openChannels}
           onCalls={openCalls}

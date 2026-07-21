@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useAuth } from './context/AuthContext';
 import { PresenceProvider } from './context/PresenceContext';
+import { AppFeaturesProvider } from './context/AppFeaturesContext';
 import { LoginPage } from './components/LoginPage';
 import { ChatPage } from './components/ChatPage';
 import { SkeletonAppBoot } from './components/Skeleton';
@@ -23,9 +24,11 @@ export function App() {
   }
 
   return user ? (
-    <PresenceProvider>
-      <ChatPage />
-    </PresenceProvider>
+    <AppFeaturesProvider>
+      <PresenceProvider>
+        <ChatPage />
+      </PresenceProvider>
+    </AppFeaturesProvider>
   ) : (
     <LoginPage />
   );

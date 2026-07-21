@@ -12,6 +12,7 @@ import { UsersService } from '../users/users.service';
 import { RealtimeBroadcastService } from '../realtime/realtime-broadcast.service';
 import { CallRegistryService } from './call-registry.service';
 import { CallsHistoryService } from './calls-history.service';
+import { AppConfigService } from '../app-config/app-config.service';
 import type {
   CallAcceptedPayload,
   CallEndedPayload,
@@ -28,6 +29,7 @@ export class CallSignalingService {
     private readonly registry: CallRegistryService,
     private readonly broadcast: RealtimeBroadcastService,
     private readonly history: CallsHistoryService,
+    private readonly appConfig: AppConfigService,
   ) {}
 
   async invite(
@@ -50,6 +52,13 @@ export class CallSignalingService {
     if (!caller) throw new NotFoundException('Caller not found');
 
     const normalizedMediaType: CallMediaType = mediaType === 'video' ? 'video' : 'audio';
+    const features = await this.appConfig.getFeatures();
+    if (normalizedMediaType === 'video' && !features.videoCallsEnabled) {
+      throw new ForbiddenException('Video calls are disabled');
+    }
+    if (normalizedMediaType === 'audio' && !features.voiceCallsEnabled) {
+      throw new ForbiddenException('Voice calls are disabled');
+    }
 
     const callId = randomUUID();
     const call = this.registry.create({

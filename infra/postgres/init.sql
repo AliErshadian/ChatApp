@@ -586,6 +586,16 @@ CREATE TABLE directory_configurations (
 
 INSERT INTO directory_configurations (id) VALUES (gen_random_uuid());
 
+CREATE TABLE app_configurations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    voice_calls_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    video_calls_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO app_configurations (id) VALUES (gen_random_uuid());
+
 CREATE TABLE directory_group_mappings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     ad_group_dn VARCHAR(1024) NOT NULL,
@@ -690,7 +700,8 @@ INSERT INTO schema_migrations (version, checksum) VALUES
     ('031_notes', '2e6a86c5b974a07cc0dae19cb51eac0c0a5891f971f1736289c4c6f13d340bf3'),
     ('032_stories', '6b4140450223ad67b5e50c5a0214eaed333a19fd09d910c8c98b6fb38c6f261c'),
     ('033_story_likes', '2175876714e4486f207281f3fa75f3e87f29c635a0e5a9e3de8f217960fb8bff'),
-    ('034_directory_auth', '69f0dcec6c62e7c879c89ad7a2334f8b0cd2e3b1e11a1506d1067811b5e5d8f1')
+    ('034_directory_auth', '69f0dcec6c62e7c879c89ad7a2334f8b0cd2e3b1e11a1506d1067811b5e5d8f1'),
+    ('035_app_configurations', '3784d5fa7f0ea664d57e8a821bfaa52c9ece9566c25e78e1382d0134aec0ddf6')
 ON CONFLICT (version) DO NOTHING;
 
 -- Grant app user access (required when schema is created by postgres superuser)

@@ -383,6 +383,17 @@ class AdminApiClient {
     return this.request<DirectoryAuthSettings>('/admin/settings/authentication');
   }
 
+  getAppFeaturesSettings() {
+    return this.request<AppFeaturesSettings>('/admin/settings/features');
+  }
+
+  updateAppFeaturesSettings(data: Partial<Pick<AppFeaturesSettings, 'voiceCallsEnabled' | 'videoCallsEnabled'>>) {
+    return this.request<AppFeaturesSettings>('/admin/settings/features', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
   updateAuthSettings(data: Partial<DirectoryAuthSettingsUpdate>) {
     return this.request<DirectoryAuthSettings>('/admin/settings/authentication', {
       method: 'PUT',
@@ -470,6 +481,12 @@ class AdminApiClient {
       { method: 'DELETE' },
     );
   }
+}
+
+export interface AppFeaturesSettings {
+  voiceCallsEnabled: boolean;
+  videoCallsEnabled: boolean;
+  updatedAt: string;
 }
 
 export interface DirectoryAuthSettings {

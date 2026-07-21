@@ -27,6 +27,7 @@ interface Props {
   channelsUnreadCount?: number;
   callsMissedCount?: number;
   tasksUnreadCount?: number;
+  showCallsTab?: boolean;
   onChats: () => void;
   onChannels: () => void;
   onCalls: () => void;
@@ -56,6 +57,7 @@ export function AppNav({
   channelsUnreadCount = 0,
   callsMissedCount = 0,
   tasksUnreadCount = 0,
+  showCallsTab = true,
   onChats,
   onChannels,
   onCalls,
@@ -275,6 +277,7 @@ export function AppNav({
             {isBottom && <span className="nav-rail-label">Channels</span>}
           </button>
 
+          {showCallsTab && (
           <button
             type="button"
             className={`nav-rail-btn${activeTab === 'calls' ? ' active' : ''}`}
@@ -291,6 +294,7 @@ export function AppNav({
             </span>
             {isBottom && <span className="nav-rail-label">Calls</span>}
           </button>
+          )}
 
           {isBottom ? (
             <>

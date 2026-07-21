@@ -2,7 +2,7 @@ import { ReactNode } from 'react';
 import { UserAvatar } from './UserAvatar';
 import { useAuth } from '../context/AuthContext';
 
-export type AdminPage = 'dashboard' | 'users' | 'user-detail' | 'audit' | 'authentication';
+export type AdminPage = 'dashboard' | 'users' | 'user-detail' | 'audit' | 'authentication' | 'features';
 
 const PAGE_TITLES: Record<AdminPage, string> = {
   dashboard: 'Dashboard',
@@ -10,6 +10,7 @@ const PAGE_TITLES: Record<AdminPage, string> = {
   'user-detail': 'User detail',
   audit: 'Audit log',
   authentication: 'Authentication',
+  features: 'Features',
 };
 
 const NAV_ITEMS: Array<{
@@ -27,6 +28,13 @@ const NAV_ITEMS: Array<{
     shortLabel: 'Auth',
     icon: '⬡',
     matches: ['authentication'],
+  },
+  {
+    page: 'features',
+    label: 'Features',
+    shortLabel: 'Features',
+    icon: '◈',
+    matches: ['features'],
   },
   { page: 'audit', label: 'Audit log', shortLabel: 'Audit', icon: '☰', matches: ['audit'] },
 ];

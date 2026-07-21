@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, CallHistoryItem, CallHistoryFilter, User } from '../services/api';
 import { usePresence } from '../context/PresenceContext';
+import { useAppFeatures } from '../context/AppFeaturesContext';
 import { useVoiceCall } from '../hooks/useVoiceCall';
 import { realtime } from '../services/realtime';
 import { voiceCallManager } from '../services/voiceCall';
@@ -82,6 +83,7 @@ function callIcon(category: CallHistoryItem['category']): IconDefinition {
 
 export function CallsPanel({ onClose, isMobile = false, onMessage }: Props) {
   const { getPresence, refreshPresence } = usePresence();
+  const { features } = useAppFeatures();
   const { startVoiceCall, startVideoCall } = useVoiceCall();
   const [filter, setFilter] = useState<CallHistoryFilter>('all');
   const [items, setItems] = useState<CallHistoryItem[]>([]);
@@ -222,6 +224,10 @@ export function CallsPanel({ onClose, isMobile = false, onMessage }: Props) {
               const busy = actionKey === item.id;
               const duration = formatDuration(item.durationSeconds);
               const isMissedLike = item.category === 'missed' || item.category === 'not_answered';
+              const canCallBack =
+                item.mediaType === 'video'
+                  ? features.videoCallsEnabled
+                  : features.voiceCallsEnabled;
 
               return (
                 <li key={item.id} className="call-history-row">
@@ -257,6 +263,7 @@ export function CallsPanel({ onClose, isMobile = false, onMessage }: Props) {
                     </time>
                   </div>
                   <div className="call-history-actions">
+                    {canCallBack && (
                     <button
                       type="button"
                       className="contact-action-btn primary"
@@ -266,6 +273,7 @@ export function CallsPanel({ onClose, isMobile = false, onMessage }: Props) {
                     >
                       {busy ? '...' : 'Call'}
                     </button>
+                    )}
                     <button
                       type="button"
                       className="contact-action-btn"
