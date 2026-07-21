@@ -4,6 +4,14 @@ Slack-style internal chat for teams: Electron desktop, browser client, admin das
 
 Monorepo via **npm workspaces** (`backend`, `desktop`, `admin`).
 
+<h2 align="center">Architecture</h2>
+
+<p align="center">
+  <img src="/docs/architecture.png"
+       alt="RELAY Architecture"
+       width="1000">
+</p>
+
 ## Contents
 
 - [Features](#features)
