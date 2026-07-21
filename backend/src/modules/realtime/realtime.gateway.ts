@@ -30,6 +30,7 @@ import { WsRateLimitGuard } from '../../observability/ws-rate-limit.guard';
 import { RealtimeBroadcastService } from './realtime-broadcast.service';
 import { RealtimeActionsService } from './realtime-actions.service';
 import { CallSignalingService } from '../calls/call-signaling.service';
+import { ScreenShareSignalingService } from '../screen-share/screen-share-signaling.service';
 import { TaskRealtimePublisher } from '../tasks/task-realtime.publisher';
 import { NoteRealtimePublisher } from '../notes/note-realtime.publisher';
 import { StoryRealtimePublisher } from '../stories/story-realtime.publisher';
@@ -63,6 +64,7 @@ export class RealtimeGateway
     private readonly broadcast: RealtimeBroadcastService,
     private readonly actions: RealtimeActionsService,
     private readonly callSignaling: CallSignalingService,
+    private readonly screenShareSignaling: ScreenShareSignalingService,
     private readonly taskPublisher: TaskRealtimePublisher,
     private readonly notePublisher: NoteRealtimePublisher,
     private readonly storyPublisher: StoryRealtimePublisher,
@@ -476,6 +478,152 @@ export class RealtimeGateway
       data.callId,
       data.type,
       data.payload,
+    );
+  }
+
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({ action: 'screen_create', capacity: 5, refillPerSec: 0.2 })
+  @SubscribeMessage('screen:create')
+  async handleScreenCreate(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { conversationId: string },
+  ) {
+    const result = await this.screenShareSignaling.create(
+      client.data.userId,
+      data.conversationId,
+    );
+    return { success: true, ...result };
+  }
+
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({ action: 'screen_join', capacity: 20, refillPerSec: 1 })
+  @SubscribeMessage('screen:join')
+  async handleScreenJoin(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { sessionId: string },
+  ) {
+    const result = await this.screenShareSignaling.join(client.data.userId, data.sessionId);
+    return { success: true, ...result };
+  }
+
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({ action: 'screen_leave', capacity: 20, refillPerSec: 1 })
+  @SubscribeMessage('screen:leave')
+  async handleScreenLeave(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { sessionId: string },
+  ) {
+    return this.screenShareSignaling.leave(client.data.userId, data.sessionId);
+  }
+
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({ action: 'screen_start', capacity: 10, refillPerSec: 0.5 })
+  @SubscribeMessage('screen:start')
+  async handleScreenStart(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody()
+    data: { sessionId: string; screenSource?: 'screen' | 'window' | 'monitor' | 'application' },
+  ) {
+    const result = await this.screenShareSignaling.start(
+      client.data.userId,
+      data.sessionId,
+      data.screenSource,
+    );
+    return { success: true, ...result };
+  }
+
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({ action: 'screen_stop', capacity: 10, refillPerSec: 0.5 })
+  @SubscribeMessage('screen:stop')
+  async handleScreenStop(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { sessionId: string },
+  ) {
+    const result = await this.screenShareSignaling.stop(client.data.userId, data.sessionId);
+    return { success: true, ...result };
+  }
+
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'webrtc_signal',
+    capacity: 120,
+    refillPerSec: 30,
+    keySuffixFromBody: (body) => body?.sessionId,
+  })
+  @SubscribeMessage('webrtc:offer')
+  async handleWebrtcOffer(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody()
+    data: { sessionId: string; targetUserId: string; payload: unknown },
+  ) {
+    return this.screenShareSignaling.forwardWebrtc(
+      client.data.userId,
+      data.sessionId,
+      data.targetUserId,
+      'offer',
+      data.payload,
+    );
+  }
+
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'webrtc_signal',
+    capacity: 120,
+    refillPerSec: 30,
+    keySuffixFromBody: (body) => body?.sessionId,
+  })
+  @SubscribeMessage('webrtc:answer')
+  async handleWebrtcAnswer(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody()
+    data: { sessionId: string; targetUserId: string; payload: unknown },
+  ) {
+    return this.screenShareSignaling.forwardWebrtc(
+      client.data.userId,
+      data.sessionId,
+      data.targetUserId,
+      'answer',
+      data.payload,
+    );
+  }
+
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({
+    action: 'webrtc_signal',
+    capacity: 200,
+    refillPerSec: 50,
+    keySuffixFromBody: (body) => body?.sessionId,
+  })
+  @SubscribeMessage('webrtc:ice')
+  async handleWebrtcIce(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody()
+    data: { sessionId: string; targetUserId: string; payload: unknown },
+  ) {
+    return this.screenShareSignaling.forwardWebrtc(
+      client.data.userId,
+      data.sessionId,
+      data.targetUserId,
+      'ice',
+      data.payload,
+    );
+  }
+
+  @UseGuards(WsJwtGuard, WsRateLimitGuard)
+  @WsRateLimit({ action: 'screen_quality', capacity: 30, refillPerSec: 2 })
+  @SubscribeMessage('screen:quality')
+  async handleScreenQuality(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody()
+    data: {
+      sessionId: string;
+      quality: { level: string; rttMs?: number; packetLoss?: number; bitrateKbps?: number };
+    },
+  ) {
+    return this.screenShareSignaling.forwardQuality(
+      client.data.userId,
+      data.sessionId,
+      data.quality,
     );
   }
 }

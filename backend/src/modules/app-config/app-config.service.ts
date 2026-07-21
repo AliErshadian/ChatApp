@@ -1,17 +1,33 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { AppConfiguration } from './entities/app-configuration.entity';
 
 export interface AppFeaturesSettings {
   voiceCallsEnabled: boolean;
   videoCallsEnabled: boolean;
+  screenSharingEnabled: boolean;
+  screenSharingDirectEnabled: boolean;
+  screenSharingGroupsEnabled: boolean;
+  screenMaxResolution: string;
+  screenMaxFps: number;
+  screenMaxConcurrentSessions: number;
+  screenBandwidthLimitKbps: number | null;
+  turnConfigured: boolean;
   updatedAt: string;
 }
 
 export interface AppFeaturesUpdate {
   voiceCallsEnabled?: boolean;
   videoCallsEnabled?: boolean;
+  screenSharingEnabled?: boolean;
+  screenSharingDirectEnabled?: boolean;
+  screenSharingGroupsEnabled?: boolean;
+  screenMaxResolution?: string;
+  screenMaxFps?: number;
+  screenMaxConcurrentSessions?: number;
+  screenBandwidthLimitKbps?: number | null;
 }
 
 /**
@@ -27,6 +43,7 @@ export class AppConfigService implements OnModuleInit {
   constructor(
     @InjectRepository(AppConfiguration)
     private readonly configRepo: Repository<AppConfiguration>,
+    private readonly config: ConfigService,
   ) {}
 
   async onModuleInit() {
@@ -79,6 +96,27 @@ export class AppConfigService implements OnModuleInit {
     if (input.videoCallsEnabled !== undefined) {
       config.videoCallsEnabled = input.videoCallsEnabled;
     }
+    if (input.screenSharingEnabled !== undefined) {
+      config.screenSharingEnabled = input.screenSharingEnabled;
+    }
+    if (input.screenSharingDirectEnabled !== undefined) {
+      config.screenSharingDirectEnabled = input.screenSharingDirectEnabled;
+    }
+    if (input.screenSharingGroupsEnabled !== undefined) {
+      config.screenSharingGroupsEnabled = input.screenSharingGroupsEnabled;
+    }
+    if (input.screenMaxResolution !== undefined) {
+      config.screenMaxResolution = input.screenMaxResolution;
+    }
+    if (input.screenMaxFps !== undefined) {
+      config.screenMaxFps = input.screenMaxFps;
+    }
+    if (input.screenMaxConcurrentSessions !== undefined) {
+      config.screenMaxConcurrentSessions = input.screenMaxConcurrentSessions;
+    }
+    if (input.screenBandwidthLimitKbps !== undefined) {
+      config.screenBandwidthLimitKbps = input.screenBandwidthLimitKbps;
+    }
 
     const saved = await this.configRepo.save(config);
     this.invalidateCache();
@@ -87,10 +125,26 @@ export class AppConfigService implements OnModuleInit {
     return this.toPublic(saved);
   }
 
+  private isTurnConfigured(): boolean {
+    return Boolean(
+      this.config.get<string>('TURN_URL') &&
+        this.config.get<string>('TURN_USERNAME') &&
+        this.config.get<string>('TURN_PASSWORD'),
+    );
+  }
+
   toPublic(config: AppConfiguration): AppFeaturesSettings {
     return {
       voiceCallsEnabled: config.voiceCallsEnabled,
       videoCallsEnabled: config.videoCallsEnabled,
+      screenSharingEnabled: config.screenSharingEnabled,
+      screenSharingDirectEnabled: config.screenSharingDirectEnabled,
+      screenSharingGroupsEnabled: config.screenSharingGroupsEnabled,
+      screenMaxResolution: config.screenMaxResolution,
+      screenMaxFps: config.screenMaxFps,
+      screenMaxConcurrentSessions: config.screenMaxConcurrentSessions,
+      screenBandwidthLimitKbps: config.screenBandwidthLimitKbps ?? null,
+      turnConfigured: this.isTurnConfigured(),
       updatedAt: config.updatedAt.toISOString(),
     };
   }

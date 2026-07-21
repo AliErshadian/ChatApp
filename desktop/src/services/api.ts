@@ -123,6 +123,14 @@ export type CallHistoryCategory = Exclude<CallHistoryFilter, 'all'>;
 export interface AppFeaturesSettings {
   voiceCallsEnabled: boolean;
   videoCallsEnabled: boolean;
+  screenSharingEnabled: boolean;
+  screenSharingDirectEnabled: boolean;
+  screenSharingGroupsEnabled: boolean;
+  screenMaxResolution: string;
+  screenMaxFps: number;
+  screenMaxConcurrentSessions: number;
+  screenBandwidthLimitKbps: number | null;
+  turnConfigured: boolean;
   updatedAt: string;
 }
 
@@ -173,6 +181,10 @@ export interface Conversation {
   description?: string;
   avatarUrl?: string;
   isPublic?: boolean;
+  screenSharingAllowed?: boolean;
+  screenAllowMultiplePresenters?: boolean;
+  screenMaxConcurrentShares?: number;
+  screenMaxParticipants?: number;
   members: Array<{
     userId: string;
     role: string;
@@ -1157,6 +1169,36 @@ class ApiClient {
       `/conversations/${conversationId}/members/${userId}`,
       { method: 'DELETE' },
     );
+  }
+
+  setMemberRole(conversationId: string, userId: string, role: 'admin' | 'moderator' | 'member') {
+    return this.request<{ userId: string; role: string }>(
+      `/conversations/${conversationId}/members/${userId}/role`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      },
+    );
+  }
+
+  updateScreenSettings(
+    conversationId: string,
+    settings: {
+      screenSharingAllowed?: boolean;
+      screenAllowMultiplePresenters?: boolean;
+      screenMaxConcurrentShares?: number;
+      screenMaxParticipants?: number;
+    },
+  ) {
+    return this.request<{
+      screenSharingAllowed: boolean;
+      screenAllowMultiplePresenters: boolean;
+      screenMaxConcurrentShares: number;
+      screenMaxParticipants: number;
+    }>(`/conversations/${conversationId}/screen-settings`, {
+      method: 'PATCH',
+      body: JSON.stringify(settings),
+    });
   }
 
   getChannelInvite(conversationId: string) {

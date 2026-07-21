@@ -12,6 +12,7 @@ import { User } from '../../users/entities/user.entity';
 export enum MemberRole {
   OWNER = 'owner',
   ADMIN = 'admin',
+  MODERATOR = 'moderator',
   MEMBER = 'member',
 }
 

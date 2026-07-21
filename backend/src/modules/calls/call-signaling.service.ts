@@ -2,8 +2,10 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { ConversationsService } from '../conversations/conversations.service';
@@ -13,6 +15,7 @@ import { RealtimeBroadcastService } from '../realtime/realtime-broadcast.service
 import { CallRegistryService } from './call-registry.service';
 import { CallsHistoryService } from './calls-history.service';
 import { AppConfigService } from '../app-config/app-config.service';
+import { ScreenShareSignalingService } from '../screen-share/screen-share-signaling.service';
 import type {
   CallAcceptedPayload,
   CallEndedPayload,
@@ -30,6 +33,8 @@ export class CallSignalingService {
     private readonly broadcast: RealtimeBroadcastService,
     private readonly history: CallsHistoryService,
     private readonly appConfig: AppConfigService,
+    @Inject(forwardRef(() => ScreenShareSignalingService))
+    private readonly screenShare: ScreenShareSignalingService,
   ) {}
 
   async invite(
@@ -157,6 +162,25 @@ export class CallSignalingService {
 
     if (call.state === 'ended') {
       throw new BadRequestException('Call has ended');
+    }
+
+    const mediaPurpose =
+      payload &&
+      typeof payload === 'object' &&
+      'mediaPurpose' in (payload as Record<string, unknown>)
+        ? (payload as { mediaPurpose?: string }).mediaPurpose
+        : undefined;
+
+    if (mediaPurpose === 'screen') {
+      await this.screenShare.assertDmScreenShareAllowed(userId, call.conversationId);
+      if (type === 'offer') {
+        await this.screenShare.auditDmScreen({
+          userId,
+          conversationId: call.conversationId,
+          callId,
+          started: true,
+        });
+      }
     }
 
     const targetUserId = call.callerId === userId ? call.calleeId : call.callerId;

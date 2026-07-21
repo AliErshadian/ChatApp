@@ -23,7 +23,7 @@ import { ConversationType } from '../conversations/entities/conversation.entity'
 import { ConversationsService } from '../conversations/conversations.service';
 import { SanitizationService } from '../../common/services/sanitization.service';
 import { CreatePollDto, SendMessageDto } from './dto/message.dto';
-import { isPollContentType, isTextContentType, POLL_CONTENT_TYPE } from './message-media.util';
+import { isPollContentType, isTextContentType, POLL_CONTENT_TYPE, SCREEN_SHARE_CONTENT_TYPE } from './message-media.util';
 import { buildMessageSearchTsQuery } from './message-search.util';
 import { resolveMentionUserIds } from './mention.util';
 import { MessageRealtimePublisher } from './message-realtime.publisher';
@@ -501,6 +501,91 @@ export class MessagesService {
     });
 
     return payload;
+  }
+
+  async createScreenShareAnnouncement(input: {
+    userId: string;
+    conversationId: string;
+    sessionId: string;
+    presenterName: string;
+  }): Promise<MessagePayload> {
+    await this.conversationsService.assertMember(input.conversationId, input.userId);
+
+    const body = JSON.stringify({
+      sessionId: input.sessionId,
+      status: 'active',
+      presenterId: input.userId,
+      presenterName: input.presenterName,
+    });
+
+    const message = this.messageRepo.create({
+      conversationId: input.conversationId,
+      senderId: input.userId,
+      content: body,
+      contentType: SCREEN_SHARE_CONTENT_TYPE,
+    });
+    const saved = await this.messageRepo.save(message);
+    const withSender = await this.messageRepo.findOne({
+      where: { id: saved.id },
+      relations: [...this.messageRelations],
+    });
+    const payload = this.toPayload(withSender!, input.userId, 'sent');
+    await this.messagePublisher.publishNewMessage(payload, input.userId);
+
+    this.audit.record({
+      action: AuditAction.MESSAGE_SEND,
+      userId: input.userId,
+      resourceType: 'message',
+      resourceId: saved.id,
+      metadata: {
+        conversationId: input.conversationId,
+        contentType: SCREEN_SHARE_CONTENT_TYPE,
+        sessionId: input.sessionId,
+        preview: 'Screen share started',
+      },
+    });
+
+    return payload;
+  }
+
+  async endScreenShareAnnouncement(sessionId: string, actorUserId?: string | null) {
+    const message = await this.messageRepo
+      .createQueryBuilder('m')
+      .where('m.content_type = :ct', { ct: SCREEN_SHARE_CONTENT_TYPE })
+      .andWhere(`m.content LIKE :needle`, {
+        needle: `%"sessionId":"${sessionId}"%`,
+      })
+      .orderBy('m.created_at', 'DESC')
+      .getOne();
+
+    if (!message || message.deletedAt) return null;
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(message.content) as Record<string, unknown>;
+    } catch {
+      parsed = { sessionId };
+    }
+    if (parsed.status === 'ended') return null;
+
+    message.content = JSON.stringify({
+      ...parsed,
+      sessionId,
+      status: 'ended',
+      endedAt: new Date().toISOString(),
+      endedBy: actorUserId ?? null,
+    });
+    await this.messageRepo.save(message);
+
+    const memberIds = await this.conversationsService.getMemberUserIds(message.conversationId);
+    await Promise.all(
+      memberIds.map(async (memberId) => {
+        const payload = await this.getEnrichedMessagePayload(message.id, memberId);
+        await this.messagePublisher.publishMessageUpdateToUser(memberId, payload);
+      }),
+    );
+
+    return message.id;
   }
 
   async votePoll(

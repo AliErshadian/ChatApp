@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 CREATE TYPE conversation_type AS ENUM ('direct', 'channel', 'group');
-CREATE TYPE member_role AS ENUM ('owner', 'admin', 'member');
+CREATE TYPE member_role AS ENUM ('owner', 'admin', 'moderator', 'member');
 CREATE TYPE presence_status AS ENUM ('online', 'away', 'offline');
 CREATE TYPE authentication_provider AS ENUM ('local', 'active_directory');
 CREATE TYPE directory_tls_mode AS ENUM ('none', 'ldaps', 'starttls');
@@ -49,6 +49,10 @@ CREATE TABLE conversations (
     created_by UUID NOT NULL REFERENCES users(id),
     pending_owner_id UUID REFERENCES users(id),
     is_public BOOLEAN NOT NULL DEFAULT FALSE,
+    screen_sharing_allowed BOOLEAN NOT NULL DEFAULT TRUE,
+    screen_allow_multiple_presenters BOOLEAN NOT NULL DEFAULT FALSE,
+    screen_max_concurrent_shares INTEGER NOT NULL DEFAULT 1,
+    screen_max_participants INTEGER NOT NULL DEFAULT 8,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT channel_requires_name CHECK (
@@ -590,11 +594,73 @@ CREATE TABLE app_configurations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     voice_calls_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     video_calls_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    screen_sharing_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    screen_sharing_direct_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    screen_sharing_groups_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    screen_max_resolution VARCHAR(16) NOT NULL DEFAULT '1080p',
+    screen_max_fps INTEGER NOT NULL DEFAULT 15,
+    screen_max_concurrent_sessions INTEGER NOT NULL DEFAULT 50,
+    screen_bandwidth_limit_kbps INTEGER,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 INSERT INTO app_configurations (id) VALUES (gen_random_uuid());
+
+CREATE TYPE screen_share_session_status AS ENUM ('active', 'ended');
+CREATE TYPE screen_share_source AS ENUM ('screen', 'window', 'monitor', 'application');
+CREATE TYPE screen_share_participant_role AS ENUM ('presenter', 'viewer');
+
+CREATE TABLE screen_share_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    conversation_type conversation_type NOT NULL,
+    host_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status screen_share_session_status NOT NULL DEFAULT 'active',
+    screen_source screen_share_source,
+    quality_hint VARCHAR(32),
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ended_at TIMESTAMPTZ,
+    duration_seconds INTEGER,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_screen_share_sessions_conversation
+  ON screen_share_sessions (conversation_id, status);
+
+CREATE INDEX idx_screen_share_sessions_host
+  ON screen_share_sessions (host_user_id, status);
+
+CREATE TABLE screen_share_participants (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL REFERENCES screen_share_sessions(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role screen_share_participant_role NOT NULL DEFAULT 'viewer',
+    connection_state VARCHAR(32) NOT NULL DEFAULT 'joining',
+    joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    left_at TIMESTAMPTZ,
+    CONSTRAINT uq_screen_share_participants_session_user UNIQUE (session_id, user_id)
+);
+
+CREATE INDEX idx_screen_share_participants_session
+  ON screen_share_participants (session_id);
+
+CREATE TABLE screen_share_audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID REFERENCES screen_share_sessions(id) ON DELETE SET NULL,
+    conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL,
+    actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    event_type VARCHAR(64) NOT NULL,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_screen_share_audit_created
+  ON screen_share_audit_logs (created_at DESC);
+
+CREATE INDEX idx_screen_share_audit_session
+  ON screen_share_audit_logs (session_id);
 
 CREATE TABLE directory_group_mappings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -701,7 +767,8 @@ INSERT INTO schema_migrations (version, checksum) VALUES
     ('032_stories', '6b4140450223ad67b5e50c5a0214eaed333a19fd09d910c8c98b6fb38c6f261c'),
     ('033_story_likes', '2175876714e4486f207281f3fa75f3e87f29c635a0e5a9e3de8f217960fb8bff'),
     ('034_directory_auth', '69f0dcec6c62e7c879c89ad7a2334f8b0cd2e3b1e11a1506d1067811b5e5d8f1'),
-    ('035_app_configurations', '3784d5fa7f0ea664d57e8a821bfaa52c9ece9566c25e78e1382d0134aec0ddf6')
+    ('035_app_configurations', '3784d5fa7f0ea664d57e8a821bfaa52c9ece9566c25e78e1382d0134aec0ddf6'),
+    ('036_screen_sharing', '0c996e814b67cc65558db2b5dab1d892ca9d6a51d9c266ca6060bbff269cd193')
 ON CONFLICT (version) DO NOTHING;
 
 -- Grant app user access (required when schema is created by postgres superuser)

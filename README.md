@@ -28,11 +28,12 @@ Monorepo via **npm workspaces** (`backend`, `desktop`, `admin`).
 |------|------------|
 | Messaging | DMs, channels, groups; edit/delete; threads; polls; mentions; reactions; forwards; FTS search |
 | Media | Attachments via MinIO; API content proxy; IndexedDB offline cache |
-| Calls | 1:1 DM voice/video (WebRTC); history; missed badge; WebSocket required |
+| Calls | 1:1 DM voice/video (WebRTC); in-call screen share; history; missed badge; WebSocket required |
+| Screen share | Groups: standalone mesh sessions; DMs: during active call only; channels excluded |
 | Work | Tasks (assignment accept/reject); shared notes with roles & history |
 | Stories | 24h photo/video for contacts; likes; reply → DM quote |
 | Auth | Local email/password **and** optional Active Directory (LDAP); device sessions; remote logout |
-| Admin | Stats, users, storage, audit log, Authentication settings |
+| Admin | Stats, users, storage, audit log, Authentication + Features (calls / screen sharing) |
 | Realtime | Socket.IO (+ Redis); automatic SSE + REST fallback when WS is blocked |
 
 ## Stack

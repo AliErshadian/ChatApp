@@ -91,12 +91,21 @@ export function isTextContentType(contentType: string): boolean {
 export const POLL_CONTENT_TYPE = 'application/vnd.relay.poll+json';
 const LEGACY_POLL_CONTENT_TYPE = 'application/vnd.chatapp.poll+json';
 
+export const SCREEN_SHARE_CONTENT_TYPE = 'application/vnd.relay.screen-share+json';
+
 export function isPollContentType(contentType: string): boolean {
   return contentType === POLL_CONTENT_TYPE || contentType === LEGACY_POLL_CONTENT_TYPE;
 }
 
-export function getMessageMediaKind(contentType: string): MessageMediaKind | 'text' | 'poll' {
+export function isScreenShareContentType(contentType: string): boolean {
+  return contentType === SCREEN_SHARE_CONTENT_TYPE;
+}
+
+export function getMessageMediaKind(
+  contentType: string,
+): MessageMediaKind | 'text' | 'poll' | 'screen_share' {
   if (isPollContentType(contentType)) return 'poll';
+  if (isScreenShareContentType(contentType)) return 'screen_share';
   if (isTextContentType(contentType)) return 'text';
   if (contentType.startsWith('image/')) return 'image';
   if (contentType.startsWith('video/')) return 'video';

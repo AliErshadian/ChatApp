@@ -18,10 +18,15 @@ export function isPollMessage(message: Pick<Message, 'contentType'>): boolean {
   );
 }
 
+export function isScreenShareMessage(message: Pick<Message, 'contentType'>): boolean {
+  return message.contentType === 'application/vnd.relay.screen-share+json';
+}
+
 export function getMessageMediaKind(
   message: Pick<Message, 'contentType' | 'fileName'>,
 ): MessageMediaKind {
   if (isPollMessage(message)) return 'poll';
+  if (isScreenShareMessage(message)) return 'document';
   if (isTextMessage(message)) return 'text';
   if (isVoiceMessage(message)) return 'voice';
   const contentType = message.contentType || '';
@@ -91,6 +96,17 @@ export function getMessagePreviewText(
   if (isPollMessage(message)) {
     const q = message.content?.trim();
     return q ? `Poll: ${q}` : 'Poll';
+  }
+  if (isScreenShareMessage(message)) {
+    try {
+      const parsed = JSON.parse(message.content) as { status?: string; presenterName?: string };
+      if (parsed.status === 'ended') return 'Screen share ended';
+      return parsed.presenterName
+        ? `${parsed.presenterName} started a screen share`
+        : 'Screen share started';
+    } catch {
+      return 'Screen share';
+    }
   }
   if (!isTextMessage(message)) {
     const label = getMessageMediaLabel(message);

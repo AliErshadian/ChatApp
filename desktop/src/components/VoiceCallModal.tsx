@@ -6,6 +6,7 @@ import { voiceCallManager } from '../services/voiceCall';
 import type { VoiceCallState } from '../types/voiceCall';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import {
+  faDesktop,
   faMicrophoneSlash,
   faPhone,
   faPhoneSlash,
@@ -14,6 +15,9 @@ import {
   faVolumeHigh,
   faVolumeLow,
 } from '@fortawesome/free-solid-svg-icons';
+import { ScreenSourcePickerModal } from './ScreenSourcePickerModal';
+import { useAppFeatures } from '../context/AppFeaturesContext';
+import { formatShareDuration } from '../utils/screenCapture';
 
 function getStatusLabel(state: VoiceCallState): string {
   const callKind = state.mediaType === 'video' ? 'video call' : 'voice call';
@@ -106,10 +110,15 @@ function CallControl({
 export function VoiceCallModal() {
   const [state, setState] = useState<VoiceCallState>(voiceCallManager.getState());
   const [, setStreamTick] = useState(0);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [now, setNow] = useState(Date.now());
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isVideoCall = state.mediaType === 'video';
+  const { features } = useAppFeatures();
+  const canScreenShare =
+    features.screenSharingEnabled && features.screenSharingDirectEnabled && state.phase === 'active';
 
   useEffect(() => {
     const unsubscribeState = voiceCallManager.subscribe(setState);
@@ -122,14 +131,21 @@ export function VoiceCallModal() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!state.isSharingScreen && !state.remoteScreenActive) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [state.isSharingScreen, state.remoteScreenActive]);
+
   const localStream = voiceCallManager.getLocalStream();
   const remoteStream = voiceCallManager.getRemoteStream();
+  const screenStream = voiceCallManager.getScreenStream();
 
   useEffect(() => {
     const localVideo = localVideoRef.current;
     if (localVideo) {
-      localVideo.srcObject = localStream ?? null;
-      if (localStream) {
+      localVideo.srcObject = (state.isSharingScreen ? screenStream : localStream) ?? null;
+      if (localVideo.srcObject) {
         void localVideo.play().catch(() => undefined);
       }
     }
@@ -141,7 +157,15 @@ export function VoiceCallModal() {
         void remoteVideo.play().catch(() => undefined);
       }
     }
-  }, [localStream, remoteStream, state.phase, state.hasLocalVideo, state.hasRemoteVideo]);
+  }, [
+    localStream,
+    remoteStream,
+    screenStream,
+    state.phase,
+    state.hasLocalVideo,
+    state.hasRemoteVideo,
+    state.isSharingScreen,
+  ]);
 
   if (state.phase === 'idle' || state.phase === 'ended') {
     return null;
@@ -151,9 +175,20 @@ export function VoiceCallModal() {
   const status = state.error ?? getStatusLabel(state);
   const showInCallControls =
     state.phase === 'active' || state.phase === 'connecting' || state.phase === 'outgoing';
-  const showRemoteVideo = isVideoCall && (state.hasRemoteVideo || state.phase === 'connecting' || state.phase === 'active');
-  const showLocalPreview = isVideoCall && state.hasLocalVideo && !state.cameraOff;
-  const useVideoOverlayControls = isVideoCall && !isMobile && state.phase !== 'incoming';
+  const showRemoteVideo =
+    (isVideoCall || state.remoteScreenActive || state.isSharingScreen) &&
+    (state.hasRemoteVideo || state.remoteScreenActive || state.phase === 'connecting' || state.phase === 'active');
+  const showLocalPreview =
+    (isVideoCall && state.hasLocalVideo && !state.cameraOff) || state.isSharingScreen;
+  const useVideoOverlayControls =
+    (isVideoCall || state.remoteScreenActive || state.isSharingScreen) &&
+    !isMobile &&
+    state.phase !== 'incoming';
+
+  const screenTimer =
+    state.screenShareStartedAt != null
+      ? formatShareDuration(state.screenShareStartedAt, now)
+      : null;
 
   const inCallControls = showInCallControls ? (
     <>
@@ -174,6 +209,23 @@ export function VoiceCallModal() {
           onClick={() => voiceCallManager.toggleCamera()}
         >
           <CallIcon name={state.cameraOff ? 'camera-off' : 'camera'} />
+        </CallControl>
+      )}
+
+      {canScreenShare && (
+        <CallControl
+          label={state.isSharingScreen ? 'Stop sharing' : 'Share screen'}
+          active={state.isSharingScreen}
+          compact={useVideoOverlayControls}
+          onClick={() => {
+            if (state.isSharingScreen) {
+              void voiceCallManager.stopScreenShare();
+            } else {
+              setPickerOpen(true);
+            }
+          }}
+        >
+          <Icon icon={faDesktop} />
         </CallControl>
       )}
 
@@ -201,19 +253,24 @@ export function VoiceCallModal() {
   ) : null;
 
   return createPortal(
+    <>
     <div
       className={`voice-call-overlay${isMobile ? ' voice-call-overlay--phone' : ''}${
-        isVideoCall ? ' voice-call-overlay--video' : ''
+        isVideoCall || state.remoteScreenActive || state.isSharingScreen
+          ? ' voice-call-overlay--video'
+          : ''
       }`}
       role="dialog"
       aria-label={isVideoCall ? 'Video call' : 'Voice call'}
     >
       <div
         className={`voice-call-card${isMobile ? ' voice-call-card--phone' : ''}${
-          isVideoCall ? ' voice-call-card--video' : ''
+          isVideoCall || state.remoteScreenActive || state.isSharingScreen
+            ? ' voice-call-card--video'
+            : ''
         }${useVideoOverlayControls ? ' voice-call-card--video-overlay' : ''}`}
       >
-        {isVideoCall && (
+        {(isVideoCall || state.remoteScreenActive || state.isSharingScreen) && (
           <div className="voice-call-video-stage">
             {showRemoteVideo ? (
               <video
@@ -236,7 +293,16 @@ export function VoiceCallModal() {
                 muted
               />
             )}
-            {isVideoCall && state.cameraOff && (
+            {(state.isSharingScreen || state.remoteScreenActive) && (
+              <div className="voice-call-screen-badge">
+                {state.isSharingScreen ? 'You are sharing' : 'Screen share'}
+                {screenTimer ? ` · ${screenTimer}` : ''}
+                {state.connectionQuality !== 'unknown'
+                  ? ` · ${state.connectionQuality}`
+                  : ''}
+              </div>
+            )}
+            {isVideoCall && state.cameraOff && !state.isSharingScreen && (
               <div className="voice-call-camera-off-badge">Camera off</div>
             )}
             {useVideoOverlayControls && (
@@ -263,7 +329,7 @@ export function VoiceCallModal() {
 
         {!useVideoOverlayControls && (
           <div className="voice-call-header">
-            {!isVideoCall && (
+            {!isVideoCall && !state.remoteScreenActive && !state.isSharingScreen && (
               <div className="voice-call-avatar-wrap">
                 <Avatar name={peerName} size="lg" />
               </div>
@@ -294,7 +360,18 @@ export function VoiceCallModal() {
           </div>
         ) : null}
       </div>
-    </div>,
+    </div>
+    <ScreenSourcePickerModal
+      open={pickerOpen}
+      onCancel={() => setPickerOpen(false)}
+      onConfirm={({ source }) => {
+        setPickerOpen(false);
+        void voiceCallManager.startScreenShare({ sourceId: source.id }).catch((err) => {
+          console.error(err);
+        });
+      }}
+    />
+    </>,
     document.body,
   );
 }

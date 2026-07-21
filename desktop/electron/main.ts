@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, shell, session } from 'electron';
+import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, shell, session, desktopCapturer } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import {
@@ -112,6 +112,58 @@ ipcMain.handle('open-external', (_event, url: string) => {
   }
   return false;
 });
+
+ipcMain.handle('screen:list-sources', async (event, options?: { types?: Array<'screen' | 'window'> }) => {
+  if (!isTrustedSender(event)) {
+    throw new Error('Screen capture is only available from the app window');
+  }
+
+  const types = options?.types?.length ? options.types : (['screen', 'window'] as const);
+
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: [...types],
+      // Prefer small thumbs — large thumbnails can fail on some Windows GPU setups
+      thumbnailSize: { width: 160, height: 90 },
+      fetchWindowIcons: false,
+    });
+
+    return sources.map((source) => {
+      let thumbnailDataUrl = '';
+      try {
+        if (source.thumbnail && !source.thumbnail.isEmpty()) {
+          thumbnailDataUrl = source.thumbnail.toDataURL();
+        }
+      } catch {
+        thumbnailDataUrl = '';
+      }
+
+      return {
+        id: source.id,
+        name: source.name || (source.id.startsWith('screen:') ? 'Screen' : 'Window'),
+        displayId: source.display_id,
+        kind: (source.id.startsWith('screen:') ? 'screen' : 'window') as 'screen' | 'window',
+        thumbnailDataUrl,
+        appIconDataUrl: null as string | null,
+      };
+    });
+  } catch (err) {
+    if (err instanceof Error) throw err;
+    const wrapped = new Error('Failed to list capture sources');
+    Object.defineProperty(wrapped, 'cause', {
+      value: err,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+    throw wrapped;
+  }
+});
+
+/**
+ * Do not auto-grant a screen in setDisplayMediaRequestHandler.
+ * Leaving Chromium's picker available so getDisplayMedia() shows a real chooser on Windows.
+ */
 
 ipcMain.handle(
   'auth:set-session',
@@ -374,12 +426,17 @@ app.on('certificate-error', (event, _webContents, url, _error, _certificate, cal
 app.whenReady().then(() => {
   applyContentSecurityPolicy();
 
+  const allowMediaPermission = (permission: string) =>
+    permission === 'media' ||
+    permission === 'display-capture' ||
+    permission === 'mediaKeySystem';
+
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === 'media');
+    callback(allowMediaPermission(permission));
   });
 
   session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
-    return permission === 'media';
+    return allowMediaPermission(permission);
   });
 
   createWindow();

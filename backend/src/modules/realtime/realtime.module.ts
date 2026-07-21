@@ -6,6 +6,7 @@ import { ConversationsModule } from '../conversations/conversations.module';
 import { PresenceModule } from '../presence/presence.module';
 import { AuthModule } from '../auth/auth.module';
 import { CallsModule } from '../calls/calls.module';
+import { ScreenShareModule } from '../screen-share/screen-share.module';
 import { TasksModule } from '../tasks/tasks.module';
 import { NotesModule } from '../notes/notes.module';
 import { StoriesModule } from '../stories/stories.module';
@@ -23,6 +24,7 @@ import { RealtimeSseService } from './realtime-sse.service';
     ConversationsModule,
     PresenceModule,
     forwardRef(() => CallsModule),
+    ScreenShareModule,
     TasksModule,
     NotesModule,
     StoriesModule,

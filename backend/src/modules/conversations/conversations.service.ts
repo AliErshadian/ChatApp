@@ -371,6 +371,10 @@ export class ConversationsService {
       conversationId,
       type: conversation.type,
       isPublic: conversation.isPublic,
+      screenSharingAllowed: conversation.screenSharingAllowed,
+      screenAllowMultiplePresenters: conversation.screenAllowMultiplePresenters,
+      screenMaxConcurrentShares: conversation.screenMaxConcurrentShares,
+      screenMaxParticipants: conversation.screenMaxParticipants,
       name: conversation.name,
       description: conversation.description,
       avatarUrl: conversation.avatarUrl,
@@ -773,6 +777,81 @@ export class ConversationsService {
     return member;
   }
 
+  async findConversationById(conversationId: string): Promise<Conversation | null> {
+    return this.conversationRepo.findOne({ where: { id: conversationId } });
+  }
+
+  async updateScreenSettings(
+    actorId: string,
+    conversationId: string,
+    input: {
+      screenSharingAllowed?: boolean;
+      screenAllowMultiplePresenters?: boolean;
+      screenMaxConcurrentShares?: number;
+      screenMaxParticipants?: number;
+    },
+  ) {
+    const actor = await this.assertMember(conversationId, actorId);
+    if (actor.role !== MemberRole.OWNER && actor.role !== MemberRole.ADMIN) {
+      throw new ForbiddenException('Only owners or admins can update screen sharing settings');
+    }
+    const conversation = await this.conversationRepo.findOne({ where: { id: conversationId } });
+    if (!conversation) throw new NotFoundException('Conversation not found');
+    if (conversation.type !== ConversationType.GROUP) {
+      throw new BadRequestException('Screen sharing settings are only available for groups');
+    }
+
+    if (input.screenSharingAllowed !== undefined) {
+      conversation.screenSharingAllowed = input.screenSharingAllowed;
+    }
+    if (input.screenAllowMultiplePresenters !== undefined) {
+      conversation.screenAllowMultiplePresenters = input.screenAllowMultiplePresenters;
+    }
+    if (input.screenMaxConcurrentShares !== undefined) {
+      conversation.screenMaxConcurrentShares = Math.max(1, Math.min(10, input.screenMaxConcurrentShares));
+    }
+    if (input.screenMaxParticipants !== undefined) {
+      conversation.screenMaxParticipants = Math.max(2, Math.min(32, input.screenMaxParticipants));
+    }
+
+    await this.conversationRepo.save(conversation);
+    await this.conversationPublisher.publishUpdated(conversationId);
+    return {
+      screenSharingAllowed: conversation.screenSharingAllowed,
+      screenAllowMultiplePresenters: conversation.screenAllowMultiplePresenters,
+      screenMaxConcurrentShares: conversation.screenMaxConcurrentShares,
+      screenMaxParticipants: conversation.screenMaxParticipants,
+    };
+  }
+
+  async setMemberRole(
+    actorId: string,
+    conversationId: string,
+    targetUserId: string,
+    role: MemberRole.ADMIN | MemberRole.MODERATOR | MemberRole.MEMBER,
+  ) {
+    const actor = await this.assertMember(conversationId, actorId);
+    if (actor.role !== MemberRole.OWNER) {
+      throw new ForbiddenException('Only the owner can change member roles');
+    }
+    const conversation = await this.conversationRepo.findOne({ where: { id: conversationId } });
+    if (!conversation) throw new NotFoundException('Conversation not found');
+    if (conversation.type !== ConversationType.GROUP) {
+      throw new BadRequestException('Roles can only be changed in groups');
+    }
+    if (targetUserId === actorId) {
+      throw new BadRequestException('Cannot change your own role');
+    }
+    const target = await this.assertMember(conversationId, targetUserId);
+    if (target.role === MemberRole.OWNER) {
+      throw new BadRequestException('Cannot change the owner role');
+    }
+    target.role = role;
+    await this.memberRepo.save(target);
+    await this.conversationPublisher.publishUpdated(conversationId);
+    return { userId: targetUserId, role };
+  }
+
   async assertCanSendMessage(conversationId: string, userId: string) {
     const member = await this.assertMember(conversationId, userId);
     const conversation = await this.conversationRepo.findOne({
@@ -1002,6 +1081,10 @@ export class ConversationsService {
       description: conversation.description,
       avatarUrl: conversation.avatarUrl,
       isPublic: conversation.isPublic ?? false,
+      screenSharingAllowed: conversation.screenSharingAllowed ?? true,
+      screenAllowMultiplePresenters: conversation.screenAllowMultiplePresenters ?? false,
+      screenMaxConcurrentShares: conversation.screenMaxConcurrentShares ?? 1,
+      screenMaxParticipants: conversation.screenMaxParticipants ?? 8,
       members,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,

@@ -11,6 +11,7 @@ import {
   faPaperclip,
   faPhone,
   faPlus,
+  faDesktop,
   faSquarePollVertical,
   faUserGroup,
   faUserPlus,
@@ -33,6 +34,8 @@ import { ConversationInfoPanel } from './ConversationInfoPanel';
 import { FileManagementPanel } from './FileManagementPanel';
 import { ThreadPanel } from './ThreadPanel';
 import { VoiceCallModal } from './VoiceCallModal';
+import { ScreenShareOverlay } from './ScreenShareOverlay';
+import { ScreenSourcePickerModal } from './ScreenSourcePickerModal';
 import { ChannelJoinBanner } from './ChannelJoinBanner';
 import { mergeMessageStatus, mergeOutgoingServerMessage } from '../utils/messageStatus';
 import { ConversationListItem } from './ConversationListItem';
@@ -46,7 +49,7 @@ import { SidebarSearchPanel } from './SidebarSearchPanel';
 import { MentionAutocomplete } from './MentionAutocomplete';
 import { InAppNotifications } from './InAppNotifications';
 import { bumpConversationFromMessage, reorderConversations } from '../utils/conversationList';
-import { canSendInConversation, getDirectPeer, isMultiMemberConversation, partitionChannels } from '../utils/conversation';
+import { canSendInConversation, getDirectPeer, isMultiMemberConversation, partitionChannels, canStartGroupScreenShare } from '../utils/conversation';
 import { detectActiveMentionQuery, insertMention } from '../utils/mentions';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useSwipeBack } from '../hooks/useSwipeBack';
@@ -58,7 +61,7 @@ import { formatTypingIndicator } from '../utils/typingIndicator';
 import { formatLastSeen } from '../utils/time';
 import { createClientMessageId } from '../utils/uuid';
 import { takePendingInviteToken } from '../utils/channelInvite';
-import { ATTACHMENT_ACCEPT, getMessagePreviewText } from '../utils/messageMedia';
+import { ATTACHMENT_ACCEPT, getMessagePreviewText, isScreenShareMessage } from '../utils/messageMedia';
 import {
   chatDraftKey,
   clearDraft,
@@ -78,6 +81,7 @@ import { getInAppAlertsEnabled } from '../utils/notificationPrefs';
 import { buildNewSessionNotificationText } from '../utils/sessionDisplay';
 import { filterConversationsBySearch, isSearchQueryActive } from '../utils/search';
 import { useVoiceCall } from '../hooks/useVoiceCall';
+import { useScreenShare } from '../hooks/useScreenShare';
 import { voiceCallManager } from '../services/voiceCall';
 import { EmptyState } from './ui/EmptyState';
 import { Button } from './ui/Button';
@@ -89,7 +93,14 @@ import type { StoryFeedRing } from '../services/api';
 export function ChatPage() {
   const { user, logout } = useAuth();
   const { getPresence, getLastSeen, refreshPresence } = usePresence();
-  const { features, callsEnabled } = useAppFeatures();
+  const { features, callsEnabled, screenShareGroupsEnabled } = useAppFeatures();
+  const { startShare, joinShare, stopShare, state: screenShareState } = useScreenShare(user?.id);
+  const [screenPickerOpen, setScreenPickerOpen] = useState(false);
+  const [pendingScreenJoin, setPendingScreenJoin] = useState<{
+    sessionId: string;
+    conversationId: string;
+    presenterName: string;
+  } | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
@@ -294,6 +305,19 @@ export function ChatPage() {
   }, []);
 
   const applyMessageUpdate = useCallback((updated: Message) => {
+    if (isScreenShareMessage(updated)) {
+      try {
+        const parsed = JSON.parse(updated.content) as { sessionId?: string; status?: string };
+        if (parsed.status === 'ended' && parsed.sessionId) {
+          setPendingScreenJoin((prev) =>
+            prev?.sessionId === parsed.sessionId ? null : prev,
+          );
+        }
+      } catch {
+        // ignore malformed payload
+      }
+    }
+
     setMessages((prev) =>
       prev.map((m) => {
         if (m.id === updated.id) {
@@ -333,6 +357,9 @@ export function ChatPage() {
             lastMessage: {
               id: updated.id,
               content: updated.deletedForEveryone ? '' : updated.content,
+              contentType: updated.contentType,
+              fileName: updated.fileName,
+              caption: updated.caption,
               senderId: updated.senderId,
               senderName: updated.sender?.displayName ?? c.lastMessage?.senderName,
               createdAt: updated.createdAt,
@@ -1303,6 +1330,38 @@ export function ChatPage() {
   }, [user?.id, refreshMissedCallsBadge]);
 
   useEffect(() => {
+    if (!user?.id || !screenShareGroupsEnabled) return;
+    return realtime.onScreenSessionEvent((raw) => {
+      const { event, data } = raw as {
+        event: string;
+        data: {
+          sessionId?: string;
+          conversationId?: string;
+          presenting?: boolean;
+          presenter?: { id: string; displayName: string };
+        };
+      };
+      if (!data?.sessionId) return;
+
+      if (event === 'screen:stop' || event === 'screen:ended') {
+        setPendingScreenJoin((prev) =>
+          prev?.sessionId === data.sessionId ? null : prev,
+        );
+        return;
+      }
+
+      if (event !== 'screen:start' || !data.conversationId) return;
+      if (data.presenter?.id === user.id) return;
+      if (!data.presenting) return;
+      setPendingScreenJoin({
+        sessionId: data.sessionId,
+        conversationId: data.conversationId,
+        presenterName: data.presenter?.displayName ?? 'Someone',
+      });
+    }) as () => void;
+  }, [user?.id, screenShareGroupsEnabled]);
+
+  useEffect(() => {
     if (!user?.id) {
       setTasksUnreadBadge(0);
       return;
@@ -1884,7 +1943,7 @@ export function ChatPage() {
   ]);
 
   useEffect(() => {
-    return realtime.onSessionCreated(maybeShowNewSessionInAppNotification);
+    return realtime.onSessionCreated(maybeShowNewSessionInAppNotification) as () => void;
   }, [maybeShowNewSessionInAppNotification]);
 
   useEffect(() => {
@@ -2938,6 +2997,45 @@ export function ChatPage() {
                     )}
                   </>
                 )}
+                {activeConversation.type === 'group' &&
+                  screenShareGroupsEnabled &&
+                  user &&
+                  canStartGroupScreenShare(activeConversation, user.id) && (
+                    <button
+                      type="button"
+                      className="icon-btn chat-header-call-btn"
+                      onClick={() => {
+                        if (screenShareState.isLocalPresenter) {
+                          void stopShare();
+                        } else {
+                          setScreenPickerOpen(true);
+                        }
+                      }}
+                      title={screenShareState.isLocalPresenter ? 'Stop screen share' : 'Share screen'}
+                      aria-label={screenShareState.isLocalPresenter ? 'Stop screen share' : 'Share screen'}
+                    >
+                      <Icon icon={faDesktop} />
+                    </button>
+                  )}
+                {activeConversation.type === 'group' &&
+                  screenShareGroupsEnabled &&
+                  pendingScreenJoin?.conversationId === activeConversation.id &&
+                  screenShareState.phase !== 'viewing' &&
+                  screenShareState.phase !== 'hosting' && (
+                    <button
+                      type="button"
+                      className="icon-btn chat-header-call-btn"
+                      onClick={() => {
+                        void joinShare(pendingScreenJoin.sessionId).then(() =>
+                          setPendingScreenJoin(null),
+                        );
+                      }}
+                      title={`Join ${pendingScreenJoin.presenterName}'s screen`}
+                      aria-label="Join screen share"
+                    >
+                      Join
+                    </button>
+                  )}
                 <button
                   type="button"
                   className="icon-btn chat-header-files-btn"
@@ -2954,6 +3052,38 @@ export function ChatPage() {
             </header>
 
             <div className="chat-body">
+              {pendingScreenJoin &&
+                pendingScreenJoin.conversationId === activeConversation.id &&
+                screenShareState.phase !== 'viewing' &&
+                screenShareState.phase !== 'hosting' && (
+                  <div className="screen-share-join-banner" role="status">
+                    <span className="screen-share-join-banner-text">
+                      {pendingScreenJoin.presenterName} is sharing their screen
+                    </span>
+                    <div className="screen-share-join-banner-actions">
+                      <button
+                        type="button"
+                        className="screen-share-join-banner-join"
+                        onClick={() => {
+                          void joinShare(pendingScreenJoin.sessionId).then(() =>
+                            setPendingScreenJoin(null),
+                          );
+                        }}
+                      >
+                        Join
+                      </button>
+                      <button
+                        type="button"
+                        className="screen-share-join-banner-dismiss"
+                        onClick={() => setPendingScreenJoin(null)}
+                        aria-label="Dismiss"
+                        title="Dismiss"
+                      >
+                        <Icon icon={faXmark} />
+                      </button>
+                    </div>
+                  </div>
+                )}
               {unreadThreads.length > 0 && !activeThreadRootId && (
                 <div className="unread-threads-bar">
                   <button
@@ -2985,6 +3115,13 @@ export function ChatPage() {
                   onMentionGlowConsumed={() => dismissMentionGlow(m.id)}
                   allowMessageMenu={Boolean(activeConversation)}
                   canSendActions={canSendInActiveChat}
+                  currentUserId={user?.id}
+                  activeScreenSessionId={
+                    screenShareState.phase === 'viewing' ||
+                    screenShareState.phase === 'hosting'
+                      ? screenShareState.sessionId
+                      : null
+                  }
                   onStartEdit={startEditMessage}
                   onReply={startReplyMessage}
                   onOpenThread={openThread}
@@ -2994,6 +3131,11 @@ export function ChatPage() {
                   onDelete={handleDeleteMessage}
                   onReaction={handleReactionMessage}
                   onPollUpdated={applyMessageUpdate}
+                  onJoinScreenShare={(sessionId) => {
+                    void joinShare(sessionId).catch((err) => {
+                      setCallError(err instanceof Error ? err.message : 'Failed to join screen share');
+                    });
+                  }}
                 />
               ))}
               {typingIndicatorText && (
@@ -3442,6 +3584,18 @@ export function ChatPage() {
       />
 
       <VoiceCallModal />
+      <ScreenShareOverlay />
+      <ScreenSourcePickerModal
+        open={screenPickerOpen}
+        onCancel={() => setScreenPickerOpen(false)}
+        onConfirm={({ source, kind }) => {
+          setScreenPickerOpen(false);
+          if (!activeConversation) return;
+          void startShare(activeConversation.id, { sourceId: source.id, kind }).catch((err) => {
+            setCallError(err instanceof Error ? err.message : 'Failed to start screen share');
+          });
+        }}
+      />
 
       {callError && (
         <div className="voice-call-error-toast" role="alert">

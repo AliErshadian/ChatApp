@@ -12,7 +12,9 @@ import { MessageForwardedHeader } from './MessageForwardedHeader';
 import { MessageStoryQuote } from './MessageStoryQuote';
 import { MessageAttachmentContent, isAttachmentMessage } from './MessageAttachmentContent';
 import { MessagePoll } from './MessagePoll';
+import { MessageScreenShare } from './MessageScreenShare';
 import { isPollMessage, isTextMessage } from '../utils/messageMedia';
+import { isScreenShareMessage } from '../utils/screenShareMessage';
 import { copyTextToClipboard } from '../utils/clipboard';
 
 interface Props {
@@ -25,6 +27,7 @@ interface Props {
   onMentionGlowConsumed?: () => void;
   allowMessageMenu?: boolean;
   canSendActions?: boolean;
+  currentUserId?: string;
   onStartEdit?: (messageId: string, content: string) => void;
   onReply?: (message: Message) => void;
   onOpenThread?: (message: Message) => void;
@@ -34,6 +37,9 @@ interface Props {
   onDelete: (messageId: string, scope: 'me' | 'everyone') => Promise<void>;
   onReaction: (messageId: string, emoji: string) => Promise<void>;
   onPollUpdated?: (message: Message) => void;
+  onJoinScreenShare?: (sessionId: string) => void;
+  /** Set only while this client is hosting/viewing a screen share. */
+  activeScreenSessionId?: string | null;
 }
 
 export function MessageBubble({
@@ -55,6 +61,9 @@ export function MessageBubble({
   onDelete,
   onReaction,
   onPollUpdated,
+  onJoinScreenShare,
+  currentUserId,
+  activeScreenSessionId = null,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -337,6 +346,13 @@ export function MessageBubble({
               isOwn={isOwn}
               canInteract={canSendActions}
               onUpdated={(updated) => onPollUpdated?.(updated)}
+            />
+          ) : isScreenShareMessage(message) ? (
+            <MessageScreenShare
+              message={message}
+              currentUserId={currentUserId}
+              activeSessionId={activeScreenSessionId}
+              onJoin={onJoinScreenShare}
             />
           ) : isAttachmentMessage(message) ? (
             <MessageAttachmentContent message={message} isOwn={isOwn} />

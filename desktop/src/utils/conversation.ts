@@ -48,6 +48,16 @@ export function canManageParticipants(conversation: Conversation, userId: string
   );
 }
 
+export function canStartGroupScreenShare(conversation: Conversation, userId: string) {
+  if (conversation.type !== 'group') return false;
+  if (conversation.screenSharingAllowed === false) return false;
+  return conversation.members.some(
+    (m) =>
+      m.userId === userId &&
+      (m.role === 'owner' || m.role === 'admin' || m.role === 'moderator'),
+  );
+}
+
 export function getChannelOwner(conversation: Conversation) {
   return conversation.members.find((m) => m.role === 'owner');
 }

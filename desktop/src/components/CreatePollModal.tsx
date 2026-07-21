@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { faPlus, faSquarePollVertical, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { Icon } from './Icon';
 
 interface Props {
   open: boolean;
@@ -79,26 +81,34 @@ export function CreatePollModal({ open, busy = false, error = '', onClose, onSub
         aria-labelledby="create-poll-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '0.75rem',
-          }}
-        >
-          <h3 id="create-poll-title">Create poll</h3>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
-            ×
+        <header className="create-poll-header">
+          <div className="create-poll-header-title">
+            <span className="create-poll-header-icon" aria-hidden>
+              <Icon icon={faSquarePollVertical} />
+            </span>
+            <div>
+              <h3 id="create-poll-title">Create poll</h3>
+              <p className="create-poll-subtitle">Ask the group and collect votes</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="create-poll-close"
+            onClick={onClose}
+            aria-label="Close"
+            title="Close"
+          >
+            <Icon icon={faXmark} />
           </button>
-        </div>
+        </header>
+
         <form className="create-poll-form" onSubmit={(e) => void handleSubmit(e)}>
           <label className="create-poll-field">
             <span>Question</span>
             <input
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
-              placeholder="Which framework?"
+              placeholder="What should we decide?"
               maxLength={500}
               autoFocus
               disabled={busy}
@@ -106,9 +116,17 @@ export function CreatePollModal({ open, busy = false, error = '', onClose, onSub
           </label>
 
           <div className="create-poll-options">
-            <span className="create-poll-label">Options</span>
+            <div className="create-poll-options-head">
+              <span className="create-poll-label">Options</span>
+              <span className="create-poll-options-count">
+                {options.length}/{MAX_OPTIONS}
+              </span>
+            </div>
             {options.map((option, index) => (
               <div key={index} className="create-poll-option-row">
+                <span className="create-poll-option-index" aria-hidden>
+                  {index + 1}
+                </span>
                 <input
                   value={option}
                   onChange={(e) => updateOption(index, e.target.value)}
@@ -119,52 +137,67 @@ export function CreatePollModal({ open, busy = false, error = '', onClose, onSub
                 {options.length > MIN_OPTIONS && (
                   <button
                     type="button"
-                    className="icon-btn"
+                    className="create-poll-option-remove"
                     onClick={() => removeOption(index)}
                     aria-label={`Remove option ${index + 1}`}
+                    title="Remove option"
                     disabled={busy}
                   >
-                    ×
+                    <Icon icon={faXmark} />
                   </button>
                 )}
               </div>
             ))}
             {options.length < MAX_OPTIONS && (
-              <button type="button" className="link-btn" onClick={addOption} disabled={busy}>
+              <button
+                type="button"
+                className="create-poll-add-option"
+                onClick={addOption}
+                disabled={busy}
+              >
+                <Icon icon={faPlus} />
                 Add option
               </button>
             )}
           </div>
 
-          <label className="create-poll-toggle">
-            <input
-              type="checkbox"
-              checked={anonymous}
-              onChange={(e) => setAnonymous(e.target.checked)}
-              disabled={busy}
-            />
-            <span>Anonymous</span>
-          </label>
+          <div className="create-poll-toggles">
+            <label className="create-poll-toggle">
+              <input
+                type="checkbox"
+                checked={anonymous}
+                onChange={(e) => setAnonymous(e.target.checked)}
+                disabled={busy}
+              />
+              <span className="create-poll-toggle-copy">
+                <strong>Anonymous</strong>
+                <small>Hide who voted for each option</small>
+              </span>
+            </label>
 
-          <label className="create-poll-toggle">
-            <input
-              type="checkbox"
-              checked={allowsMultiple}
-              onChange={(e) => setAllowsMultiple(e.target.checked)}
-              disabled={busy}
-            />
-            <span>Multiple choice</span>
-          </label>
+            <label className="create-poll-toggle">
+              <input
+                type="checkbox"
+                checked={allowsMultiple}
+                onChange={(e) => setAllowsMultiple(e.target.checked)}
+                disabled={busy}
+              />
+              <span className="create-poll-toggle-copy">
+                <strong>Multiple choice</strong>
+                <small>Allow selecting more than one option</small>
+              </span>
+            </label>
+          </div>
 
           {(localError || error) && (
-            <p className="composer-error">{localError || error}</p>
+            <p className="create-poll-error">{localError || error}</p>
           )}
 
-          <div className="modal-actions">
-            <button type="button" onClick={onClose} disabled={busy}>
+          <div className="create-poll-actions">
+            <button type="button" className="create-poll-cancel" onClick={onClose} disabled={busy}>
               Cancel
             </button>
-            <button type="submit" className="primary" disabled={!canSubmit}>
+            <button type="submit" className="create-poll-submit" disabled={!canSubmit}>
               {busy ? 'Creating…' : 'Create poll'}
             </button>
           </div>

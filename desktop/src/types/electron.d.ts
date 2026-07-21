@@ -21,6 +21,18 @@ export interface ElectronAPI {
   notify: (title: string, body: string) => Promise<void>;
   copyToClipboard?: (text: string) => Promise<void>;
   openExternal?: (url: string) => Promise<boolean>;
+  listScreenSources?: (options?: {
+    types?: Array<'screen' | 'window'>;
+  }) => Promise<
+    Array<{
+      id: string;
+      name: string;
+      displayId: string;
+      kind: 'screen' | 'window';
+      thumbnailDataUrl: string;
+      appIconDataUrl: string | null;
+    }>
+  >;
   onInviteLink?: (callback: (url: string) => void) => () => void;
   auth?: {
     setSession: (session: AuthSessionPayload) => Promise<boolean>;

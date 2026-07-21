@@ -387,7 +387,22 @@ class AdminApiClient {
     return this.request<AppFeaturesSettings>('/admin/settings/features');
   }
 
-  updateAppFeaturesSettings(data: Partial<Pick<AppFeaturesSettings, 'voiceCallsEnabled' | 'videoCallsEnabled'>>) {
+  updateAppFeaturesSettings(
+    data: Partial<
+      Pick<
+        AppFeaturesSettings,
+        | 'voiceCallsEnabled'
+        | 'videoCallsEnabled'
+        | 'screenSharingEnabled'
+        | 'screenSharingDirectEnabled'
+        | 'screenSharingGroupsEnabled'
+        | 'screenMaxResolution'
+        | 'screenMaxFps'
+        | 'screenMaxConcurrentSessions'
+        | 'screenBandwidthLimitKbps'
+      >
+    >,
+  ) {
     return this.request<AppFeaturesSettings>('/admin/settings/features', {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -486,6 +501,14 @@ class AdminApiClient {
 export interface AppFeaturesSettings {
   voiceCallsEnabled: boolean;
   videoCallsEnabled: boolean;
+  screenSharingEnabled: boolean;
+  screenSharingDirectEnabled: boolean;
+  screenSharingGroupsEnabled: boolean;
+  screenMaxResolution: string;
+  screenMaxFps: number;
+  screenMaxConcurrentSessions: number;
+  screenBandwidthLimitKbps: number | null;
+  turnConfigured: boolean;
   updatedAt: string;
 }
 

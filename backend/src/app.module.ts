@@ -20,6 +20,7 @@ import { NotesModule } from './modules/notes/notes.module';
 import { StoriesModule } from './modules/stories/stories.module';
 import { DirectoryModule } from './modules/directory/directory.module';
 import { AppConfigModule } from './modules/app-config/app-config.module';
+import { ScreenShareModule } from './modules/screen-share/screen-share.module';
 import { HealthController } from './health.controller';
 import { validateEnv } from './config/env';
 import { MetricsController } from './observability/metrics.controller';
@@ -65,6 +66,7 @@ import { MetricsController } from './observability/metrics.controller';
     AdminModule,
     StorageModule,
     CallsModule,
+    ScreenShareModule,
     TasksModule,
     NotesModule,
     StoriesModule,

@@ -14,6 +14,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('notify', { title, body }),
   copyToClipboard: (text: string) => clipboard.writeText(text),
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
+  listScreenSources: (options?: { types?: Array<'screen' | 'window'> }) =>
+    ipcRenderer.invoke('screen:list-sources', options) as Promise<
+      Array<{
+        id: string;
+        name: string;
+        displayId: string;
+        kind: 'screen' | 'window';
+        thumbnailDataUrl: string;
+        appIconDataUrl: string | null;
+      }>
+    >,
   onInviteLink: (callback: (url: string) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, url: string) => callback(url);
     ipcRenderer.on('invite-link', listener);

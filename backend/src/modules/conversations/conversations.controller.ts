@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -20,6 +21,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
 import { StorageService } from '../../storage/storage.service';
 import { ConversationsService } from './conversations.service';
+import { MemberRole } from './entities/conversation-member.entity';
 import {
   CreateChannelDto,
   CreateGroupDto,
@@ -27,6 +29,8 @@ import {
   AddMembersDto,
   DeleteConversationDto,
   LeaveChannelDto,
+  UpdateScreenSettingsDto,
+  SetMemberRoleDto,
 } from './dto/conversation.dto';
 
 @Controller('conversations')
@@ -103,6 +107,30 @@ export class ConversationsController {
     @CurrentUser() user: User,
   ) {
     return this.conversationsService.removeMember(id, user.id, userId);
+  }
+
+  @Patch(':id/members/:userId/role')
+  setMemberRole(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @CurrentUser() user: User,
+    @Body() dto: SetMemberRoleDto,
+  ) {
+    return this.conversationsService.setMemberRole(
+      user.id,
+      id,
+      userId,
+      dto.role as MemberRole.ADMIN | MemberRole.MODERATOR | MemberRole.MEMBER,
+    );
+  }
+
+  @Patch(':id/screen-settings')
+  updateScreenSettings(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+    @Body() dto: UpdateScreenSettingsDto,
+  ) {
+    return this.conversationsService.updateScreenSettings(user.id, id, dto);
   }
 
   @Get(':id/invite')

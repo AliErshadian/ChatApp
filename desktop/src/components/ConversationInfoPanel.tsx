@@ -389,6 +389,10 @@ export function ConversationInfoPanel({
               </dl>
             </section>
 
+            {isGroup && canManageParticipants(conversation, currentUserId) && (
+              <GroupScreenSettingsSection conversation={conversation} />
+            )}
+
             {onLeaveChannel && (
               <ChannelLeaveSection
                 conversation={conversation}
@@ -425,5 +429,80 @@ export function ConversationInfoPanel({
         )}
       </div>
     </div>
+  );
+}
+
+function GroupScreenSettingsSection({ conversation }: { conversation: Conversation }) {
+  const [allowed, setAllowed] = useState(conversation.screenSharingAllowed ?? true);
+  const [multi, setMulti] = useState(conversation.screenAllowMultiplePresenters ?? false);
+  const [maxShares, setMaxShares] = useState(conversation.screenMaxConcurrentShares ?? 1);
+  const [maxParticipants, setMaxParticipants] = useState(conversation.screenMaxParticipants ?? 8);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setAllowed(conversation.screenSharingAllowed ?? true);
+    setMulti(conversation.screenAllowMultiplePresenters ?? false);
+    setMaxShares(conversation.screenMaxConcurrentShares ?? 1);
+    setMaxParticipants(conversation.screenMaxParticipants ?? 8);
+  }, [conversation]);
+
+  const save = async () => {
+    setBusy(true);
+    setError('');
+    setSaved(false);
+    try {
+      await api.updateScreenSettings(conversation.id, {
+        screenSharingAllowed: allowed,
+        screenAllowMultiplePresenters: multi,
+        screenMaxConcurrentShares: maxShares,
+        screenMaxParticipants: maxParticipants,
+      });
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="profile-section">
+      <h4>Screen sharing</h4>
+      <label className="toggle-row">
+        <input type="checkbox" checked={allowed} onChange={(e) => setAllowed(e.target.checked)} />
+        <span>Allow screen sharing</span>
+      </label>
+      <label className="toggle-row">
+        <input type="checkbox" checked={multi} onChange={(e) => setMulti(e.target.checked)} />
+        <span>Allow multiple presenters</span>
+      </label>
+      <label className="field">
+        <span>Max concurrent shares</span>
+        <input
+          type="number"
+          min={1}
+          max={10}
+          value={maxShares}
+          onChange={(e) => setMaxShares(Number(e.target.value))}
+        />
+      </label>
+      <label className="field">
+        <span>Max participants</span>
+        <input
+          type="number"
+          min={2}
+          max={32}
+          value={maxParticipants}
+          onChange={(e) => setMaxParticipants(Number(e.target.value))}
+        />
+      </label>
+      {error && <p className="profile-error-inline">{error}</p>}
+      {saved && <p className="muted">Saved.</p>}
+      <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => void save()}>
+        {busy ? 'Saving…' : 'Save screen settings'}
+      </button>
+    </section>
   );
 }

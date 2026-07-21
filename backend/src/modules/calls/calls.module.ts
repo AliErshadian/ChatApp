@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { UsersModule } from '../users/users.module';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { ScreenShareModule } from '../screen-share/screen-share.module';
 import { AppConfigModule } from '../app-config/app-config.module';
 import { CallRegistryService } from './call-registry.service';
 import { CallSignalingService } from './call-signaling.service';
@@ -18,6 +19,7 @@ import { CallRecord } from './entities/call-record.entity';
     UsersModule,
     forwardRef(() => RealtimeModule),
     AppConfigModule,
+    forwardRef(() => ScreenShareModule),
   ],
   controllers: [CallsController],
   providers: [CallRegistryService, CallSignalingService, CallsHistoryService, CallsIceService],

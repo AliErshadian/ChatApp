@@ -305,7 +305,11 @@ Roles: `owner` / `contributor` / `reader`. Optimistic `version` → `409` on sta
 
 ### Calls (1:1 DM)
 
-WebRTC over Socket.IO signaling. One active call per user; **15s** ring timeout; in-memory registry (multi-instance needs Redis registry). History in `call_records`.
+WebRTC over Socket.IO signaling. One active call per user; **15s** ring timeout; in-memory registry (multi-instance needs Redis registry). History in `call_records`. Optional **in-call screen share** via track renegotiation (`call:signal` + `mediaPurpose: 'screen'`), gated by app feature flags.
+
+### Screen sharing (groups)
+
+Standalone mesh WebRTC sessions for **groups only** (channels hard-rejected). Socket.IO: `screen:create|join|leave|start|stop`, `webrtc:offer|answer|ice`, `participant:joined|left`, `screen:quality`. Redis-backed active registry + Postgres `screen_share_*` tables. Start permission: owner / admin / moderator. Per-group settings on `conversations` (`screen_sharing_allowed`, multi-presenter, max shares/participants). Admin toggles on `app_configurations`.
 
 ### Search & files
 
@@ -330,13 +334,15 @@ users ──┬── conversation_members ── conversations
         ├── tasks ── task_user_reads
         ├── notes ── members · revisions
         ├── refresh_tokens · user_sessions · call_records
+        ├── screen_share_sessions · participants · audit_logs
         └── directory_* · authentication_audit_logs
 
-direct_conversation_pairs · channel_invites · audit_logs
+direct_conversation_pairs · channel_invites · audit_logs · app_configurations
 ```
 
 **Directory user fields** (migration `034`): `authentication_provider`, `ad_guid`, `ad_sid`, org fields, `directory_groups`; nullable `password_hash`.
 
+**Screen sharing** (migration `036`): `member_role` adds `moderator`; group screen settings columns; `screen_share_*` tables; app feature columns.
 | Delivery | Path |
 |----------|------|
 | Fresh DB | `infra/postgres/init.sql` (+ seeded `schema_migrations`) |
@@ -617,7 +623,7 @@ GET /messages/search?q=hello&limit=40
 
 ### WebSocket events
 
-**Client → server:** `message:send`, `message:delivered|read|edit|delete|reaction`, `user:typing`, `conversation:join|leave|delete`, `presence:heartbeat|query`, `call:invite|accept|reject|end|signal`.
+**Client → server:** `message:send`, `message:delivered|read|edit|delete|reaction`, `user:typing`, `conversation:join|leave|delete`, `presence:heartbeat|query`, `call:invite|accept|reject|end|signal`, `screen:create|join|leave|start|stop`, `webrtc:offer|answer|ice`, `screen:quality`.
 
 **Server → client:** `message:receive|ack|updated|status`, `user:typing|presence`, `session:created|terminated`, `conversation:*`, `task:*`, `note:*`, `story:*`, `call:*`.
 

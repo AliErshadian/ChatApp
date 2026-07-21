@@ -37,6 +37,10 @@ export interface VoiceCallState {
   audioOutputPickerSupported: boolean;
   hasLocalVideo: boolean;
   hasRemoteVideo: boolean;
+  isSharingScreen: boolean;
+  remoteScreenActive: boolean;
+  screenShareStartedAt: number | null;
+  connectionQuality: 'good' | 'fair' | 'poor' | 'unknown';
   error: string | null;
   endReason: VoiceCallEndReason | null;
 }
@@ -55,6 +59,10 @@ export const INITIAL_VOICE_CALL_STATE: VoiceCallState = {
   audioOutputPickerSupported: false,
   hasLocalVideo: false,
   hasRemoteVideo: false,
+  isSharingScreen: false,
+  remoteScreenActive: false,
+  screenShareStartedAt: null,
+  connectionQuality: 'unknown',
   error: null,
   endReason: null,
 };

@@ -173,6 +173,8 @@ class RealtimeClient {
   private callAcceptedHandlers = new Set<CallAcceptedHandler>();
   private callEndedHandlers = new Set<CallEndedHandler>();
   private callSignalHandlers = new Set<CallSignalHandler>();
+  private screenSessionHandlers = new Set<(data: unknown) => void>();
+  private webrtcHandlers = new Set<(data: unknown) => void>();
   private taskUpdatedHandlers = new Set<TaskUpdatedHandler>();
   private taskDeletedHandlers = new Set<TaskDeletedHandler>();
   private noteUpdatedHandlers = new Set<NoteUpdatedHandler>();
@@ -389,6 +391,27 @@ class RealtimeClient {
     this.socket.on('call:signal', (data) => {
       this.callSignalHandlers.forEach((handler) => handler(data));
     });
+
+    const screenEvents = [
+      'screen:created',
+      'screen:start',
+      'screen:stop',
+      'screen:ended',
+      'participant:joined',
+      'participant:left',
+      'screen:quality',
+    ] as const;
+    for (const event of screenEvents) {
+      this.socket.on(event, (data) => {
+        this.screenSessionHandlers.forEach((handler) => handler({ event, data }));
+      });
+    }
+
+    for (const event of ['webrtc:offer', 'webrtc:answer', 'webrtc:ice'] as const) {
+      this.socket.on(event, (data) => {
+        this.webrtcHandlers.forEach((handler) => handler({ event, data }));
+      });
+    }
 
     this.socket.on('task:updated', (task: TaskItem) => {
       this.taskUpdatedHandlers.forEach((handler) => handler(task));
@@ -1098,6 +1121,91 @@ class RealtimeClient {
   onCallSignal(handler: CallSignalHandler) {
     this.callSignalHandlers.add(handler);
     return () => this.callSignalHandlers.delete(handler);
+  }
+
+  onScreenSessionEvent(handler: (data: unknown) => void) {
+    this.screenSessionHandlers.add(handler);
+    return () => this.screenSessionHandlers.delete(handler);
+  }
+
+  onWebrtcSignal(handler: (data: unknown) => void) {
+    this.webrtcHandlers.add(handler);
+    return () => this.webrtcHandlers.delete(handler);
+  }
+
+  createScreenShare(conversationId: string) {
+    const socket = this.requireWebSocket();
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
+      socket.emit('screen:create', { conversationId }, (ack: Record<string, unknown>) => {
+        if (ack?.success) resolve(ack);
+        else reject(new Error((ack?.message as string) ?? 'Failed to create screen share'));
+      });
+    });
+  }
+
+  joinScreenShare(sessionId: string) {
+    const socket = this.requireWebSocket();
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
+      socket.emit('screen:join', { sessionId }, (ack: Record<string, unknown>) => {
+        if (ack?.success) resolve(ack);
+        else reject(new Error((ack?.message as string) ?? 'Failed to join screen share'));
+      });
+    });
+  }
+
+  leaveScreenShare(sessionId: string) {
+    const socket = this.requireWebSocket();
+    return new Promise<void>((resolve, reject) => {
+      socket.emit('screen:leave', { sessionId }, (ack: { success?: boolean; message?: string }) => {
+        if (ack?.success) resolve();
+        else reject(new Error(ack?.message ?? 'Failed to leave screen share'));
+      });
+    });
+  }
+
+  startScreenShareSession(sessionId: string, screenSource?: string) {
+    const socket = this.requireWebSocket();
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
+      socket.emit(
+        'screen:start',
+        { sessionId, screenSource },
+        (ack: Record<string, unknown>) => {
+          if (ack?.success) resolve(ack);
+          else reject(new Error((ack?.message as string) ?? 'Failed to start screen share'));
+        },
+      );
+    });
+  }
+
+  stopScreenShareSession(sessionId: string) {
+    const socket = this.requireWebSocket();
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
+      socket.emit('screen:stop', { sessionId }, (ack: Record<string, unknown>) => {
+        if (ack?.success) resolve(ack);
+        else reject(new Error((ack?.message as string) ?? 'Failed to stop screen share'));
+      });
+    });
+  }
+
+  sendWebrtcSignal(
+    event: 'webrtc:offer' | 'webrtc:answer' | 'webrtc:ice',
+    body: { sessionId: string; targetUserId: string; payload: unknown },
+  ) {
+    const socket = this.requireWebSocket();
+    return new Promise<void>((resolve, reject) => {
+      socket.emit(event, body, (ack: { success?: boolean; message?: string }) => {
+        if (ack?.success) resolve();
+        else reject(new Error(ack?.message ?? 'Failed to send WebRTC signal'));
+      });
+    });
+  }
+
+  sendScreenQuality(
+    sessionId: string,
+    quality: { level: string; rttMs?: number; packetLoss?: number; bitrateKbps?: number },
+  ) {
+    const socket = this.requireWebSocket();
+    socket.emit('screen:quality', { sessionId, quality });
   }
 
   onTaskUpdated(handler: TaskUpdatedHandler) {

@@ -19,11 +19,24 @@ import {
   isSpeakerRoutingSupported,
   pickAudioOutputDevice,
 } from '../utils/audioOutput';
+import {
+  getScreenShareStream,
+  measureConnectionQuality,
+  type ScreenShareSourceKind,
+} from '../utils/screenCapture';
 
 type StateListener = (state: VoiceCallState) => void;
 
 function isWebSocketTransport(): boolean {
   return realtime.getTransport() === 'websocket';
+}
+
+function stripMediaPurpose(payload: unknown): RTCSessionDescriptionInit {
+  if (!payload || typeof payload !== 'object') return payload as RTCSessionDescriptionInit;
+  const { mediaPurpose: _mp, ...rest } = payload as RTCSessionDescriptionInit & {
+    mediaPurpose?: string;
+  };
+  return rest;
 }
 
 export class VoiceCallManager {
@@ -42,6 +55,9 @@ export class VoiceCallManager {
   private makingOffer = false;
   private ignoreOffer = false;
   private isSettingRemoteAnswerPending = false;
+  private screenStream: MediaStream | null = null;
+  private screenSender: RTCRtpSender | null = null;
+  private qualityTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.bindRealtime();
@@ -80,6 +96,118 @@ export class VoiceCallManager {
 
   getRemoteStream() {
     return this.remoteStream;
+  }
+
+  getScreenStream() {
+    return this.screenStream;
+  }
+
+  async startScreenShare(options: { sourceId?: string; kind?: ScreenShareSourceKind }) {
+    if (this.state.phase !== 'active' || !this.pc || !this.state.callId) {
+      throw new Error('Screen share requires an active call');
+    }
+    if (this.state.isSharingScreen) return;
+
+    const stream = await getScreenShareStream({ sourceId: options.sourceId });
+    const [track] = stream.getVideoTracks();
+    if (!track) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error('No screen track available');
+    }
+
+    track.onended = () => {
+      void this.stopScreenShare();
+    };
+
+    this.screenStream = stream;
+    const existingVideoSender = this.pc
+      .getSenders()
+      .find((s) => s.track?.kind === 'video' && s !== this.screenSender);
+
+    if (existingVideoSender && !this.wantsVideo()) {
+      await existingVideoSender.replaceTrack(track);
+      this.screenSender = existingVideoSender;
+    } else {
+      this.screenSender = this.pc.addTrack(track, stream);
+    }
+
+    this.setState({
+      isSharingScreen: true,
+      screenShareStartedAt: Date.now(),
+    });
+    this.notifyStreamsUpdated();
+    await this.sendScreenOffer();
+    this.startQualityMonitor();
+  }
+
+  async stopScreenShare() {
+    if (!this.state.isSharingScreen && !this.screenStream) return;
+
+    if (this.screenSender) {
+      try {
+        await this.screenSender.replaceTrack(null);
+        if (this.pc && this.screenSender.track == null) {
+          this.pc.removeTrack(this.screenSender);
+        }
+      } catch {
+        // ignore
+      }
+      this.screenSender = null;
+    }
+
+    if (this.screenStream) {
+      this.screenStream.getTracks().forEach((t) => t.stop());
+      this.screenStream = null;
+    }
+
+    this.setState({
+      isSharingScreen: false,
+      screenShareStartedAt: null,
+    });
+    this.notifyStreamsUpdated();
+
+    if (this.state.phase === 'active' && this.pc && this.state.callId) {
+      try {
+        await this.sendScreenOffer();
+      } catch {
+        // ignore renegotiation errors while stopping
+      }
+    }
+  }
+
+  private async sendScreenOffer() {
+    if (!this.pc || !this.state.callId) return;
+    this.makingOffer = true;
+    try {
+      const offer = await this.pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+      });
+      await this.pc.setLocalDescription(offer);
+      await realtime.sendCallSignal(this.state.callId, 'offer', {
+        ...offer,
+        mediaPurpose: 'screen',
+      });
+    } finally {
+      this.makingOffer = false;
+    }
+  }
+
+  private startQualityMonitor() {
+    if (this.qualityTimer) return;
+    this.qualityTimer = setInterval(() => {
+      if (!this.pc) return;
+      void measureConnectionQuality(this.pc).then((q) => {
+        this.setState({ connectionQuality: q.level });
+      });
+    }, 3000);
+  }
+
+  private stopQualityMonitor() {
+    if (this.qualityTimer) {
+      clearInterval(this.qualityTimer);
+      this.qualityTimer = null;
+    }
   }
 
   private notifyHistoryRefresh() {
@@ -303,12 +431,12 @@ export class VoiceCallManager {
     if (!this.state.callId || data.callId !== this.state.callId) return;
 
     if (data.type === 'offer') {
-      await this.handleOffer(data.payload as RTCSessionDescriptionInit);
+      await this.handleOffer(stripMediaPurpose(data.payload), data.payload);
       return;
     }
 
     if (data.type === 'answer') {
-      await this.handleAnswer(data.payload as RTCSessionDescriptionInit);
+      await this.handleAnswer(stripMediaPurpose(data.payload));
       return;
     }
 
@@ -317,10 +445,15 @@ export class VoiceCallManager {
     }
   }
 
-  private async handleOffer(offer: RTCSessionDescriptionInit) {
+  private async handleOffer(offer: RTCSessionDescriptionInit, rawPayload?: unknown) {
     if (!offer) return;
 
-    if (this.state.role === 'caller') {
+    const isScreen =
+      rawPayload &&
+      typeof rawPayload === 'object' &&
+      (rawPayload as { mediaPurpose?: string }).mediaPurpose === 'screen';
+
+    if (this.state.role === 'caller' && !isScreen) {
       if (this.makingOffer || this.pc?.signalingState !== 'stable') {
         this.ignoreOffer = true;
         return;
@@ -335,12 +468,21 @@ export class VoiceCallManager {
       await this.pc.setRemoteDescription(offer);
       this.remoteDescriptionSet = true;
       await this.flushPendingIceCandidates();
-      if (this.state.role === 'callee') {
-        const answer = await this.pc.createAnswer(this.getSdpOptions());
-        await this.pc.setLocalDescription(answer);
-        if (this.state.callId && answer) {
-          await realtime.sendCallSignal(this.state.callId, 'answer', answer);
-        }
+      const answer = await this.pc.createAnswer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+      });
+      await this.pc.setLocalDescription(answer);
+      if (this.state.callId && answer) {
+        await realtime.sendCallSignal(
+          this.state.callId,
+          'answer',
+          isScreen ? { ...answer, mediaPurpose: 'screen' } : answer,
+        );
+      }
+      if (isScreen) {
+        this.setState({ remoteScreenActive: true });
+        this.startQualityMonitor();
       }
     } catch (error) {
       this.failCall(error);
@@ -461,7 +603,7 @@ export class VoiceCallManager {
   private getSdpOptions(): RTCOfferOptions {
     return {
       offerToReceiveAudio: true,
-      offerToReceiveVideo: this.wantsVideo(),
+      offerToReceiveVideo: this.wantsVideo() || this.state.isSharingScreen || this.state.remoteScreenActive,
     };
   }
 
@@ -552,6 +694,13 @@ export class VoiceCallManager {
   }
 
   private cleanupPeerConnection() {
+    this.stopQualityMonitor();
+    if (this.screenStream) {
+      this.screenStream.getTracks().forEach((track) => track.stop());
+      this.screenStream = null;
+    }
+    this.screenSender = null;
+
     this.pc?.close();
     this.pc = null;
     this.makingOffer = false;
@@ -577,7 +726,14 @@ export class VoiceCallManager {
       this.remoteAudio = null;
     }
 
-    this.setState({ hasLocalVideo: false, hasRemoteVideo: false });
+    this.setState({
+      hasLocalVideo: false,
+      hasRemoteVideo: false,
+      isSharingScreen: false,
+      remoteScreenActive: false,
+      screenShareStartedAt: null,
+      connectionQuality: 'unknown',
+    });
     this.notifyStreamsUpdated();
   }
 }
