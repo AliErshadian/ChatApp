@@ -428,17 +428,19 @@ app.on('certificate-error', (event, _webContents, url, _error, _certificate, cal
 app.whenReady().then(() => {
   applyContentSecurityPolicy();
 
-  const allowMediaPermission = (permission: string) =>
+  const allowPermission = (permission: string) =>
     permission === 'media' ||
     permission === 'display-capture' ||
-    permission === 'mediaKeySystem';
+    permission === 'mediaKeySystem' ||
+    // HTML Fullscreen API (screen-share / video expand)
+    permission === 'fullscreen';
 
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(allowMediaPermission(permission));
+    callback(allowPermission(permission));
   });
 
   session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
-    return allowMediaPermission(permission);
+    return allowPermission(permission);
   });
 
   createWindow();

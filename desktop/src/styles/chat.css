@@ -3939,6 +3939,24 @@
   overflow: hidden;
 }
 
+.screen-share-card:fullscreen {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  border-radius: 0;
+}
+
+.screen-share-card:fullscreen .screen-share-stage {
+  min-height: 0;
+  flex: 1;
+}
+
+.screen-share-card:fullscreen .screen-share-video {
+  width: 100%;
+  height: 100%;
+}
+
 .screen-share-header {
   display: flex;
   justify-content: space-between;

@@ -43,6 +43,15 @@ export function ScreenShareOverlay() {
     }
   }, [state.remoteStream, state.isLocalPresenter, state.presenting]);
 
+  useEffect(() => {
+    const syncFullscreen = () => {
+      const el = stageRef.current;
+      setFullscreen(Boolean(el && document.fullscreenElement === el));
+    };
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen);
+  }, []);
+
   if (state.phase === 'idle' || state.phase === 'ended' || !state.sessionId) {
     return null;
   }
@@ -57,12 +66,17 @@ export function ScreenShareOverlay() {
   const toggleFullscreen = async () => {
     const el = stageRef.current;
     if (!el) return;
-    if (!document.fullscreenElement) {
-      await el.requestFullscreen().catch(() => undefined);
-      setFullscreen(true);
-    } else {
-      await document.exitFullscreen().catch(() => undefined);
-      setFullscreen(false);
+    try {
+      if (document.fullscreenElement === el) {
+        await document.exitFullscreen();
+      } else if (document.fullscreenElement) {
+        await document.exitFullscreen();
+        await el.requestFullscreen();
+      } else {
+        await el.requestFullscreen();
+      }
+    } catch {
+      // Electron may deny fullscreen if permission is blocked; keep UI in sync via fullscreenchange.
     }
   };
 
