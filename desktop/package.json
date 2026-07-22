@@ -8,8 +8,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.electron.json && vite build",
+    "icons": "python scripts/generate-icons.py",
     "electron:dev": "tsc -p tsconfig.electron.json && concurrently \"vite\" \"wait-on https://localhost:5173 && electron .\"",
-    "electron:build": "npm run build && electron-builder --config.electronVersion=33.4.11",
+    "electron:build": "npm run icons && npm run build && electron-builder --config.electronVersion=33.4.11",
+    "electron:build:win": "npm run icons && npm run build && electron-builder --win --config.electronVersion=33.4.11",
+    "electron:build:linux": "npm run icons && npm run build && electron-builder --linux --config.electronVersion=33.4.11",
+    "electron:build:mac": "npm run icons && npm run build && electron-builder --mac --config.electronVersion=33.4.11",
     "lint": "eslint \"**/*.{ts,tsx}\"",
     "lint:fix": "eslint \"**/*.{ts,tsx}\" --fix",
     "preview": "vite preview"
@@ -51,7 +55,8 @@
       }
     ],
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "afterPack": "./build/afterPack.js",
     "icon": "build/icon.png",
@@ -59,7 +64,8 @@
       "dist/**/*",
       "dist-electron/**/*",
       "build/icon.png",
-      "build/icon.ico"
+      "build/icon.ico",
+      "build/icon.icns"
     ],
     "extraResources": [
       {
@@ -99,10 +105,74 @@
         "AppImage",
         "deb"
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icons",
+      "category": "Network",
+      "maintainer": "RELAY",
+      "vendor": "RELAY",
+      "synopsis": "Enterprise internal chat",
+      "description": "RELAY — Fast, secure, connected team messaging.",
+      "desktop": {
+        "Name": "RELAY",
+        "GenericName": "Team Chat",
+        "Comment": "Fast · Secure · Connected",
+        "Categories": "Network;InstantMessaging;Chat;",
+        "StartupWMClass": "RELAY"
+      },
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1"
+      ],
+      "afterInstall": "build/linux/after-install.sh",
+      "afterRemove": "build/linux/after-remove.sh"
     },
     "mac": {
-      "icon": "build/icon.png"
+      "icon": "build/icon.icns",
+      "category": "public.app-category.social-networking",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/mac/entitlements.mac.plist",
+      "entitlementsInherit": "build/mac/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "RELAY needs microphone access for voice and video calls.",
+        "NSCameraUsageDescription": "RELAY needs camera access for video calls.",
+        "CFBundleDisplayName": "RELAY",
+        "CFBundleName": "RELAY"
+      },
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "${productName} ${version}",
+      "icon": "build/icon.icns",
+      "iconSize": 100,
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
     }
   }
 }
