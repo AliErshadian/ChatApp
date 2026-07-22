@@ -1,6 +1,7 @@
 import {
   Injectable,
   UnauthorizedException,
+  ForbiddenException,
   ConflictException,
   NotFoundException,
   BadRequestException,
@@ -80,8 +81,9 @@ export class AuthService {
 
   async register(dto: RegisterDto, ipAddress?: string) {
     const { providers } = await this.authenticationManager.listPublicProviders();
-    if (!providers.some((p) => p.id === AUTH_PROVIDER_IDS.LOCAL)) {
-      throw new UnauthorizedException('Local registration is disabled');
+    const local = providers.find((p) => p.id === AUTH_PROVIDER_IDS.LOCAL);
+    if (!local?.supportsRegistration) {
+      throw new ForbiddenException('Local registration is disabled');
     }
 
     const existing = await this.usersService.findByEmail(dto.email);

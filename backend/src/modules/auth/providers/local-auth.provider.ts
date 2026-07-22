@@ -36,11 +36,13 @@ export class LocalAuthProvider implements IAuthenticationProvider {
   }
 
   async getPublicInfo(): Promise<AuthProviderPublicInfo> {
+    const config = await this.directoryConfig.getConfig();
     return {
       id: this.id,
       label: this.label,
-      enabled: await this.isEnabled(),
-      supportsRegistration: true,
+      enabled: config.localLoginEnabled,
+      supportsRegistration:
+        config.localLoginEnabled && config.localRegistrationEnabled,
       identifierLabel: 'Email',
       identifierPlaceholder: 'you@company.com',
     };

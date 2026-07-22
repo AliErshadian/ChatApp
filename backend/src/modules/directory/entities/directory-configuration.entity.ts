@@ -18,6 +18,9 @@ export class DirectoryConfiguration {
   @Column({ name: 'local_login_enabled', default: true })
   localLoginEnabled!: boolean;
 
+  @Column({ name: 'local_registration_enabled', default: true })
+  localRegistrationEnabled!: boolean;
+
   @Column({ name: 'active_directory_login_enabled', default: false })
   activeDirectoryLoginEnabled!: boolean;
 

@@ -66,6 +66,10 @@ export class UpdateDirectorySettingsDto {
 
   @IsOptional()
   @IsBoolean()
+  localRegistrationEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   activeDirectoryLoginEnabled?: boolean;
 
   @IsOptional()

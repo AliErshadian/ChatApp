@@ -551,6 +551,7 @@ CREATE INDEX idx_messages_story_id
 CREATE TABLE directory_configurations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     local_login_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    local_registration_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     active_directory_login_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     default_provider authentication_provider NOT NULL DEFAULT 'local',
     allow_local_fallback BOOLEAN NOT NULL DEFAULT TRUE,
@@ -768,7 +769,8 @@ INSERT INTO schema_migrations (version, checksum) VALUES
     ('033_story_likes', '2175876714e4486f207281f3fa75f3e87f29c635a0e5a9e3de8f217960fb8bff'),
     ('034_directory_auth', '69f0dcec6c62e7c879c89ad7a2334f8b0cd2e3b1e11a1506d1067811b5e5d8f1'),
     ('035_app_configurations', '3784d5fa7f0ea664d57e8a821bfaa52c9ece9566c25e78e1382d0134aec0ddf6'),
-    ('036_screen_sharing', '0c996e814b67cc65558db2b5dab1d892ca9d6a51d9c266ca6060bbff269cd193')
+    ('036_screen_sharing', '0c996e814b67cc65558db2b5dab1d892ca9d6a51d9c266ca6060bbff269cd193'),
+    ('037_local_registration', '9b86db10499c126b81dc02a2fe065447105c40481b1115d7f22fdb02d1995727')
 ON CONFLICT (version) DO NOTHING;
 
 -- Grant app user access (required when schema is created by postgres superuser)

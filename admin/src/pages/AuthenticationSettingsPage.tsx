@@ -96,6 +96,7 @@ export function AuthenticationSettingsPage() {
     try {
       const payload: Record<string, unknown> = {
         localLoginEnabled: settings.localLoginEnabled,
+        localRegistrationEnabled: settings.localRegistrationEnabled,
         activeDirectoryLoginEnabled: settings.activeDirectoryLoginEnabled,
         defaultProvider: settings.defaultProvider,
         allowLocalFallback: settings.allowLocalFallback,
@@ -274,6 +275,17 @@ export function AuthenticationSettingsPage() {
                 onChange={(e) => updateField('localLoginEnabled', e.target.checked)}
               />
               <span>Enable Local Login</span>
+            </label>
+            <label className="toggle-row">
+              <input
+                type="checkbox"
+                checked={settings.localRegistrationEnabled}
+                onChange={(e) =>
+                  updateField('localRegistrationEnabled', e.target.checked)
+                }
+                disabled={!settings.localLoginEnabled}
+              />
+              <span>Enable Local Registration</span>
             </label>
             <label className="toggle-row">
               <input

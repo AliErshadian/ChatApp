@@ -61,7 +61,7 @@ export function LoginPage() {
           id: 'local',
           label: 'Local',
           enabled: true,
-          supportsRegistration: true,
+          supportsRegistration: false,
           identifierLabel: 'Email',
           identifierPlaceholder: 'you@company.com',
         }]);
@@ -71,6 +71,10 @@ export function LoginPage() {
           'local';
         setDefaultProvider(nextDefault);
         setSelectedProvider(nextDefault);
+        const registrationOpen = enabled.some(
+          (p) => p.id === 'local' && p.supportsRegistration,
+        );
+        if (!registrationOpen) setIsRegister(false);
       })
       .catch(() => {
         if (cancelled) return;
@@ -79,11 +83,12 @@ export function LoginPage() {
             id: 'local',
             label: 'Local',
             enabled: true,
-            supportsRegistration: true,
+            supportsRegistration: false,
             identifierLabel: 'Email',
             identifierPlaceholder: 'you@company.com',
           },
         ]);
+        setIsRegister(false);
       });
     return () => {
       cancelled = true;
@@ -95,10 +100,14 @@ export function LoginPage() {
     providers[0] ??
     null;
 
+  const registrationAvailable = providers.some(
+    (p) => p.id === 'local' && p.supportsRegistration,
+  );
+
   const canRegister =
     isRegister &&
     (activeProvider?.id === 'local' || !activeProvider) &&
-    (providers.find((p) => p.id === 'local')?.supportsRegistration ?? true);
+    registrationAvailable;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -177,8 +186,7 @@ export function LoginPage() {
             >
               Sign in
             </button>
-            {(providers.some((p) => p.id === 'local' && p.supportsRegistration) ||
-              providers.length === 0) && (
+            {registrationAvailable && (
               <button
                 type="button"
                 role="tab"

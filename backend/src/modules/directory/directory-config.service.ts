@@ -11,6 +11,7 @@ import type { AuthenticationProviderId } from '../auth/providers/auth-provider.t
 
 export interface DirectorySettingsUpdate {
   localLoginEnabled?: boolean;
+  localRegistrationEnabled?: boolean;
   activeDirectoryLoginEnabled?: boolean;
   defaultProvider?: AuthenticationProviderId;
   allowLocalFallback?: boolean;
@@ -45,6 +46,7 @@ export interface DirectorySettingsUpdate {
 
 export interface PublicDirectorySettings {
   localLoginEnabled: boolean;
+  localRegistrationEnabled: boolean;
   activeDirectoryLoginEnabled: boolean;
   defaultProvider: AuthenticationProviderId;
   allowLocalFallback: boolean;
@@ -141,6 +143,7 @@ export class DirectoryConfigService implements OnModuleInit {
 
     const assignable: Array<keyof DirectorySettingsUpdate> = [
       'localLoginEnabled',
+      'localRegistrationEnabled',
       'activeDirectoryLoginEnabled',
       'defaultProvider',
       'allowLocalFallback',
@@ -221,6 +224,7 @@ export class DirectoryConfigService implements OnModuleInit {
   toPublic(c: DirectoryConfiguration): PublicDirectorySettings {
     return {
       localLoginEnabled: c.localLoginEnabled,
+      localRegistrationEnabled: c.localRegistrationEnabled,
       activeDirectoryLoginEnabled: c.activeDirectoryLoginEnabled,
       defaultProvider: c.defaultProvider,
       allowLocalFallback: c.allowLocalFallback,

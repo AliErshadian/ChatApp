@@ -514,6 +514,7 @@ export interface AppFeaturesSettings {
 
 export interface DirectoryAuthSettings {
   localLoginEnabled: boolean;
+  localRegistrationEnabled: boolean;
   activeDirectoryLoginEnabled: boolean;
   defaultProvider: 'local' | 'active_directory';
   allowLocalFallback: boolean;
