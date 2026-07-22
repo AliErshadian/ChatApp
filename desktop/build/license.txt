@@ -1,0 +1,113 @@
+# RELAY End User License Agreement (EULA)
+
+**Last Updated:** July 2026
+
+Copyright ©2026. All rights reserved.
+
+**RELAY** is designed and developed by **Ali Ershadian**.
+
+Official Website: https://www.aliershadian.com
+
+This End User License Agreement ("Agreement") is a legal agreement between you ("User") and **RELAY** ("Licensor") governing the installation, access, and use of the RELAY software, including all associated components, updates, and documentation (collectively, the "Software").
+
+By installing, copying, accessing, or using the Software, you acknowledge that you have read, understood, and agree to be bound by the terms of this Agreement. If you do not agree to these terms, do not install or use the Software.
+
+---
+
+## 1. License Grant
+
+Subject to your compliance with this Agreement, RELAY grants you a limited, non-exclusive, non-transferable, and revocable license to install and use the Software solely for internal business or personal communication purposes.
+
+This license does not transfer ownership of the Software or any intellectual property rights.
+
+---
+
+## 2. Ownership
+
+RELAY, including its source code, software architecture, user interface, graphics, documentation, trademarks, logos, and all associated intellectual property rights, is the exclusive property of **Ali Ershadian** unless otherwise stated.
+
+All rights not expressly granted under this Agreement are reserved.
+
+---
+
+## 3. Restrictions
+
+Unless expressly permitted by applicable law or a separate written agreement, you may not:
+
+* Reverse engineer, decompile, disassemble, or otherwise attempt to derive the source code.
+* Modify, adapt, translate, or create derivative works of the Software.
+* Redistribute, sublicense, lease, rent, or sell the Software.
+* Remove or alter copyright notices, trademarks, or proprietary markings.
+* Use the Software for unlawful purposes or in violation of applicable laws.
+
+---
+
+## 4. Authentication and Organization Policies
+
+The Software may connect to servers operated by your organization.
+
+Authentication methods such as Local Authentication, Active Directory (LDAP), Single Sign-On (SSO), or other identity providers may be configured by your organization.
+
+Your use of the Software is subject to your organization's security, authentication, and acceptable use policies.
+
+---
+
+## 5. Privacy and Data Processing
+
+RELAY does not determine or control how your organization stores, processes, or manages communication data.
+
+Your organization is responsible for:
+
+* Data retention
+* User management
+* Security policies
+* Backup procedures
+* Compliance with applicable privacy regulations
+
+The Software may process messages, files, metadata, audit logs, and authentication information in accordance with your organization's policies.
+
+---
+
+## 6. Updates
+
+RELAY may provide updates, security patches, bug fixes, performance improvements, or new features.
+
+Unless accompanied by a separate license, all updates are governed by this Agreement.
+
+---
+
+## 7. Third-Party Components
+
+The Software may include third-party open-source software distributed under their respective licenses.
+
+Nothing in this Agreement limits your rights under those third-party licenses.
+
+---
+
+## 8. Disclaimer of Warranty
+
+THE SOFTWARE IS PROVIDED **"AS IS"** AND **"AS AVAILABLE"**, WITHOUT WARRANTIES OF ANY KIND, WHETHER EXPRESS, IMPLIED, OR STATUTORY, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, OR AVAILABILITY.
+
+---
+
+## 9. Limitation of Liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, **ALI ERSHADIAN**, CONTRIBUTORS, OR LICENSORS SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY, OR PUNITIVE DAMAGES ARISING FROM THE USE OF OR INABILITY TO USE THE SOFTWARE.
+
+---
+
+## 10. Termination
+
+This license automatically terminates if you violate any provision of this Agreement.
+
+Upon termination, you must immediately cease using the Software and remove all installed copies unless otherwise authorized.
+
+---
+
+## 11. Governing Law
+
+This Agreement shall be governed by the applicable laws specified in your commercial agreement with RELAY or, where no such agreement exists, by the applicable laws of the jurisdiction in which the Software is licensed.
+
+---
+
+By installing or using RELAY, you acknowledge that you have read, understood, and agree to be bound by this End User License Agreement.

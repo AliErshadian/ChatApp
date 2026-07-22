@@ -82,8 +82,10 @@ function isTrustedSender(event: Electron.IpcMainInvokeEvent): boolean {
 function resolveAppIconPath(): string | null {
   const candidates = [
     path.join(__dirname, '../build/icon.png'),
-    path.join(process.resourcesPath, 'build/icon.png'),
+    path.join(__dirname, '../build/icon.ico'),
     path.join(process.resourcesPath, 'icon.png'),
+    path.join(process.resourcesPath, 'build/icon.png'),
+    path.join(process.resourcesPath, 'icon.ico'),
   ];
 
   for (const candidate of candidates) {

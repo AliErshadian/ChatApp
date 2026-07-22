@@ -14,7 +14,7 @@ import {
   faRightFromBracket,
 } from '@fortawesome/free-solid-svg-icons';
 
-const APP_LOGO_URL = '/logo.png';
+import { APP_LOGO_URL } from '../utils/publicAsset';
 
 export type AppNavTab = 'chats' | 'channels' | 'calls' | 'contacts' | 'tasks' | 'notes' | 'profile';
 

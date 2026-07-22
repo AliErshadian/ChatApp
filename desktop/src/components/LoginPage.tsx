@@ -6,6 +6,7 @@ import { formatAuthError } from '../utils/authError';
 import { Icon } from './Icon';
 import { LoginCaptchaFields, useLoginCaptcha } from './LoginCaptcha';
 import { faGlobe, faMoon, faSun } from '@fortawesome/free-solid-svg-icons';
+import { APP_LOGO_URL } from '../utils/publicAsset';
 
 type AuthProviderId = 'local' | 'active_directory';
 
@@ -154,7 +155,7 @@ export function LoginPage() {
           <div className="auth-brand">
             {!logoFailed && (
               <img
-                src="/logo.png"
+                src={APP_LOGO_URL}
                 alt=""
                 className="auth-logo"
                 onError={() => setLogoFailed(true)}

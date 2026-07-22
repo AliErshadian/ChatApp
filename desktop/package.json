@@ -2,13 +2,14 @@
   "name": "relay-desktop",
   "version": "1.0.0",
   "private": true,
+  "author": "RELAY",
   "description": "Enterprise internal chat desktop client",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.electron.json && vite build",
     "electron:dev": "tsc -p tsconfig.electron.json && concurrently \"vite\" \"wait-on https://localhost:5173 && electron .\"",
-    "electron:build": "npm run build && electron-builder",
+    "electron:build": "npm run build && electron-builder --config.electronVersion=33.4.11",
     "lint": "eslint \"**/*.{ts,tsx}\"",
     "lint:fix": "eslint \"**/*.{ts,tsx}\" --fix",
     "preview": "vite preview"
@@ -28,9 +29,10 @@
     "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
-    "electron": "^33.2.1",
+    "electron": "33.4.11",
     "electron-builder": "^25.1.8",
     "eslint": "^10.6.0",
+    "rcedit": "^5.0.2",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.63.0",
     "vite": "^6.0.6",
@@ -39,26 +41,58 @@
   "build": {
     "appId": "com.relay.desktop",
     "productName": "RELAY",
+    "electronVersion": "33.4.11",
     "protocols": [
       {
         "name": "RELAY Invite",
-        "schemes": ["relay"]
+        "schemes": [
+          "relay"
+        ]
       }
     ],
     "directories": {
       "output": "release"
     },
+    "afterPack": "./build/afterPack.js",
     "icon": "build/icon.png",
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
-      "build/icon.png"
+      "build/icon.png",
+      "build/icon.ico"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
     ],
     "win": {
       "target": [
         "nsis"
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "RELAY",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "installerHeader": "build/installerHeader.bmp",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/installerSidebar.bmp",
+      "license": "build/license.txt",
+      "include": "build/installer.nsh",
+      "artifactName": "${productName} Setup ${version}.${ext}"
     },
     "linux": {
       "target": [

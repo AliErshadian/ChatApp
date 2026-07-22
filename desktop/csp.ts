@@ -11,7 +11,7 @@ export const DESKTOP_CSP = [
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
-  "img-src 'self' data: blob: http: https:",
+  "img-src 'self' file: data: blob: http: https:",
   "media-src 'self' blob: http: https:",
   "connect-src 'self' http: https: ws: wss: blob:",
   "worker-src 'self' blob:",
